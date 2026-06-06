@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Stellar Frontier — Space Exploration</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- ===== Top status bar ===== -->
+    <header id="topbar">
+      <div class="brand">
+        <span class="logo">✦</span>
+        <span class="title">STELLAR FRONTIER</span>
+      </div>
+      <div id="resources" class="resources"></div>
+      <div class="turn-box">
+        <div class="turn-label">CYCLE</div>
+        <div id="turn" class="turn-value">1</div>
+        <button id="endTurnBtn" class="btn btn-turn" title="Advance one cycle">End Cycle ▸</button>
+      </div>
+    </header>
+
+    <!-- ===== Main layout ===== -->
+    <main id="main">
+      <!-- Left: navigation + ship -->
+      <aside id="sidebar">
+        <nav id="tabs">
+          <button class="tab active" data-tab="galaxy">🪐 Galaxy</button>
+          <button class="tab" data-tab="market">💱 Market</button>
+          <button class="tab" data-tab="industry">🏭 Industry</button>
+          <button class="tab" data-tab="research">🔬 Research</button>
+          <button class="tab" data-tab="politics">🏛️ Politics</button>
+          <button class="tab" data-tab="ship">🚀 Ship</button>
+        </nav>
+
+        <div class="ship-panel">
+          <h3>Your Vessel</h3>
+          <div id="shipName" class="ship-name">S.S. Wanderer</div>
+          <div id="shipStats" class="ship-stats"></div>
+          <div class="location">
+            <span class="loc-label">Docked at</span>
+            <span id="currentPlanet" class="loc-value">—</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Right: tab content -->
+      <section id="content">
+        <div id="panel-galaxy" class="panel"></div>
+        <div id="panel-market" class="panel hidden"></div>
+        <div id="panel-industry" class="panel hidden"></div>
+        <div id="panel-research" class="panel hidden"></div>
+        <div id="panel-politics" class="panel hidden"></div>
+        <div id="panel-ship" class="panel hidden"></div>
+      </section>
+    </main>
+
+    <!-- ===== Event log ===== -->
+    <footer id="logbar">
+      <div class="log-header">📡 Ship Log</div>
+      <div id="log" class="log"></div>
+    </footer>
+  </div>
+
+  <!-- Toast notifications -->
+  <div id="toast-container"></div>
+
+  <script src="game.js"></script>
+</body>
+</html>
