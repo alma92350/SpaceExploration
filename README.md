@@ -84,6 +84,10 @@ Complete all four to win:
 - Become **Sector Governor** (top of the political ladder)
 - **Visit all six worlds**
 
+Each objective you reach sets off **fireworks** and an on-screen
+**announcement**. Completing the final objective triggers a grand
+golden **finale**. 🎆
+
 ## 🗂️ Project structure
 
 ```

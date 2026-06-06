@@ -216,6 +216,37 @@ tr:hover td { background: rgba(255,255,255,0.03); }
 .log-entry.bad { color: var(--bad); }
 .log-entry.event { color: var(--accent); }
 
+/* ===== Celebrations ===== */
+#fx { position: fixed; inset: 0; z-index: 55; pointer-events: none; }
+.announce {
+  position: fixed; top: 20%; left: 50%; transform: translateX(-50%);
+  z-index: 60; text-align: center; pointer-events: none;
+  padding: 18px 44px; border-radius: 18px;
+  background: linear-gradient(160deg, rgba(20,29,66,0.94), rgba(14,21,48,0.94));
+  border: 1px solid var(--accent);
+  box-shadow: 0 0 44px rgba(79,209,255,0.55);
+  animation: annPop 0.5s ease, annGlow 1.8s ease-in-out infinite alternate;
+}
+.announce.hidden { display: none; }
+.announce .ann-kicker { font-size: 11px; letter-spacing: 4px; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
+.announce .ann-title {
+  font-size: 30px; font-weight: 900; line-height: 1.1;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.announce .ann-sub { font-size: 15px; color: var(--text); margin-top: 8px; }
+.announce.finale { border-color: var(--gold); box-shadow: 0 0 70px rgba(255,209,102,0.75); }
+.announce.finale .ann-title {
+  font-size: 44px;
+  background: linear-gradient(90deg, var(--gold), #fff, var(--warn), var(--gold));
+  background-size: 220% auto;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: annShine 2.4s linear infinite;
+}
+@keyframes annPop { from { opacity: 0; transform: translateX(-50%) scale(0.7); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+@keyframes annGlow { from { filter: brightness(1); } to { filter: brightness(1.22); } }
+@keyframes annShine { to { background-position: 220% center; } }
+
 /* ===== Toasts ===== */
 #toast-container { position: fixed; top: 16px; right: 16px; z-index: 50; display: flex; flex-direction: column; gap: 8px; }
 .toast {

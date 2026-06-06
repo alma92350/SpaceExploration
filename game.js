@@ -210,6 +210,7 @@ function freshState() {
     visited: { terra: true },
     log: [],
     stats: { jumps: 0, trades: 0, profit: 0 },
+    achieved: {},       // objectiveKey -> true (celebrated)
     won: false,
   };
 }
@@ -254,6 +255,108 @@ function priceAt(planetId, commodity) {
 function tradeSpread() { return Math.max(0.84, 0.90 - S.upgrades.trade * 0.04); } // sell = buy * spread
 function buyPrice(planetId, c)  { return Math.round(priceAt(planetId, c) * (1 + (1 - tradeSpread()) * 0.5)); }
 function sellPrice(planetId, c) { return Math.round(priceAt(planetId, c) * tradeSpread()); }
+
+/* ============================================================
+   CELEBRATIONS — fireworks canvas + announcement banner
+   ============================================================ */
+let _fxCanvas, _fxCtx, _fxParticles = [], _fxRAF = null, _fxUntil = 0, _fxLastLaunch = 0;
+
+function _fxResize() {
+  _fxCanvas.width = window.innerWidth;
+  _fxCanvas.height = window.innerHeight;
+}
+
+function _fxBurst(x, y, count, hue, big) {
+  for (let i = 0; i < count; i++) {
+    const ang = (Math.PI * 2 * i) / count + Math.random() * 0.3;
+    const spd = (big ? 4 : 2.6) + Math.random() * (big ? 5.5 : 3);
+    _fxParticles.push({
+      x, y,
+      vx: Math.cos(ang) * spd,
+      vy: Math.sin(ang) * spd,
+      life: 1,
+      decay: 0.008 + Math.random() * 0.013,
+      hue: hue + (Math.random() * 40 - 20),
+      size: big ? 2.4 + Math.random() * 2 : 1.6 + Math.random() * 1.4,
+    });
+  }
+}
+
+function fireworks(duration = 2500, big = false) {
+  if (typeof document === "undefined") return; // headless safety
+  if (!_fxCanvas) {
+    _fxCanvas = document.getElementById("fx");
+    if (!_fxCanvas) return;
+    _fxCtx = _fxCanvas.getContext("2d");
+    window.addEventListener("resize", _fxResize);
+  }
+  _fxResize();
+  _fxUntil = Math.max(_fxUntil, performance.now() + duration);
+  _fxBigMode = big || _fxBigMode;
+  if (_fxRAF) return; // already animating; we just extended the deadline
+
+  const tick = (t) => {
+    const ctx = _fxCtx, W = _fxCanvas.width, H = _fxCanvas.height;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "rgba(5,7,15,0.18)"; // trailing fade
+    ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = "lighter";
+
+    const big = _fxBigMode;
+    if (t < _fxUntil && t - _fxLastLaunch > (big ? 200 : 340)) {
+      _fxLastLaunch = t;
+      const shells = big ? 2 + Math.floor(Math.random() * 2) : 1;
+      for (let k = 0; k < shells; k++) {
+        _fxBurst(
+          W * (0.18 + Math.random() * 0.64),
+          H * (0.18 + Math.random() * 0.42),
+          big ? 60 + Math.floor(Math.random() * 40) : 42,
+          Math.random() * 360, big
+        );
+      }
+    }
+
+    for (let i = _fxParticles.length - 1; i >= 0; i--) {
+      const p = _fxParticles[i];
+      p.vy += 0.05;            // gravity
+      p.vx *= 0.99; p.vy *= 0.99;
+      p.x += p.vx; p.y += p.vy;
+      p.life -= p.decay;
+      if (p.life <= 0) { _fxParticles.splice(i, 1); continue; }
+      ctx.beginPath();
+      ctx.fillStyle = `hsla(${p.hue},100%,${55 + p.life * 25}%,${p.life})`;
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    if (t < _fxUntil || _fxParticles.length) {
+      _fxRAF = requestAnimationFrame(tick);
+    } else {
+      _fxCtx.clearRect(0, 0, W, H);
+      _fxRAF = null;
+      _fxBigMode = false;
+    }
+  };
+  _fxRAF = requestAnimationFrame(tick);
+}
+let _fxBigMode = false;
+
+function announce(title, sub, finale = false) {
+  if (typeof document === "undefined") return;
+  const el = document.getElementById("announce");
+  if (!el) return;
+  el.innerHTML =
+    `<div class="ann-kicker">${finale ? "Legacy Complete" : "Objective Reached"}</div>` +
+    `<div class="ann-title">${title}</div>` +
+    `<div class="ann-sub">${sub}</div>`;
+  el.classList.remove("hidden", "finale");
+  if (finale) el.classList.add("finale");
+  el.style.animation = "none";
+  void el.offsetWidth;        // reflow to restart the pop animation
+  el.style.animation = "";
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.add("hidden"), finale ? 7000 : 3400);
+}
 
 /* ============================================================
    LOG & TOAST
@@ -392,6 +495,7 @@ function doPolitics() {
 }
 
 function afterAction() {
+  checkWin();
   saveGame();
   renderAll();
 }
@@ -577,6 +681,13 @@ function netWorth() {
   // upgrade investment
   return Math.round(w);
 }
+const OBJECTIVE_META = {
+  worth:     { emoji: "💰", title: "Tycoon",           sub: "Net worth has passed 50,000 credits!" },
+  terraform: { emoji: "🌍", title: "Master Scientist", sub: "Terraforming researched — you can reshape worlds!" },
+  governor:  { emoji: "👑", title: "Sector Governor",  sub: "You now rule the entire sector!" },
+  explored:  { emoji: "🧭", title: "Master Explorer",  sub: "Every one of the six worlds has been charted!" },
+};
+
 function winProgress() {
   return {
     worth:    { have: netWorth() >= 50000,            label: "Amass 50,000 credits net worth" },
@@ -585,13 +696,41 @@ function winProgress() {
     explored: { have: PLANETS.every(p => S.visited[p.id]), label: "Visit all 6 worlds" },
   };
 }
-function checkWin() {
-  if (S.won) return;
+
+/* mark already-met objectives as achieved without celebrating (used on load) */
+function syncObjectives() {
+  S.achieved = S.achieved || {};
   const wp = winProgress();
-  if (Object.values(wp).every(x => x.have)) {
+  Object.keys(wp).forEach(k => { if (wp[k].have) S.achieved[k] = true; });
+  if (Object.values(wp).every(x => x.have)) S.won = true;
+}
+
+function checkWin() {
+  S.achieved = S.achieved || {};
+  const wp = winProgress();
+
+  // Celebrate each newly-completed objective
+  Object.keys(wp).forEach(key => {
+    if (wp[key].have && !S.achieved[key]) {
+      S.achieved[key] = true;
+      const m = OBJECTIVE_META[key];
+      announce(`${m.emoji} ${m.title}`, m.sub, false);
+      fireworks(2400, false);
+      toast(`🎆 Objective reached: ${m.title}!`, "good");
+      log(`🎆 Objective reached: <span class="c">${m.title}</span> — ${m.sub}`, "good");
+    }
+  });
+
+  // Grand finale when all objectives are done
+  if (!S.won && Object.values(wp).every(x => x.have)) {
     S.won = true;
     log("🏆 LEGACY COMPLETE — You have shaped the destiny of the sector!", "good");
-    toast("🏆 You win! Legacy complete!", "good");
+    // delay slightly so the final objective's own burst leads into the finale
+    setTimeout(() => {
+      announce("🏆 LEGACY COMPLETE", "You have shaped the destiny of the sector. A legend is born!", true);
+      fireworks(8000, true);
+      toast("🏆 You win! Legacy complete!", "good");
+    }, 1100);
   }
 }
 
@@ -924,6 +1063,8 @@ function init() {
   }
   // ensure prices exist (older save / safety)
   if (!S.prices || !S.prices.terra) rollPrices();
+  // backfill already-met objectives so we don't replay celebrations on load
+  syncObjectives();
 
   document.querySelectorAll(".tab").forEach(t =>
     t.addEventListener("click", () => setTab(t.dataset.tab)));
