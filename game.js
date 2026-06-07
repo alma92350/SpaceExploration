@@ -1180,7 +1180,7 @@ function colonize() {
   if (S.res.credits < COLONY_FOUNDATION_COST) return toast("Not enough credits.", "bad");
   if (!canAfford(COLONY_FOUNDATION_MATS)) return toast("Need materials in your hold: metals & goods.", "bad");
   S.res.credits -= COLONY_FOUNDATION_COST; pay(COLONY_FOUNDATION_MATS);
-  S.colonies[pid] = { pop: 5, happiness: 70, tax: 10, buildings: {}, storage: {}, unrest: 0 };
+  S.colonies[pid] = { pop: 5, happiness: 70, tax: 10, buildings: {}, storage: {}, orders: {}, unrest: 0 };
   log(`🌍 Founded a colony on <span class="c">${planet.name}</span>! It will grow as you develop it.`, "event");
   toast("Colony founded!", "event");
   afterAction();
@@ -1306,6 +1306,74 @@ function processColonies() {
 }
 
 /* ============================================================
+   LOGISTICS NETWORK  (automated colony supply via Spaceports)
+   ============================================================ */
+const COLONY_SUPPLY = ["biomass", "energy", "alloys", "medicine", "goods", "luxury"];
+function spaceportTier(col) { return col.buildings.spaceport || 0; }
+function colonyNetworked(col) { return spaceportTier(col) > 0; }
+function logisticsFee(col) { return Math.max(0.10, 0.30 - spaceportTier(col) * 0.05); }
+function logisticsCap(col) { return spaceportTier(col) * 40; }  // throughput per commodity per cycle
+
+function setOrder(c) {
+  const col = S.colonies[S.location];
+  if (!col) return;
+  if (!colonyNetworked(col)) return toast("Build a Spaceport to enable logistics.", "bad");
+  col.orders = col.orders || {};
+  col.orders[c] = Math.max(0, Math.floor(+document.getElementById("auto-" + c).value || 0));
+  toast(`Auto-supply ${COM[c].name}: keep ${fmt(col.orders[c])}`, "good");
+  afterAction();
+}
+
+/* runs each cycle before colonies consume — keeps ordered stock topped up */
+function processLogistics() {
+  const nets = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c) && c.orders && Object.keys(c.orders).length);
+  if (!nets.length) return;
+  const used = {};
+  nets.forEach(([id]) => { used[id] = {}; COLONY_SUPPLY.forEach(c => used[id][c] = 0); });
+  let spent = 0, moved = false;
+
+  COLONY_SUPPLY.forEach(c => {
+    const parties = nets.map(([id, col]) => ({ id, col, planet: PLANETS.find(p => p.id === id) }));
+    const receivers = parties.filter(p => (p.col.orders[c] || 0) > (p.col.storage[c] || 0));
+    if (!receivers.length) return;
+    const donors = parties.filter(p => (p.col.storage[c] || 0) > (p.col.orders[c] || 0));
+
+    // 1) free redistribution from surplus colonies
+    receivers.forEach(r => {
+      let need = (r.col.orders[c] || 0) - (r.col.storage[c] || 0);
+      need = Math.min(need, logisticsCap(r.col) - used[r.id][c], colonyStorageCap(r.col, r.planet) - colonyStorageUsed(r.col));
+      for (const d of donors) {
+        if (need <= 0) break;
+        if (d.id === r.id) continue;
+        let avail = (d.col.storage[c] || 0) - (d.col.orders[c] || 0);
+        avail = Math.min(avail, logisticsCap(d.col) - used[d.id][c]);
+        const move = Math.max(0, Math.min(need, avail));
+        if (move > 0) {
+          d.col.storage[c] -= move; r.col.storage[c] = (r.col.storage[c] || 0) + move;
+          used[d.id][c] += move; used[r.id][c] += move; need -= move; moved = true;
+        }
+      }
+    });
+
+    // 2) buy any remaining deficit from market (+ logistics fee)
+    receivers.forEach(r => {
+      let need = (r.col.orders[c] || 0) - (r.col.storage[c] || 0);
+      need = Math.min(need, logisticsCap(r.col) - used[r.id][c], colonyStorageCap(r.col, r.planet) - colonyStorageUsed(r.col));
+      if (need <= 0) return;
+      const unit = Math.round(buyPrice(r.id, c) * (1 + logisticsFee(r.col)));
+      const qty = Math.max(0, Math.min(need, Math.floor(S.res.credits / unit)));
+      if (qty > 0) {
+        S.res.credits -= qty * unit; r.col.storage[c] = (r.col.storage[c] || 0) + qty;
+        used[r.id][c] += qty; spent += qty * unit; moved = true;
+      }
+    });
+  });
+
+  if (spent > 0) log(`🚚 Logistics network imported supplies for <span class="c">${fmt(spent)}</span> credits.`, "");
+  else if (moved) log(`🚚 Logistics network redistributed supplies between your colonies.`, "");
+}
+
+/* ============================================================
    EXPLORATION  (discover hidden worlds)
    ============================================================ */
 function isVisible(p) { return !p.hidden || S.discovered[p.id]; }
@@ -1380,7 +1448,7 @@ function applyDecreeIncome() {
 }
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
-  rollPrices(); applyDecreeIncome(); processBases(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -1956,12 +2024,30 @@ function renderColonies() {
         <button class="btn btn-sm" onclick="colonyWithdraw('${c}')">◂ Take</button>
       </div></td></tr>`).join("")
       : '<tr><td colspan="4" class="hint">Nothing in your hold or this colony yet.</td></tr>';
+    const sp = spaceportTier(col);
+    let logi;
+    if (!sp) {
+      logi = `<div class="section-title">🚚 Logistics <span class="pill bad">no spaceport</span></div>
+        <div class="hint">Build a 🛰️ Spaceport to automate supply: set target stock levels and each cycle the network redistributes surplus from your other colonies (free), then imports the rest from market. No more ferrying food by hand.</div>`;
+    } else {
+      const fee = Math.round(logisticsFee(col) * 100);
+      const orderRows = COLONY_SUPPLY.map(c => {
+        const tgt = (col.orders && col.orders[c]) || 0;
+        return `<tr><td>${COM[c].ico} ${COM[c].name}</td><td class="num">${fmt(col.storage[c] || 0)}</td>
+          <td><div class="trade-controls"><input class="qty" id="auto-${c}" type="number" min="0" value="${tgt}" />
+          <button class="btn btn-sm" onclick="setOrder('${c}')">Set auto</button></div></td></tr>`;
+      }).join("");
+      logi = `<div class="section-title">🚚 Logistics — Spaceport ${sp} · fee ${fee}% · ${logisticsCap(col)}/cycle</div>
+        <div class="hint" style="margin-bottom:8px">Each cycle the network keeps these topped to target: first from surplus on your other colonies (free), then bought from market at +${fee}%. Set a target to 0 to stop importing it.</div>
+        <table><thead><tr><th>Commodity</th><th class="num">In colony</th><th>Keep stocked to</th></tr></thead><tbody>${orderRows}</tbody></table>`;
+    }
     here = `<div class="section-title">🏛️ Govern — ${planet.name}</div>
       <div class="cards">${govCard}</div>
       <div class="section-title">🏗️ Buildings</div>
       <div class="cards">${buildCards}</div>
       <div class="section-title">📦 Supplies (${colonyStorageUsed(col)}/${colonyStorageCap(col, planet)}) — feed & develop your colony</div>
-      <table><thead><tr><th>Commodity</th><th class="num">In ship</th><th class="num">In colony</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+      <table><thead><tr><th>Commodity</th><th class="num">In ship</th><th class="num">In colony</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      ${logi}`;
   }
 
   el.innerHTML = `<h2>Colonies</h2>
@@ -2003,6 +2089,7 @@ function init() {
   if (!S.prices || !S.prices.terra) rollPrices();
   if (!S.bases) S.bases = {};   // backfill for older saves
   if (!S.colonies) S.colonies = {};
+  Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; });
   if (!S.discovered) S.discovered = {};
   if (!S.contracts) { S.contracts = []; S.contractSeq = S.contractSeq || 0; }
   syncObjectives();
@@ -2020,5 +2107,5 @@ Object.assign(window, {
   travel, buyQty, sellQty, buyMax, sellAll, extract, salvage, bounty, produce,
   research, researchTech, doPolitics, doMission, buyUpgrade, setDecree,
   buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract,
-  colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, explore, newGame,
+  colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, explore, newGame,
 });
