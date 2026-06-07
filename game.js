@@ -288,6 +288,14 @@ function moduleOutput(planet, mod, tier) {
   if (mod.id === "solar") return tier * 6;
   return Math.round(tier * 5 * (planet.deposits[mod.produces] || 0));
 }
+/* Construction needs materials (in your hold), not just credits. */
+const BASE_FOUNDATION_MATS = { metals: 25 };
+const ADVANCED_MODULES = ["solar", "ext_gas", "ext_relics", "ext_radioactives", "ext_crystals"];
+function moduleMats(def, nextTier) {
+  const mats = { metals: 8 + nextTier * 6 };          // structural metal for every module
+  if (ADVANCED_MODULES.includes(def.id)) mats.electronics = 1 + nextTier * 2; // hi-tech needs chips
+  return mats;
+}
 
 /* ============================================================
    GAME STATE
@@ -311,6 +319,8 @@ function freshState() {
     rep: { core: 0, miners: 0, agri: 0, syndicate: 0, frontier: 0 },
     decrees: { monopoly: null, tariff: null },
     bases: {},          // planetId -> { modules:{id:tier}, storage:{com:qty} }
+    contracts: [],      // active time-bounded random contracts
+    contractSeq: 0,
     actionsUsed: 0,
     prices: {},
     visited: { terra: true },
@@ -701,6 +711,7 @@ function bustRisk(comId, qty, planet) {
   if (COM[comId].hazard) r *= S.upgrades.hazmat ? (1 - S.upgrades.hazmat * 0.25) : 1.25;
   r *= 1 - Math.max(0, repPriceFactor(planet)) * 1.2;          // good local standing helps
   r *= 1 - Math.min(0.30, (S.res.influence || 0) / 600);       // connections / greased palms
+  if ((S.rep[planet.faction] || 0) >= 60) r *= 0.4;            // allies look the other way
   if (S.perks.senator) r *= 0.85;
   if (S.perks.governor) r *= 0.7;
   return Math.max(0, Math.min(0.95, r));
@@ -831,11 +842,17 @@ function baseStorageCap(pid) {
 }
 function baseStorageUsed(b) { return Object.values(b.storage).reduce((s, q) => s + q, 0); }
 
+function matsString(mats) {
+  return Object.entries(mats).map(([c, q]) =>
+    `<span style="color:${(S.res[c] || 0) >= q ? "inherit" : "var(--bad)"}">${q}${COM[c].ico}</span>`).join(" ");
+}
 function buildBase() {
   const pid = S.location;
   if (S.bases[pid]) return;
+  const mats = BASE_FOUNDATION_MATS;
   if (S.res.credits < BASE_FOUNDATION_COST) return toast("Not enough credits.", "bad");
-  S.res.credits -= BASE_FOUNDATION_COST;
+  if (!canAfford(mats)) return toast("Need build materials in your hold (metals).", "bad");
+  S.res.credits -= BASE_FOUNDATION_COST; pay(mats);
   S.bases[pid] = { modules: {}, storage: {} };
   log(`🏗️ Established a base on <span class="c">${currentPlanet().name}</span>.`, "event");
   toast("Base established!", "event");
@@ -850,8 +867,10 @@ function buildModule(moduleId) {
   const tier = b.modules[moduleId] || 0;
   if (tier >= def.tiers) return;
   const cost = Math.round(def.baseCost * Math.pow(def.costMul, tier));
+  const mats = moduleMats(def, tier + 1);
   if (S.res.credits < cost) return toast("Not enough credits.", "bad");
-  S.res.credits -= cost;
+  if (!canAfford(mats)) return toast("Need materials in your hold: " + Object.keys(mats).map(c => COM[c].name).join(", ") + ".", "bad");
+  S.res.credits -= cost; pay(mats);
   b.modules[moduleId] = tier + 1;
   log(`Built ${def.ico} ${def.name} (Tier ${tier + 1}) on ${planet.name}.`, "good");
   toast(`${def.name} → Tier ${tier + 1}`, "good");
@@ -917,6 +936,77 @@ function processBases() {
 }
 
 /* ============================================================
+   RANDOM CONTRACTS  (time-bounded, faction-posted)
+   ============================================================ */
+function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
+
+/* what each faction asks you to supply */
+const FACTION_WANTS = {
+  core:      ["goods", "machinery", "medicine", "electronics"],
+  miners:    ["ore", "metals", "alloys", "energy"],
+  agri:      ["biomass", "spice", "chemicals", "medicine"],
+  syndicate: ["crystals", "electronics", "luxury", "machinery"],
+  frontier:  ["fuel", "metals", "weapons", "relics"],
+};
+const STANDINGS = [
+  { min: 60,  label: "Allied",   cls: "good" },
+  { min: 25,  label: "Friendly", cls: "good" },
+  { min: -24, label: "Neutral",  cls: "" },
+  { min: -59, label: "Disliked", cls: "bad" },
+  { min: -100,label: "Hostile",  cls: "bad" },
+];
+function standing(f) { const r = S.rep[f] || 0; return STANDINGS.find(s => r >= s.min); }
+
+function genContract() {
+  const f = pick(Object.keys(FACTIONS));
+  const homeworlds = PLANETS.filter(p => p.faction === f);
+  const planet = pick(homeworlds);
+  let commodity, kind = "supply";
+  if (f === "frontier" && Math.random() < 0.5) { commodity = pick(["relics", "weapons"]); kind = "smuggle"; }
+  else commodity = pick(FACTION_WANTS[f]);
+  const qty = 10 + Math.floor(Math.random() * 26);                 // 10–35
+  const premium = (kind === "smuggle" ? 1.7 : 1.35) + Math.random() * 0.35;
+  const reward = { credits: Math.round(qty * COM[commodity].base * premium) + 200,
+                   rep: { [f]: 6 + Math.floor(Math.random() * 12) },
+                   influence: 2 + Math.floor(Math.random() * 5) };
+  if (kind === "smuggle") { reward.rep.core = -(5 + Math.floor(Math.random() * 8)); reward.influence += 3; }
+  const duration = 6 + Math.floor(Math.random() * 9);             // expires in 6–14 cycles
+  return { id: "c" + (++S.contractSeq), kind, faction: f, planetId: planet.id,
+           commodity, qty, reward, deadline: S.turn + duration, posted: S.turn };
+}
+function maybeGenContract() {
+  if (S.contracts.length < 6 && Math.random() < 0.55) {
+    const c = genContract();
+    S.contracts.push(c);
+    log(`📋 New ${c.kind === "smuggle" ? "smuggling job" : "contract"} posted by ${FACTIONS[c.faction].ico} ${FACTIONS[c.faction].name}: ${c.qty} ${COM[c.commodity].ico} ${COM[c.commodity].name} to ${PLANETS.find(p => p.id === c.planetId).name} (${c.deadline - S.turn} cycles).`, "event");
+  }
+}
+function expireContracts() {
+  S.contracts = S.contracts.filter(c => {
+    if (S.turn > c.deadline) {
+      addRep(c.faction, -5);
+      log(`📋 Contract expired — ${FACTIONS[c.faction].name} wanted ${c.qty} ${COM[c.commodity].name} (−5 rep).`, "bad");
+      return false;
+    }
+    return true;
+  });
+}
+function fulfilContract(id) {
+  const i = S.contracts.findIndex(c => c.id === id);
+  if (i < 0) return;
+  const c = S.contracts[i];
+  const dest = PLANETS.find(p => p.id === c.planetId);
+  if (S.location !== c.planetId) return toast(`Deliver at ${dest.name}.`, "bad");
+  if ((S.res[c.commodity] || 0) < c.qty) return toast(`Need ${c.qty} ${COM[c.commodity].name}.`, "bad");
+  S.res[c.commodity] -= c.qty;
+  gain(c.reward);
+  S.contracts.splice(i, 1);
+  log(`📋 Contract fulfilled — delivered ${c.qty} ${COM[c.commodity].ico} ${COM[c.commodity].name} to ${FACTIONS[c.faction].name}.`, "event");
+  toast("Contract complete!", "event");
+  afterAction();
+}
+
+/* ============================================================
    TURN / EVENTS
    ============================================================ */
 const EVENTS = [
@@ -963,7 +1053,7 @@ function applyDecreeIncome() {
 }
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
-  rollPrices(); applyDecreeIncome(); processBases(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); processBases(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -1061,7 +1151,9 @@ function repBar(f) {
   const r = S.rep[f] || 0;
   const pct = (r + 100) / 2;
   const col = r >= 0 ? "var(--good)" : "var(--bad)";
-  return `<div class="ship-stat"><span class="k">${FACTIONS[f].ico} ${FACTIONS[f].name}</span><span class="v" style="color:${col}">${r>0?"+":""}${r}</span></div>
+  const st = standing(f);
+  return `<div class="ship-stat"><span class="k">${FACTIONS[f].ico} ${FACTIONS[f].name}</span>
+      <span class="v"><span class="pill ${st.cls}">${st.label}</span> <span style="color:${col}">${r>0?"+":""}${r}</span></span></div>
     <div class="bar"><span style="width:${pct}%;background:${col}"></span></div>`;
 }
 
@@ -1256,6 +1348,24 @@ function renderPolitics() {
   const status = S.perks.governor ? "Sector Governor 👑" : S.perks.senator ? "Senator 🎖️" : "Free Trader";
   const reps = Object.keys(FACTIONS).map(repBar).join("");
 
+  // Time-bounded random contracts
+  const contractCards = S.contracts.length ? S.contracts
+    .slice().sort((a, b) => a.deadline - b.deadline).map(c => {
+      const dest = PLANETS.find(p2 => p2.id === c.planetId);
+      const left = c.deadline - S.turn;
+      const here = S.location === c.planetId;
+      const have = (S.res[c.commodity] || 0) >= c.qty;
+      const urgent = left <= 2;
+      return `<div class="card ${urgent ? "" : ""}" ${urgent ? 'style="border-color:var(--warn)"' : ""}>
+        <h4>${FACTIONS[c.faction].ico} ${c.kind === "smuggle" ? "Smuggling Job" : "Supply Contract"}
+          <span class="pill ${urgent ? "bad" : ""}">${left} cyc left</span></h4>
+        <div class="desc">Deliver <b>${c.qty} ${COM[c.commodity].ico} ${COM[c.commodity].name}</b> to <b>${dest.name}</b> for the ${FACTIONS[c.faction].name}.</div>
+        <div class="hint">Reward: ${costString(c.reward)}</div>
+        <div class="hint">${here ? (have ? "Ready to deliver." : `You hold ${fmt(S.res[c.commodity] || 0)}/${c.qty}.`) : `Travel to ${dest.name}.`}</div>
+        <button class="btn btn-primary" ${here && have ? "" : "disabled"} onclick="fulfilContract('${c.id}')">Fulfil</button>
+      </div>`;
+    }).join("") : '<div class="hint">No active contracts. New ones are posted by the factions as cycles pass.</div>';
+
   const missionCards = MISSIONS.map(m => {
     const done = S.missions[m.id], avail = missionAvailable(m), can = avail && missionCanDo(m);
     const cls = done ? "card owned" : avail ? "card" : "card locked";
@@ -1300,7 +1410,9 @@ function renderPolitics() {
       <div class="card"><h4>🤝 Faction Standing</h4>${reps}</div>
     </div>
     ${decrees}
-    <div class="section-title">Missions</div>
+    <div class="section-title">📋 Contracts (time-bounded)</div>
+    <div class="cards">${contractCards}</div>
+    <div class="section-title">Career Missions</div>
     <div class="cards">${missionCards}</div>`;
 }
 
@@ -1355,16 +1467,20 @@ function renderBases() {
   // Current-planet management
   let here;
   if (!b) {
+    const fMats = BASE_FOUNDATION_MATS;
+    const fOk = S.res.credits >= BASE_FOUNDATION_COST && canAfford(fMats);
     here = `<div class="section-title">📍 ${planet.name}</div><div class="cards"><div class="card">
       <h4>🏗️ Establish a Base on ${planet.name}</h4>
-      <div class="desc">Found a permanent outpost. Build farms, mines and depots that work automatically every cycle, and stockpile goods for later.</div>
-      <div class="meta"><span class="hint">One-time cost</span><span class="cost">${fmt(BASE_FOUNDATION_COST)} 💰</span></div>
-      <button class="btn btn-primary" ${S.res.credits >= BASE_FOUNDATION_COST ? "" : "disabled"} onclick="buildBase()">Establish Base</button>
+      <div class="desc">Found a permanent outpost. Build farms, mines and depots that work automatically every cycle, and stockpile goods for later. Construction consumes materials from your hold.</div>
+      <div class="meta"><span class="hint">Cost</span><span class="cost">${fmt(BASE_FOUNDATION_COST)} 💰 + ${matsString(fMats)}</span></div>
+      <button class="btn btn-primary" ${fOk ? "" : "disabled"} onclick="buildBase()">Establish Base</button>
     </div></div>`;
   } else {
     const modCards = baseModuleList(planet).map(m => {
       const tier = b.modules[m.id] || 0, maxed = tier >= m.tiers;
       const cost = Math.round(m.baseCost * Math.pow(m.costMul, tier));
+      const mats = moduleMats(m, tier + 1);
+      const ok = S.res.credits >= cost && canAfford(mats);
       const dots = Array.from({ length: m.tiers }, (_, i) => `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
       const cur = m.storage ? (tier > 0 ? `+${tier * 250} storage` : "not built")
         : (tier > 0 ? `+${moduleOutput(planet, m, tier)} ${COM[m.produces].ico}/cycle` : "not built");
@@ -1375,8 +1491,8 @@ function renderBases() {
         <div class="desc">${m.desc}</div>
         <div class="hint">Current: ${cur}</div>
         ${maxed ? '<div class="pill good">◉ Fully built</div>'
-          : `<div class="meta"><span class="hint">Next: ${nxt}</span><span class="cost">${fmt(cost)} 💰</span></div>
-             <button class="btn btn-primary" ${S.res.credits >= cost ? "" : "disabled"} onclick="buildModule('${m.id}')">${tier > 0 ? "Upgrade" : "Build"} (Tier ${tier + 1})</button>`}
+          : `<div class="meta"><span class="hint">Next: ${nxt}</span><span class="cost">${fmt(cost)} 💰 + ${matsString(mats)}</span></div>
+             <button class="btn btn-primary" ${ok ? "" : "disabled"} onclick="buildModule('${m.id}')">${tier > 0 ? "Upgrade" : "Build"} (Tier ${tier + 1})</button>`}
       </div>`;
     }).join("");
     const ids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 || (b.storage[c] || 0) > 0);
@@ -1435,6 +1551,7 @@ function init() {
   if (!loadGame()) { S = freshState(); rollPrices(); log("Welcome, Captain. Your journey begins on Terra Nova."); }
   if (!S.prices || !S.prices.terra) rollPrices();
   if (!S.bases) S.bases = {};   // backfill for older saves
+  if (!S.contracts) { S.contracts = []; S.contractSeq = S.contractSeq || 0; }
   syncObjectives();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
@@ -1449,5 +1566,5 @@ window.addEventListener("DOMContentLoaded", init);
 Object.assign(window, {
   travel, buyQty, sellQty, buyMax, sellAll, extract, salvage, bounty, produce,
   research, researchTech, doPolitics, doMission, buyUpgrade, setDecree,
-  buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, newGame,
+  buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract, newGame,
 });

@@ -100,6 +100,12 @@ Each base has its own **storage**; dock there to deposit/withdraw cargo (or
 across the galaxy and let them fill up while you trade, fight and politick
 elsewhere. Stored goods count toward your net worth.
 
+**Construction needs materials, not just credits.** Founding a base and
+building/upgrading modules consumes commodities from your hold — **metals**
+for everything, plus **electronics** for high-tech modules (Solar Array, Gas
+Skimmer, Isotope Mine, Crystal Quarry, Excavation Site). Bring the materials
+or make them on site.
+
 ## 🏛️ Politics, factions & trade law (the deep end)
 
 - **Five factions** — Core Authority, Mining Guild, Agri-Combine, Tech
@@ -110,8 +116,15 @@ elsewhere. Stored goods count toward your net worth.
   fine + Core reputation loss). The **Smuggler's Hold**, **Shielded Hold**,
   good local standing and Senator/Governor titles all reduce the risk — the
   lawless rim (Oort, Erebus) barely checks at all.
-- **Missions** — faction- and resource-themed contracts, including delivery
-  runs and shady smuggling jobs that pit the Frontier against the Core.
+- **Faction standing** — your reputation sits on a scale from Hostile →
+  Disliked → Neutral → Friendly → **Allied**. Allies (rep ≥ 60) sell cheaper,
+  pay more, and their customs look the other way on contraband.
+- **Career missions** — the milestone ladder (relief, ore pacts, smuggling,
+  Senate, Governorship).
+- **Time-bounded contracts** — factions post fresh **supply** and **smuggling**
+  jobs every few cycles: deliver a commodity to one of their worlds before the
+  deadline for credits, influence and reputation. Let one expire and you lose
+  standing with that faction. There's always a rotating board of work.
 - **Governor Decrees** — once you rule the sector, declare a **Trade Monopoly**
   (passive income each cycle) and a **Sell Tariff** (+15% to your sell price on
   a chosen commodity).
