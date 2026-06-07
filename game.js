@@ -41,32 +41,32 @@ const FACTIONS = {
 */
 const COM = {
   // ----- RAW -----
-  ore:         { name: "Ore",            ico: "🪨", tier: "Raw", base: 8,  extract: "mine" },
+  ore:         { name: "Ore",            ico: "🪨", tier: "Raw", base: 9,  extract: "mine" },
   crystals:    { name: "Crystals",       ico: "💎", tier: "Raw", base: 30, extract: "mine" },
-  radioactives:{ name: "Radioactives",   ico: "☢️", tier: "Raw", base: 46, extract: "mine",
+  radioactives:{ name: "Radioactives",   ico: "☢️", tier: "Raw", base: 36, extract: "mine",
                  illegalAt: ["terra", "verdani"], hazard: true },
-  ice:         { name: "Ice",            ico: "🧊", tier: "Raw", base: 6,  extract: "mine" },
+  ice:         { name: "Ice",            ico: "🧊", tier: "Raw", base: 8,  extract: "mine" },
   biomass:     { name: "Biomass",        ico: "🌿", tier: "Raw", base: 7,  extract: "forage" },
-  spice:       { name: "Spice",          ico: "🌶️", tier: "Raw", base: 42, extract: "forage" },
-  gas:         { name: "Helium-3",       ico: "🎈", tier: "Raw", base: 22, extract: "capture" },
-  relics:      { name: "Relics",         ico: "🏺", tier: "Raw", base: 95, extract: "exploit",
+  spice:       { name: "Spice",          ico: "🌶️", tier: "Raw", base: 34, extract: "forage" },
+  gas:         { name: "Helium-3",       ico: "🎈", tier: "Raw", base: 18, extract: "capture" },
+  relics:      { name: "Relics",         ico: "🏺", tier: "Raw", base: 52, extract: "exploit",
                  illegalAt: ["terra", "verdani", "kybernet", "forge"], hazard: false },
   // ----- REFINED -----
   metals:      { name: "Metals",         ico: "⛓️", tier: "Refined", base: 22 },
-  energy:      { name: "Energy Cells",   ico: "⚡", tier: "Refined", base: 18 },
+  energy:      { name: "Energy Cells",   ico: "⚡", tier: "Refined", base: 9 },
   fuel:        { name: "Fuel",           ico: "⛽", tier: "Refined", base: 14, isFuel: true },
-  chemicals:   { name: "Chemicals",      ico: "⚗️", tier: "Refined", base: 26 },
-  medicine:    { name: "Medicine",       ico: "💊", tier: "Refined", base: 58 },
+  chemicals:   { name: "Chemicals",      ico: "⚗️", tier: "Refined", base: 16 },
+  medicine:    { name: "Medicine",       ico: "💊", tier: "Refined", base: 78 },
   // ----- COMPONENTS -----
-  alloys:      { name: "Alloys",         ico: "🔩", tier: "Component", base: 50 },
-  electronics: { name: "Electronics",    ico: "🖥️", tier: "Component", base: 74 },
+  alloys:      { name: "Alloys",         ico: "🔩", tier: "Component", base: 80 },
+  electronics: { name: "Electronics",    ico: "🖥️", tier: "Component", base: 95 },
   // ----- FINISHED -----
-  goods:       { name: "Consumer Goods", ico: "📦", tier: "Finished", base: 95 },
-  machinery:   { name: "Machinery",      ico: "⚙️", tier: "Finished", base: 135 },
-  weapons:     { name: "Weapons",        ico: "🔫", tier: "Finished", base: 165,
+  goods:       { name: "Consumer Goods", ico: "📦", tier: "Finished", base: 130 },
+  machinery:   { name: "Machinery",      ico: "⚙️", tier: "Finished", base: 250 },
+  weapons:     { name: "Weapons",        ico: "🔫", tier: "Finished", base: 270,
                  illegalAt: ["terra", "verdani"], hazard: true },
   // ----- LUXURY / STRATEGIC -----
-  luxury:      { name: "Luxury Goods",   ico: "💠", tier: "Luxury", base: 210 },
+  luxury:      { name: "Luxury Goods",   ico: "💠", tier: "Luxury", base: 220 },
   antimatter:  { name: "Antimatter",     ico: "🌀", tier: "Strategic", base: 420,
                  illegalAt: ["terra", "verdani", "kybernet", "forge", "glacius"], hazard: true },
 };
@@ -84,21 +84,21 @@ function isIllegalAt(comId, planetId) {
    kind: "refine" | "make" (for grouping); boosted differently by modules
 */
 const RECIPES = [
-  { id: "smelt",   out: "metals",      qty: 2, in: { ore: 2, energy: 1 },                         kind: "refine" },
+  { id: "smelt",   out: "metals",      qty: 2, in: { ore: 2, energy: 2 },                         kind: "refine" },
   { id: "biogen",  out: "energy",      qty: 2, in: { biomass: 2 },                                kind: "refine" },
   { id: "gasgen",  out: "energy",      qty: 3, in: { gas: 1 },                                    kind: "refine" },
-  { id: "reactor", out: "energy",      qty: 6, in: { radioactives: 1 }, req: "reactors",          kind: "refine", reactor: true },
-  { id: "crackice",out: "fuel",        qty: 3, in: { ice: 2 },                                    kind: "refine" },
-  { id: "crackgas",out: "fuel",        qty: 4, in: { gas: 1 }, req: "gasfuel",                    kind: "refine" },
+  { id: "reactor", out: "energy",      qty: 5, in: { radioactives: 1 }, req: "reactors",          kind: "refine", reactor: true },
+  { id: "crackice",out: "fuel",        qty: 2, in: { ice: 3 },                                    kind: "refine" },
+  { id: "crackgas",out: "fuel",        qty: 2, in: { gas: 1 }, req: "gasfuel",                    kind: "refine" },
   { id: "chem",    out: "chemicals",   qty: 2, in: { biomass: 2, energy: 1 },                     kind: "refine" },
   { id: "medlab",  out: "medicine",    qty: 1, in: { spice: 1, chemicals: 1, energy: 1 }, req: "biotech", kind: "make" },
-  { id: "alloy",   out: "alloys",      qty: 1, in: { metals: 2, energy: 1 }, req: "metallurgy",   kind: "make" },
-  { id: "chipfab", out: "electronics", qty: 1, in: { crystals: 1, metals: 1, energy: 1 }, req: "electronics", kind: "make" },
-  { id: "consumer",out: "goods",       qty: 1, in: { alloys: 1, energy: 1 },                      kind: "make" },
+  { id: "alloy",   out: "alloys",      qty: 1, in: { metals: 2, energy: 2 }, req: "metallurgy",   kind: "make" },
+  { id: "chipfab", out: "electronics", qty: 1, in: { crystals: 1, metals: 1, energy: 2 }, req: "electronics", kind: "make" },
+  { id: "consumer",out: "goods",       qty: 1, in: { alloys: 1, chemicals: 1, energy: 1 },        kind: "make" },
   { id: "machine", out: "machinery",   qty: 1, in: { alloys: 1, electronics: 1, energy: 1 },      kind: "make" },
   { id: "weapfab", out: "weapons",     qty: 1, in: { alloys: 1, electronics: 1, radioactives: 1 }, req: "weapontech", kind: "make" },
-  { id: "luxefab", out: "luxury",      qty: 1, in: { spice: 1, electronics: 1, energy: 1 },       kind: "make" },
-  { id: "antifab", out: "antimatter",  qty: 1, in: { energy: 2, relics: 1 }, req: "antimatter",   kind: "make" },
+  { id: "luxefab", out: "luxury",      qty: 1, in: { spice: 2, electronics: 1, energy: 1 },       kind: "make" },
+  { id: "antifab", out: "antimatter",  qty: 1, in: { relics: 2, electronics: 1, energy: 3 }, req: "antimatter", kind: "make" },
 ];
 
 /* ---------- Planets (10) ----------
@@ -143,11 +143,11 @@ const PLANETS = [
   { id: "oort", name: "Oort Reach", tag: "Frontier Outpost", color: "#06b6d4", x: 15,
     faction: "frontier", industry: 2, tech: 2, enforce: 0.15, salvage: true, bounty: true,
     desc: "The lawless edge of charted space. Rich, dangerous, and the best place to move hot cargo.",
-    deposits: { ore: 1.2, radioactives: 1.2, relics: 0.8 } },
+    deposits: { ore: 1.2, radioactives: 1.2, relics: 0.6 } },
   { id: "erebus", name: "Erebus", tag: "Ancient Ruins", color: "#a78bfa", x: 18,
     faction: "frontier", industry: 1, tech: 3, enforce: 0.05, salvage: true, bounty: true,
     desc: "A dead world wrapped in the ruins of a vanished civilisation. Relics for the brave, law for no one.",
-    deposits: { relics: 2.0, radioactives: 0.6 } },
+    deposits: { relics: 1.3, radioactives: 0.6 } },
 ];
 PLANETS.forEach(a => {
   a.distances = {};
@@ -223,9 +223,9 @@ const TECHS = [
 /* ---------- Missions (faction & resource themed) ---------- */
 const MISSIONS = [
   { id: "relief",   name: "Famine Relief Run",     tier: 1, faction: "agri",
-    cost: { food: 0, influence: 6 }, need: { commodity: "goods", qty: 30 },
-    reward: { influence: 14, credits: 700, rep: { agri: 15 } },
-    desc: "Deliver 30 consumer goods to a struggling colony for the Agri-Combine." },
+    cost: { influence: 6 }, need: { commodity: "biomass", qty: 40 },
+    reward: { influence: 14, credits: 900, rep: { agri: 15 } },
+    desc: "Ship 40 biomass to a starving colony for the Agri-Combine. Cheap to fulfil, great for early standing." },
   { id: "orepact",  name: "Mining Guild Ore Pact", tier: 1, faction: "miners",
     cost: { influence: 6 }, need: { commodity: "metals", qty: 25 },
     reward: { credits: 1600, rep: { miners: 18 } },
@@ -623,11 +623,12 @@ function sell(c, qty) {
    CONTRABAND / CUSTOMS
    ============================================================ */
 function bustRisk(comId, qty, planet) {
-  let r = planet.enforce * Math.min(1, Math.max(0.25, qty / 30));
-  r *= 1 - S.upgrades.smuggler * 0.22;
-  r *= 1 - S.upgrades.shield * 0.06;
-  if (COM[comId].hazard) r *= S.upgrades.hazmat ? (1 - S.upgrades.hazmat * 0.25) : 1.3;
-  r *= 1 - Math.max(0, repPriceFactor(planet)) * 1.5;          // good local rep helps
+  let r = planet.enforce * Math.min(0.85, 0.2 + qty / 60);     // scales with how much you carry
+  r *= 1 - S.upgrades.smuggler * 0.22;                          // hidden compartments
+  r *= 1 - S.upgrades.shield * 0.05;
+  if (COM[comId].hazard) r *= S.upgrades.hazmat ? (1 - S.upgrades.hazmat * 0.25) : 1.25;
+  r *= 1 - Math.max(0, repPriceFactor(planet)) * 1.2;          // good local standing helps
+  r *= 1 - Math.min(0.30, (S.res.influence || 0) / 600);       // connections / greased palms
   if (S.perks.senator) r *= 0.85;
   if (S.perks.governor) r *= 0.7;
   return Math.max(0, Math.min(0.95, r));
