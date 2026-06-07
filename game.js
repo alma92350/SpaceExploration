@@ -984,7 +984,9 @@ function renderMarket() {
         <td><div class="trade-controls">
           <input class="qty" id="qty-${c}" type="number" min="1" value="10" />
           <button class="btn btn-sm btn-good" onclick="buyQty('${c}')">Buy</button>
+          <button class="btn btn-sm btn-good" title="Buy until cargo/tank is full" onclick="buyMax('${c}')">Fill</button>
           <button class="btn btn-sm btn-bad" onclick="sellQty('${c}')">Sell</button>
+          <button class="btn btn-sm btn-bad" title="Sell your entire stock" onclick="sellAll('${c}')">All</button>
         </div></td></tr>`;
     });
   });
@@ -995,6 +997,24 @@ function renderMarket() {
 }
 function buyQty(c) { buy(c, +document.getElementById("qty-" + c).value); }
 function sellQty(c) { sell(c, +document.getElementById("qty-" + c).value); }
+function sellAll(c) {
+  if ((S.res[c] || 0) <= 0) return toast(`No ${COM[c].name} to sell.`, "bad");
+  sell(c, S.res[c]); // sell() handles slippage & contraband checks
+}
+function buyMax(c) {
+  const p = currentPlanet();
+  const space = COM[c].isFuel ? (fuelCap() - S.res.fuel) : cargoFree();
+  if (space <= 0) return toast(COM[c].isFuel ? "Fuel tank is full." : "Cargo hold is full.", "bad");
+  // most we could fit, capped by credits; trim down for slippage raising the avg price
+  let qty = Math.min(space, Math.floor(S.res.credits / buyPrice(S.location, c)));
+  while (qty > 0) {
+    const slip = tradeSlippage(p, c, qty);
+    if (Math.round(buyPrice(S.location, c) * (1 + slip / 2) * qty) <= S.res.credits) break;
+    qty--;
+  }
+  if (qty <= 0) return toast("Not enough credits to buy any.", "bad");
+  buy(c, qty);
+}
 
 /* ----- Industry ----- */
 function renderIndustry() {
@@ -1208,6 +1228,6 @@ function init() {
 window.addEventListener("DOMContentLoaded", init);
 
 Object.assign(window, {
-  travel, buyQty, sellQty, extract, salvage, bounty, produce,
+  travel, buyQty, sellQty, buyMax, sellAll, extract, salvage, bounty, produce,
   research, researchTech, doPolitics, doMission, buyUpgrade, setDecree, newGame,
 });

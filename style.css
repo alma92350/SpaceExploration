@@ -181,7 +181,7 @@ th, td { text-align: left; padding: 9px 10px; font-size: 13px; border-bottom: 1p
 th { color: var(--muted); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tr:hover td { background: rgba(255,255,255,0.03); }
-.trade-controls { display: flex; gap: 4px; justify-content: flex-end; align-items: center; }
+.trade-controls { display: flex; gap: 4px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 .qty { width: 56px; background: var(--bg); border: 1px solid var(--border); color: var(--text);
   border-radius: 7px; padding: 4px 6px; text-align: right; font-size: 12px; }
 .price-up { color: var(--good); }
