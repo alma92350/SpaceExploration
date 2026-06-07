@@ -37,6 +37,12 @@ EXTRACT ─▶ RAW ─refine─▶ REFINED ─fabricate─▶ COMPONENTS ─asse
 **20 commodities across 6 tiers.** No world makes everything, so profit comes
 from moving materials along the chain and across the map.
 
+**Markets have depth.** Prices react to *your* trades: dumping a big load
+crashes the local price (with diminishing returns per unit), and bulk buying
+spikes it. Markets recover toward equilibrium over a few cycles, so lasting
+wealth comes from spreading trades across worlds and time — not from one giant
+sell. (The *Galactic Exchange* tech deepens liquidity to soften the hit.)
+
 - **Raw** — Ore, Crystals, Radioactives ☢️, Ice, Biomass, Spice, Helium-3, Relics 🏺
 - **Refined** — Metals, Energy Cells, Fuel, Chemicals, Medicine
 - **Components** — Alloys, Electronics

@@ -336,6 +336,30 @@ function sellPrice(pid, c) {
   return Math.max(1, Math.round(v));
 }
 
+/* ---------- Market depth & slippage ----------
+   Big trades move the local price: dumping floods the market (price falls),
+   bulk buying drains supply (price rises). Markets heal toward equilibrium
+   each cycle via rollPrices(). This is what keeps arbitrage from compounding
+   forever — you must spread trades across worlds and cycles.
+*/
+function marketDepth(p, c) {
+  let d = 140;
+  const t = COM[c].tier;
+  if (t === "Luxury" || t === "Strategic") d = 70;
+  else if (t === "Finished" || t === "Component") d = 100;
+  if (p.deposits && p.deposits[c]) d *= 1.8; // local producers run deep markets
+  if (S.techs.markets) d *= 1.4;             // Galactic Exchange = more liquidity
+  return d;
+}
+/* fraction the price shifts for trading `qty` units (0..0.5) */
+function tradeSlippage(p, c, qty) {
+  return Math.min(0.5, (qty / marketDepth(p, c)) * 0.35);
+}
+function applyMarketMove(pid, c, slip, isSell) {
+  const f = isSell ? (1 - slip) : (1 + slip);
+  S.prices[pid][c] = Math.max(2, Math.round(S.prices[pid][c] * f));
+}
+
 /* ============================================================
    LOG & TOAST
    ============================================================ */
@@ -593,13 +617,16 @@ function afterAction() { checkWin(); saveGame(); renderAll(); }
    ============================================================ */
 function buy(c, qty) {
   qty = Math.max(0, Math.floor(qty)); if (qty <= 0) return;
-  const cost = buyPrice(S.location, c) * qty;
+  const p = currentPlanet();
+  const slip = tradeSlippage(p, c, qty);
+  const cost = Math.round(buyPrice(S.location, c) * (1 + slip / 2) * qty); // avg price climbs with size
   if (S.res.credits < cost) return toast("Not enough credits.", "bad");
   if (COM[c].isFuel) { if (S.res.fuel + qty > fuelCap()) return toast("Fuel tank too small.", "bad"); }
   else if (cargoUsed() + qty > cargoCap()) return toast("Cargo hold full.", "bad");
   S.res.credits -= cost; S.res[c] += qty; S.stats.trades++;
+  applyMarketMove(S.location, c, slip, false); // bulk buying drains supply → price up
   addRep(currentPlanet().faction, 1);
-  log(`Bought ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(cost)}</span> cr.`);
+  log(`Bought ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(cost)}</span> cr${slip > 0.05 ? " (price rose)" : ""}.`);
   toast(`Bought ${qty} ${COM[c].name}`, "good");
   afterAction();
 }
@@ -611,10 +638,13 @@ function sell(c, qty) {
     const busted = customsCheck(c, qty, "sale");
     if (busted) return; // goods confiscated
   }
-  const revenue = sellPrice(S.location, c) * qty;
+  const p = currentPlanet();
+  const slip = tradeSlippage(p, c, qty);
+  const revenue = Math.round(sellPrice(S.location, c) * (1 - slip / 2) * qty); // avg price drops with size
   S.res[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue;
+  applyMarketMove(S.location, c, slip, true);  // flooding the market → price down
   addRep(currentPlanet().faction, 1);
-  log(`Sold ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(revenue)}</span> cr.`, "good");
+  log(`Sold ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(revenue)}</span> cr${slip > 0.05 ? " (price fell)" : ""}.`, "good");
   toast(`Sold ${qty} ${COM[c].name} (+${fmt(revenue)} cr)`, "good");
   afterAction();
 }
@@ -959,7 +989,7 @@ function renderMarket() {
     });
   });
   el.innerHTML = `<h2>${p.name} Market</h2>
-    <div class="subtitle">${p.tag}. ${showTrend ? "Galactic Exchange reveals trends." : "Research the Galactic Exchange to reveal price trends."} Items marked <span class="pill bad">illegal</span> risk a customs bust here.</div>
+    <div class="subtitle">${p.tag}. ${showTrend ? "Galactic Exchange reveals trends &amp; deepens liquidity." : "Research the Galactic Exchange to reveal price trends."} Large trades move the price — dumping a lot crashes it, bulk buying spikes it; markets recover over cycles. Items marked <span class="pill bad">illegal</span> risk a customs bust here.</div>
     <table><thead><tr><th>Commodity</th><th class="num">Buy</th><th class="num">Sell</th><th class="num">Hold</th><th>Trend</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     <div class="row" style="margin-top:14px"><span class="hint">Cargo ${cargoUsed()}/${cargoCap()} · Fuel ${S.res.fuel}/${fuelCap()} · Credits ${fmt(S.res.credits)}</span></div>`;
 }
