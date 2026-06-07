@@ -248,6 +248,47 @@ const MISSIONS = [
     desc: "Rule the sector — and unlock trade Decrees. A cornerstone of your legacy." },
 ];
 
+/* ---------- Player bases ----------
+   A base is a permanent outpost on a planet. Its modules produce and store
+   resources automatically EVERY cycle — even while you are light-years away.
+   Extractor modules are offered per raw resource the planet actually holds
+   (location-bound, like hand extraction); Solar Arrays and Storage Depots
+   can be built anywhere.
+*/
+const BASE_FOUNDATION_COST = 6000;
+const BASE_BASE_STORAGE = 200;       // free storage before any depot
+const BASE_EXTRACTORS = {
+  biomass:      { name: "Hydroponic Farm",  ico: "🌱" },
+  spice:        { name: "Spice Plantation", ico: "🌶️" },
+  ore:          { name: "Automated Mine",   ico: "⛏️" },
+  crystals:     { name: "Crystal Quarry",   ico: "💎" },
+  radioactives: { name: "Isotope Mine",     ico: "☢️" },
+  ice:          { name: "Ice Harvester",    ico: "🧊" },
+  gas:          { name: "Gas Skimmer",      ico: "🎈" },
+  relics:       { name: "Excavation Site",  ico: "🏺" },
+};
+/* the modules buildable at a base on `planet` */
+function baseModuleList(planet) {
+  const list = [
+    { id: "warehouse", name: "Storage Depot", ico: "🏬", tiers: 5, baseCost: 2500, costMul: 1.8, storage: true,
+      desc: "Expands how much this base can stockpile." },
+    { id: "solar", name: "Solar Array", ico: "🔆", tiers: 5, baseCost: 2000, costMul: 1.7, produces: "energy",
+      desc: "Generates Energy Cells every cycle — buildable anywhere." },
+  ];
+  Object.keys(planet.deposits || {}).forEach(c => {
+    const meta = BASE_EXTRACTORS[c] || { name: "Extractor: " + COM[c].name, ico: COM[c].ico };
+    list.push({ id: "ext_" + c, name: meta.name, ico: meta.ico, tiers: 5, baseCost: 3000, costMul: 1.8,
+      produces: c, extractor: true,
+      desc: `Auto-harvests ${COM[c].name} every cycle (deposit ${planet.deposits[c]}×).` });
+  });
+  return list;
+}
+function moduleOutput(planet, mod, tier) {
+  if (tier <= 0 || !mod.produces) return 0;
+  if (mod.id === "solar") return tier * 6;
+  return Math.round(tier * 5 * (planet.deposits[mod.produces] || 0));
+}
+
 /* ============================================================
    GAME STATE
    ============================================================ */
@@ -269,6 +310,7 @@ function freshState() {
     perks: {},
     rep: { core: 0, miners: 0, agri: 0, syndicate: 0, frontier: 0 },
     decrees: { monopoly: null, tariff: null },
+    bases: {},          // planetId -> { modules:{id:tier}, storage:{com:qty} }
     actionsUsed: 0,
     prices: {},
     visited: { terra: true },
@@ -780,6 +822,101 @@ function setDecree(kind, comId) {
 }
 
 /* ============================================================
+   PLAYER BASES
+   ============================================================ */
+function baseStorageCap(pid) {
+  const b = S.bases[pid];
+  if (!b) return 0;
+  return BASE_BASE_STORAGE + (b.modules.warehouse || 0) * 250;
+}
+function baseStorageUsed(b) { return Object.values(b.storage).reduce((s, q) => s + q, 0); }
+
+function buildBase() {
+  const pid = S.location;
+  if (S.bases[pid]) return;
+  if (S.res.credits < BASE_FOUNDATION_COST) return toast("Not enough credits.", "bad");
+  S.res.credits -= BASE_FOUNDATION_COST;
+  S.bases[pid] = { modules: {}, storage: {} };
+  log(`🏗️ Established a base on <span class="c">${currentPlanet().name}</span>.`, "event");
+  toast("Base established!", "event");
+  afterAction();
+}
+function buildModule(moduleId) {
+  const pid = S.location, b = S.bases[pid];
+  if (!b) return;
+  const planet = currentPlanet();
+  const def = baseModuleList(planet).find(m => m.id === moduleId);
+  if (!def) return;
+  const tier = b.modules[moduleId] || 0;
+  if (tier >= def.tiers) return;
+  const cost = Math.round(def.baseCost * Math.pow(def.costMul, tier));
+  if (S.res.credits < cost) return toast("Not enough credits.", "bad");
+  S.res.credits -= cost;
+  b.modules[moduleId] = tier + 1;
+  log(`Built ${def.ico} ${def.name} (Tier ${tier + 1}) on ${planet.name}.`, "good");
+  toast(`${def.name} → Tier ${tier + 1}`, "good");
+  afterAction();
+}
+
+/* logistics — move cargo between ship and the base on the current planet */
+function transferToBase(c, qty) {
+  const pid = S.location, b = S.bases[pid];
+  if (!b) return;
+  qty = Math.min(Math.max(0, Math.floor(qty)), S.res[c] || 0);
+  if (qty <= 0) return;
+  qty = Math.min(qty, baseStorageCap(pid) - baseStorageUsed(b));
+  if (qty <= 0) return toast("Base storage is full.", "bad");
+  S.res[c] -= qty; b.storage[c] = (b.storage[c] || 0) + qty;
+  log(`Stored ${qty} ${COM[c].ico} ${COM[c].name} at ${currentPlanet().name} base.`);
+  afterAction();
+}
+function transferFromBase(c, qty) {
+  const pid = S.location, b = S.bases[pid];
+  if (!b) return;
+  qty = Math.min(Math.max(0, Math.floor(qty)), b.storage[c] || 0);
+  if (qty <= 0) return;
+  qty = Math.min(qty, cargoFree());
+  if (qty <= 0) return toast("Cargo hold is full.", "bad");
+  b.storage[c] -= qty; S.res[c] += qty;
+  log(`Withdrew ${qty} ${COM[c].ico} ${COM[c].name} from ${currentPlanet().name} base.`);
+  afterAction();
+}
+function storeAllCargo() {
+  const pid = S.location, b = S.bases[pid];
+  if (!b) return;
+  let room = baseStorageCap(pid) - baseStorageUsed(b), moved = 0;
+  CARGO_IDS.forEach(c => {
+    if (room <= 0) return;
+    const q = Math.min(S.res[c] || 0, room);
+    if (q > 0) { S.res[c] -= q; b.storage[c] = (b.storage[c] || 0) + q; room -= q; moved += q; }
+  });
+  if (moved > 0) { log(`Stored ${moved} units of cargo at ${currentPlanet().name} base.`); afterAction(); }
+  else toast("Nothing to store (or base full).", "bad");
+}
+function depositQty(c) { transferToBase(c, +document.getElementById("xfer-" + c).value); }
+function withdrawQty(c) { transferFromBase(c, +document.getElementById("xfer-" + c).value); }
+
+/* runs every cycle (including while you travel) */
+function processBases() {
+  const summary = {};
+  Object.entries(S.bases).forEach(([pid, b]) => {
+    const planet = PLANETS.find(p => p.id === pid);
+    const cap = baseStorageCap(pid);
+    baseModuleList(planet).forEach(mod => {
+      const out = moduleOutput(planet, mod, b.modules[mod.id] || 0);
+      if (out <= 0) return;
+      const add = Math.min(out, cap - baseStorageUsed(b));
+      if (add > 0) {
+        b.storage[mod.produces] = (b.storage[mod.produces] || 0) + add;
+        summary[mod.produces] = (summary[mod.produces] || 0) + add;
+      }
+    });
+  });
+  const keys = Object.keys(summary);
+  if (keys.length) log(`🏗️ Your bases produced ${keys.map(c => summary[c] + COM[c].ico).join(" ")}.`, "good");
+}
+
+/* ============================================================
    TURN / EVENTS
    ============================================================ */
 const EVENTS = [
@@ -826,7 +963,7 @@ function applyDecreeIncome() {
 }
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
-  rollPrices(); applyDecreeIncome(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); processBases(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -837,6 +974,8 @@ function endTurn(fromTravel = false) {
 function netWorth() {
   let w = S.res.credits + S.res.fuel * COM.fuel.base;
   CARGO_IDS.forEach(c => w += S.res[c] * COM[c].base);
+  Object.values(S.bases).forEach(b =>
+    Object.entries(b.storage).forEach(([c, q]) => { w += q * COM[c].base; }));
   return Math.round(w);
 }
 const OBJECTIVE_META = {
@@ -1186,10 +1325,89 @@ function renderShipPanel() {
     <div class="cards">${cards}</div>`;
 }
 
+/* ----- Bases ----- */
+function renderBases() {
+  const el = document.getElementById("panel-bases");
+  const pid = S.location, planet = currentPlanet(), b = S.bases[pid];
+
+  // Overview of every base you own (they run while you're away)
+  const baseIds = Object.keys(S.bases);
+  let overview;
+  if (baseIds.length) {
+    overview = baseIds.map(id => {
+      const bb = S.bases[id], pl = PLANETS.find(p => p.id === id);
+      const prod = baseModuleList(pl)
+        .map(m => { const o = moduleOutput(pl, m, bb.modules[m.id] || 0); return o > 0 ? o + COM[m.produces].ico : ""; })
+        .filter(Boolean).join(" ") || "—";
+      const stored = Object.entries(bb.storage).filter(([, q]) => q > 0)
+        .map(([c, q]) => q + COM[c].ico).join(" ") || "empty";
+      return `<div class="card ${id === pid ? "owned" : ""}">
+        <h4>${pl.name} ${id === pid ? '<span class="pill good">here</span>' : ""}</h4>
+        <div class="hint">Storage ${baseStorageUsed(bb)}/${baseStorageCap(id)}</div>
+        <div class="ship-stat"><span class="k">Produces/cycle</span><span class="v">${prod}</span></div>
+        <div class="ship-stat"><span class="k">Stored</span></div><div style="font-size:12px;line-height:1.7">${stored}</div>
+      </div>`;
+    }).join("");
+  } else {
+    overview = '<div class="hint">You have no bases yet. Bases produce and store resources every cycle — even while you are light-years away.</div>';
+  }
+
+  // Current-planet management
+  let here;
+  if (!b) {
+    here = `<div class="section-title">📍 ${planet.name}</div><div class="cards"><div class="card">
+      <h4>🏗️ Establish a Base on ${planet.name}</h4>
+      <div class="desc">Found a permanent outpost. Build farms, mines and depots that work automatically every cycle, and stockpile goods for later.</div>
+      <div class="meta"><span class="hint">One-time cost</span><span class="cost">${fmt(BASE_FOUNDATION_COST)} 💰</span></div>
+      <button class="btn btn-primary" ${S.res.credits >= BASE_FOUNDATION_COST ? "" : "disabled"} onclick="buildBase()">Establish Base</button>
+    </div></div>`;
+  } else {
+    const modCards = baseModuleList(planet).map(m => {
+      const tier = b.modules[m.id] || 0, maxed = tier >= m.tiers;
+      const cost = Math.round(m.baseCost * Math.pow(m.costMul, tier));
+      const dots = Array.from({ length: m.tiers }, (_, i) => `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
+      const cur = m.storage ? (tier > 0 ? `+${tier * 250} storage` : "not built")
+        : (tier > 0 ? `+${moduleOutput(planet, m, tier)} ${COM[m.produces].ico}/cycle` : "not built");
+      const nxt = m.storage ? "+250 storage"
+        : `+${moduleOutput(planet, m, tier + 1) - moduleOutput(planet, m, tier)} ${COM[m.produces].ico}/cycle`;
+      return `<div class="card ${tier > 0 ? (maxed ? "maxed" : "owned") : ""}">
+        <h4>${m.ico} ${m.name} <span class="tier-dots">${dots}</span></h4>
+        <div class="desc">${m.desc}</div>
+        <div class="hint">Current: ${cur}</div>
+        ${maxed ? '<div class="pill good">◉ Fully built</div>'
+          : `<div class="meta"><span class="hint">Next: ${nxt}</span><span class="cost">${fmt(cost)} 💰</span></div>
+             <button class="btn btn-primary" ${S.res.credits >= cost ? "" : "disabled"} onclick="buildModule('${m.id}')">${tier > 0 ? "Upgrade" : "Build"} (Tier ${tier + 1})</button>`}
+      </div>`;
+    }).join("");
+    const ids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 || (b.storage[c] || 0) > 0);
+    const rows = ids.length ? ids.map(c => `<tr>
+      <td>${COM[c].ico} ${COM[c].name}</td>
+      <td class="num">${fmt(S.res[c] || 0)}</td>
+      <td class="num">${fmt(b.storage[c] || 0)}</td>
+      <td><div class="trade-controls">
+        <input class="qty" id="xfer-${c}" type="number" min="1" value="10" />
+        <button class="btn btn-sm" onclick="depositQty('${c}')">Store ▸</button>
+        <button class="btn btn-sm" onclick="withdrawQty('${c}')">◂ Take</button>
+      </div></td></tr>`).join("")
+      : '<tr><td colspan="4" class="hint">Nothing in your hold or this base yet.</td></tr>';
+    here = `<div class="section-title">🛠️ Modules — ${planet.name}</div>
+      <div class="cards">${modCards}</div>
+      <div class="section-title">📦 Storage (${baseStorageUsed(b)}/${baseStorageCap(pid)})</div>
+      <div class="row" style="margin-bottom:8px"><button class="btn btn-sm" onclick="storeAllCargo()">Store all cargo ▸</button></div>
+      <table><thead><tr><th>Commodity</th><th class="num">In ship</th><th class="num">In base</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  el.innerHTML = `<h2>Bases</h2>
+    <div class="subtitle">Build outposts across the galaxy. Their farms, mines and depots produce and store resources automatically every cycle — even while you travel.</div>
+    <div class="section-title">🌐 Your Outposts</div>
+    <div class="cards">${overview}</div>
+    ${here}`;
+}
+
 function renderAll() {
   if (typeof document === "undefined") return;
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
-  renderIndustry(); renderResearch(); renderPolitics(); renderShipPanel(); renderLog();
+  renderIndustry(); renderResearch(); renderPolitics(); renderBases(); renderShipPanel(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
 }
 
@@ -1216,6 +1434,7 @@ function newGame() {
 function init() {
   if (!loadGame()) { S = freshState(); rollPrices(); log("Welcome, Captain. Your journey begins on Terra Nova."); }
   if (!S.prices || !S.prices.terra) rollPrices();
+  if (!S.bases) S.bases = {};   // backfill for older saves
   syncObjectives();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
@@ -1229,5 +1448,6 @@ window.addEventListener("DOMContentLoaded", init);
 
 Object.assign(window, {
   travel, buyQty, sellQty, buyMax, sellAll, extract, salvage, bounty, produce,
-  research, researchTech, doPolitics, doMission, buyUpgrade, setDecree, newGame,
+  research, researchTech, doPolitics, doMission, buyUpgrade, setDecree,
+  buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, newGame,
 });

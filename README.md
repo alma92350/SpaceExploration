@@ -83,6 +83,23 @@ You can only harvest what a world actually holds, using four methods:
 Each world has its own **industry level, tech level, market prices, controlling
 faction** and **law enforcement** strength.
 
+## 🏗️ Bases — passive production while you roam
+
+Establish a permanent **outpost** on any world, then build modules that work
+**automatically every cycle — even while you're light-years away**:
+
+- **Hydroponic Farm / Spice Plantation** — auto-forage food & spice
+- **Automated Mine / Crystal Quarry / Isotope Mine / Ice Harvester / Gas
+  Skimmer / Excavation Site** — auto-mine whatever that world holds
+  (location-bound, like hand extraction)
+- **Solar Array** — generate Energy Cells anywhere
+- **Storage Depot** — expand the base stockpile
+
+Each base has its own **storage**; dock there to deposit/withdraw cargo (or
+**Store all cargo** in one click). Build a network of farms, mines and depots
+across the galaxy and let them fill up while you trade, fight and politick
+elsewhere. Stored goods count toward your net worth.
+
 ## 🏛️ Politics, factions & trade law (the deep end)
 
 - **Five factions** — Core Authority, Mining Guild, Agri-Combine, Tech
