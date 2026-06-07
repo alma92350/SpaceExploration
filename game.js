@@ -345,6 +345,8 @@ function colonyBuildingList(planet) {
       tech: 1, desc: "+1 tech per tier, and sends tech points to your research each cycle." },
     { id: "spaceport", name: "Spaceport",      ico: "🛰️", tiers: 4, baseCost: 4000, costMul: 1.8,
       desc: "Boosts colony trade liquidity and tax revenue." },
+    { id: "garrison",  name: "Garrison",        ico: "🛡️", tiers: 5, baseCost: 3500, costMul: 1.7,
+      defense: 1, desc: "Planetary defenses. Repels pirate raids and keeps order during unrest." },
   ];
   Object.keys(planet.deposits || {}).forEach(c => {
     const meta = BASE_EXTRACTORS[c] || { name: "Extractor: " + COM[c].name, ico: COM[c].ico };
@@ -355,7 +357,7 @@ function colonyBuildingList(planet) {
 }
 function colonyBuildingMats(def, nextTier) {
   const mats = { metals: 10 + nextTier * 7 };
-  if (["factory", "lab", "spaceport"].includes(def.id) || ADVANCED_MODULES.includes(def.id))
+  if (["factory", "lab", "spaceport", "garrison"].includes(def.id) || ADVANCED_MODULES.includes(def.id))
     mats.electronics = 2 + nextTier * 2;
   return mats;
 }
@@ -1100,6 +1102,74 @@ function colonyStorageCap(col, planet) {
 function colonyTaxIncome(col) {
   return Math.round(col.pop * (col.tax / 100) * 5 * (col.happiness / 100));
 }
+function colonyDefense(col) { return col.buildings.garrison || 0; }
+
+/* one risk/boom roll per colony per cycle — returns true if the colony seceded */
+function colonyEventRoll(pid, col, planet) {
+  const name = planet.name, def = colonyDefense(col);
+  const roll = Math.random();
+
+  // ---- Pirate raid (frontier worlds are exposed) ----
+  if (roll < 0.07) {
+    if (def > 0 && Math.random() < def * 0.30) {
+      col.happiness = Math.min(100, col.happiness + 4);
+      log(`🛡️ ${name}'s garrison repelled a pirate raid.`, "good");
+      return false;
+    }
+    let lootLog = [];
+    Object.keys(col.storage).forEach(c => {
+      const take = Math.floor((col.storage[c] || 0) * 0.25);
+      if (take > 0) { col.storage[c] -= take; lootLog.push(`${take} ${COM[c].ico}`); }
+    });
+    const credLoss = Math.min(S.res.credits, col.pop * 8);
+    S.res.credits -= credLoss;
+    col.happiness = Math.max(0, col.happiness - 12);
+    log(`🏴‍☠️ Pirates raided <span class="c">${name}</span>! Lost ${lootLog.join(" ") || "no goods"} and ${fmt(credLoss)} credits.`, "bad");
+    toast(`${name} raided!`, "bad");
+    announce(`🏴‍☠️ ${name} Raided`, `Pirates struck your colony. Build a 🛡️ Garrison to defend it.`, true);
+    return false;
+  }
+
+  // ---- Natural disaster (type depends on the world) ----
+  if (roll < 0.12) {
+    const volcanic = /Volcanic|Shattered/.test(planet.tag);
+    const verdant = (planet.deposits.biomass || 0) >= 1.3;
+    if (volcanic) {
+      const built = Object.keys(col.buildings).filter(b => col.buildings[b] > 0);
+      const hit = built[Math.floor(Math.random() * built.length)];
+      if (hit) col.buildings[hit]--;
+      col.pop = Math.max(1, col.pop - 2);
+      log(`🌋 A violent eruption shook <span class="c">${name}</span>${hit ? ` — its ${colonyBuildingList(planet).find(b => b.id === hit).name} was damaged` : ""}.`, "bad");
+    } else if (verdant) {
+      const lost = Math.max(1, Math.round(col.pop * 0.15));
+      col.pop = Math.max(1, col.pop - lost);
+      col.happiness = Math.max(0, col.happiness - 8);
+      log(`🦠 A plague swept <span class="c">${name}</span> — ${lost}k lost.`, "bad");
+    } else {
+      col.storage.biomass = 0;
+      col.happiness = Math.max(0, col.happiness - 6);
+      log(`🥀 Crop blight ruined ${name}'s food stores.`, "bad");
+    }
+    toast(`Disaster on ${name}`, "bad");
+    return false;
+  }
+
+  // ---- Boom (good fortune) ----
+  if (roll < 0.16) {
+    if (Math.random() < 0.5) {
+      const inflow = Math.max(1, Math.round(col.pop * 0.12));
+      col.pop += inflow;
+      log(`✨ A wave of migrants settled on <span class="c">${name}</span> (+${inflow}k).`, "good");
+    } else {
+      const windfall = col.pop * 20 + 200;
+      S.res.credits += windfall;
+      col.happiness = Math.min(100, col.happiness + 5);
+      log(`✨ A trade boom enriched <span class="c">${name}</span> (+${fmt(windfall)} credits).`, "good");
+    }
+    return false;
+  }
+  return false;
+}
 
 function canColonize() { return !!S.techs.colonial; }
 function colonize() {
@@ -1110,7 +1180,7 @@ function colonize() {
   if (S.res.credits < COLONY_FOUNDATION_COST) return toast("Not enough credits.", "bad");
   if (!canAfford(COLONY_FOUNDATION_MATS)) return toast("Need materials in your hold: metals & goods.", "bad");
   S.res.credits -= COLONY_FOUNDATION_COST; pay(COLONY_FOUNDATION_MATS);
-  S.colonies[pid] = { pop: 5, happiness: 70, tax: 10, buildings: {}, storage: {} };
+  S.colonies[pid] = { pop: 5, happiness: 70, tax: 10, buildings: {}, storage: {}, unrest: 0 };
   log(`🌍 Founded a colony on <span class="c">${planet.name}</span>! It will grow as you develop it.`, "event");
   toast("Colony founded!", "event");
   afterAction();
@@ -1163,6 +1233,7 @@ function colonyWithdraw(c) {
 
 /* runs every cycle — colonies live and grow on their own */
 function processColonies() {
+  const seceded = [];
   Object.entries(S.colonies).forEach(([pid, col]) => {
     const planet = PLANETS.find(p => p.id === pid);
     const cap = colonyStorageCap(col, planet);
@@ -1209,6 +1280,28 @@ function processColonies() {
     // 5) tax income
     const income = colonyTaxIncome(col);
     if (income > 0) S.res.credits += income;
+
+    // 6) random events (raids, disasters, booms)
+    colonyEventRoll(pid, col, planet);
+
+    // 7) unrest & secession — a garrison helps keep order
+    col.unrest = col.unrest || 0;
+    if (col.happiness < 25) col.unrest += 1;
+    else if (col.happiness > 45) col.unrest = Math.max(0, col.unrest - 1);
+    const revoltAt = 4 + colonyDefense(col);            // garrison delays secession
+    if (col.unrest >= revoltAt) {
+      seceded.push(pid);
+    } else if (col.unrest >= 2) {
+      log(`⚠️ Unrest is rising on <span class="c">${planet.name}</span> — its people may secede if conditions don't improve.`, "bad");
+    }
+    col.pop = Math.max(1, Math.round(col.pop));
+  });
+  seceded.forEach(pid => {
+    const planet = PLANETS.find(p => p.id === pid);
+    delete S.colonies[pid];
+    log(`💔 The colony on <span class="c">${planet.name}</span> has revolted and declared independence. It is lost.`, "bad");
+    toast(`${planet.name} seceded!`, "bad");
+    announce(`💔 ${planet.name} Lost`, `Your colony revolted and broke away. Keep your people fed and happy to hold your worlds.`, true);
   });
 }
 
@@ -1311,6 +1404,7 @@ const OBJECTIVE_META = {
   terraform: { emoji: "🌍", title: "Master Scientist", sub: "Terraforming researched — you can reshape worlds!" },
   governor:  { emoji: "👑", title: "Sector Governor",  sub: "You now rule the entire sector!" },
   explored:  { emoji: "🧭", title: "Master Explorer",  sub: "All ten worlds have been charted!" },
+  colony:    { emoji: "🏙️", title: "Colonial Founder", sub: "A frontier colony has grown into a thriving capital!" },
 };
 function winProgress() {
   return {
@@ -1318,6 +1412,7 @@ function winProgress() {
     terraform: { have: !!S.techs.terraform,                  label: "Research Terraforming" },
     governor:  { have: !!S.perks.governor,                   label: "Become Sector Governor" },
     explored:  { have: PLANETS.filter(p => !p.colonizable).every(p => S.visited[p.id]), label: "Visit all 10 core worlds" },
+    colony:    { have: Object.values(S.colonies).some(c => c.pop >= 25), label: "Grow a colony to 25k population" },
   };
 }
 function syncObjectives() {
@@ -1831,6 +1926,8 @@ function renderColonies() {
       <div class="ship-stat" style="margin-top:6px"><span class="k">🌾 Food / cycle</span><span class="v" style="color:${fedHave>=fedNeed?'var(--good)':'var(--bad)'}">${fmt(fedHave)} stored · need ${fmt(fedNeed)}</span></div>
       <div class="ship-stat"><span class="k">🏭 Industry</span><span class="v">${effIndustry(planet)}</span></div>
       <div class="ship-stat"><span class="k">🔬 Tech</span><span class="v">${effTech(planet)}</span></div>
+      <div class="ship-stat"><span class="k">🛡️ Defense</span><span class="v">${colonyDefense(col) ? "Level " + colonyDefense(col) : '<span style="color:var(--bad)">undefended</span>'}</span></div>
+      ${(col.unrest || 0) >= 2 ? `<div class="ship-stat"><span class="k">⚠️ Unrest</span><span class="v" style="color:var(--bad)">secession risk — improve happiness!</span></div>` : ""}
       <div class="ship-stat" style="margin-top:8px"><span class="k">💰 Tax rate</span><span class="v">${col.tax}% → +${fmt(colonyTaxIncome(col))}/cyc</span></div>
       <div class="row"><button class="btn btn-sm" onclick="setTax(-5)">− Tax</button><button class="btn btn-sm" onclick="setTax(5)">+ Tax</button>
         <span class="hint">High tax lowers happiness.</span></div>

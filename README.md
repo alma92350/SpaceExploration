@@ -126,6 +126,22 @@ economies. Found a colony, then develop it:
 Colonies live and grow **every cycle, even while you're away**. A populous
 colony is a major asset toward your net worth.
 
+### Living colonies — stakes & defense
+
+A colony can be lost as well as grown:
+
+- **Pirate raids** strike frontier worlds, stealing stockpiles and credits.
+  Build a **Garrison** 🛡️ to repel them and keep order.
+- **Disasters** fit the world: volcanic worlds suffer **eruptions** that damage
+  buildings, lush worlds catch **plagues**, others lose harvests to **blight**.
+- **Booms** occasionally bless a colony with migrant waves or trade windfalls.
+- **Unrest & secession** — let happiness collapse for too long and unrest
+  builds until the colony **revolts and declares independence**, lost for good.
+  Keep your people fed, supplied and fairly taxed (a Garrison buys you time).
+
+Growing a frontier colony into a thriving 25k-population capital is its own
+**legacy objective** toward winning the game.
+
 ## 🔭 Exploration — chart the unknown
 
 Beyond the charted worlds lie **hidden planets**. Run a **Deep-Space Survey**
