@@ -1,361 +1,339 @@
 /* ============================================================
    STELLAR FRONTIER — a space exploration & economy game
    Pure vanilla JS. No dependencies. State persists to localStorage.
+
+   v2 — "Deep Economy": tiered commodity chains, location-bound
+   extraction (mine / forage / capture / exploit), multi-step
+   production, factions + reputation, contraband & smuggling,
+   and governor trade decrees.
    ============================================================ */
 
 "use strict";
 
-/* ---------- Resource definitions ---------- */
-const RES = {
-  credits:  { name: "Credits",   ico: "💰", color: "#ffd166" },
-  fuel:     { name: "Fuel",      ico: "⛽", color: "#4fd1ff" },
-  minerals: { name: "Minerals",  ico: "🪨", color: "#b08968" },
-  food:     { name: "Food",      ico: "🌾", color: "#4ade80" },
-  goods:    { name: "Goods",     ico: "📦", color: "#c084fc" },
-  tech:     { name: "Tech Pts",  ico: "🔬", color: "#60a5fa" },
-  influence:{ name: "Influence", ico: "🏛️", color: "#f472b6" },
+/* ---------- Meta resources (not cargo, shown in the top bar) ---------- */
+const META = {
+  credits:   { name: "Credits",   ico: "💰" },
+  fuel:      { name: "Fuel",      ico: "⛽" },
+  tech:      { name: "Tech Pts",  ico: "🔬" },
+  influence: { name: "Influence", ico: "🏛️" },
 };
 
-/* Tradable commodities (have markets) */
-const COMMODITIES = ["minerals", "food", "goods", "fuel"];
+/* ---------- Factions ---------- */
+const FACTIONS = {
+  core:      { name: "Core Authority",     ico: "⚖️", color: "#3b82f6",
+               desc: "Lawful government of the inner worlds. Hates smugglers." },
+  miners:    { name: "Mining Guild",       ico: "⛏️", color: "#b45309",
+               desc: "Controls ore, metals and heavy industry." },
+  agri:      { name: "Agri-Combine",       ico: "🌾", color: "#16a34a",
+               desc: "Feeds the sector; values relief and fair trade." },
+  syndicate: { name: "Tech Syndicate",     ico: "🔬", color: "#8b5cf6",
+               desc: "Masters of electronics, research and... discretion." },
+  frontier:  { name: "Frontier Coalition", ico: "🛰️", color: "#06b6d4",
+               desc: "Free traders of the rim. Friendly to smugglers." },
+};
 
-/* ---------- Planet definitions ----------
-   richness: mineral mining yield mult
-   fertility: farming yield mult
-   industry: manufacturing efficiency (1-10)
-   tech: research efficiency / tech level (1-10)
-   demand: per-commodity base price multiplier (a planet that lacks a
-           good buys it dear and sells it cheap)
+/* ---------- Commodity catalog (tiered) ----------
+   tier:    Raw | Refined | Component | Finished | Luxury | Strategic
+   base:    reference price
+   extract: mine | forage | capture | exploit  (raw resources only)
+   illegalAt: list of planet ids where carrying/selling is contraband
+   hazard:  true if dangerous to carry without a Shielded Hold
+*/
+const COM = {
+  // ----- RAW -----
+  ore:         { name: "Ore",            ico: "🪨", tier: "Raw", base: 8,  extract: "mine" },
+  crystals:    { name: "Crystals",       ico: "💎", tier: "Raw", base: 30, extract: "mine" },
+  radioactives:{ name: "Radioactives",   ico: "☢️", tier: "Raw", base: 46, extract: "mine",
+                 illegalAt: ["terra", "verdani"], hazard: true },
+  ice:         { name: "Ice",            ico: "🧊", tier: "Raw", base: 6,  extract: "mine" },
+  biomass:     { name: "Biomass",        ico: "🌿", tier: "Raw", base: 7,  extract: "forage" },
+  spice:       { name: "Spice",          ico: "🌶️", tier: "Raw", base: 42, extract: "forage" },
+  gas:         { name: "Helium-3",       ico: "🎈", tier: "Raw", base: 22, extract: "capture" },
+  relics:      { name: "Relics",         ico: "🏺", tier: "Raw", base: 95, extract: "exploit",
+                 illegalAt: ["terra", "verdani", "kybernet", "forge"], hazard: false },
+  // ----- REFINED -----
+  metals:      { name: "Metals",         ico: "⛓️", tier: "Refined", base: 22 },
+  energy:      { name: "Energy Cells",   ico: "⚡", tier: "Refined", base: 18 },
+  fuel:        { name: "Fuel",           ico: "⛽", tier: "Refined", base: 14, isFuel: true },
+  chemicals:   { name: "Chemicals",      ico: "⚗️", tier: "Refined", base: 26 },
+  medicine:    { name: "Medicine",       ico: "💊", tier: "Refined", base: 58 },
+  // ----- COMPONENTS -----
+  alloys:      { name: "Alloys",         ico: "🔩", tier: "Component", base: 50 },
+  electronics: { name: "Electronics",    ico: "🖥️", tier: "Component", base: 74 },
+  // ----- FINISHED -----
+  goods:       { name: "Consumer Goods", ico: "📦", tier: "Finished", base: 95 },
+  machinery:   { name: "Machinery",      ico: "⚙️", tier: "Finished", base: 135 },
+  weapons:     { name: "Weapons",        ico: "🔫", tier: "Finished", base: 165,
+                 illegalAt: ["terra", "verdani"], hazard: true },
+  // ----- LUXURY / STRATEGIC -----
+  luxury:      { name: "Luxury Goods",   ico: "💠", tier: "Luxury", base: 210 },
+  antimatter:  { name: "Antimatter",     ico: "🌀", tier: "Strategic", base: 420,
+                 illegalAt: ["terra", "verdani", "kybernet", "forge", "glacius"], hazard: true },
+};
+const COM_IDS = Object.keys(COM);
+const CARGO_IDS = COM_IDS.filter(id => !COM[id].isFuel); // everything except fuel uses cargo
+const TIERS = ["Raw", "Refined", "Component", "Finished", "Luxury", "Strategic"];
+
+function isIllegalAt(comId, planetId) {
+  const c = COM[comId];
+  return c.illegalAt && c.illegalAt.includes(planetId);
+}
+
+/* ---------- Production recipes ----------
+   out: commodity produced, qty: per-batch yield, in: input map, req: tech id
+   kind: "refine" | "make" (for grouping); boosted differently by modules
+*/
+const RECIPES = [
+  { id: "smelt",   out: "metals",      qty: 2, in: { ore: 2, energy: 1 },                         kind: "refine" },
+  { id: "biogen",  out: "energy",      qty: 2, in: { biomass: 2 },                                kind: "refine" },
+  { id: "gasgen",  out: "energy",      qty: 3, in: { gas: 1 },                                    kind: "refine" },
+  { id: "reactor", out: "energy",      qty: 6, in: { radioactives: 1 }, req: "reactors",          kind: "refine", reactor: true },
+  { id: "crackice",out: "fuel",        qty: 3, in: { ice: 2 },                                    kind: "refine" },
+  { id: "crackgas",out: "fuel",        qty: 4, in: { gas: 1 }, req: "gasfuel",                    kind: "refine" },
+  { id: "chem",    out: "chemicals",   qty: 2, in: { biomass: 2, energy: 1 },                     kind: "refine" },
+  { id: "medlab",  out: "medicine",    qty: 1, in: { spice: 1, chemicals: 1, energy: 1 }, req: "biotech", kind: "make" },
+  { id: "alloy",   out: "alloys",      qty: 1, in: { metals: 2, energy: 1 }, req: "metallurgy",   kind: "make" },
+  { id: "chipfab", out: "electronics", qty: 1, in: { crystals: 1, metals: 1, energy: 1 }, req: "electronics", kind: "make" },
+  { id: "consumer",out: "goods",       qty: 1, in: { alloys: 1, energy: 1 },                      kind: "make" },
+  { id: "machine", out: "machinery",   qty: 1, in: { alloys: 1, electronics: 1, energy: 1 },      kind: "make" },
+  { id: "weapfab", out: "weapons",     qty: 1, in: { alloys: 1, electronics: 1, radioactives: 1 }, req: "weapontech", kind: "make" },
+  { id: "luxefab", out: "luxury",      qty: 1, in: { spice: 1, electronics: 1, energy: 1 },       kind: "make" },
+  { id: "antifab", out: "antimatter",  qty: 1, in: { energy: 2, relics: 1 }, req: "antimatter",   kind: "make" },
+];
+
+/* ---------- Planets (10) ----------
+   deposits: { commodityId: yieldMult }  — what can be extracted HERE
+   salvage / bounty: special capture actions available here
+   enforce: 0..1 contraband enforcement strength
+   faction: controlling faction id
 */
 const PLANETS = [
-  {
-    id: "terra",
-    name: "Terra Nova",
-    tag: "Capital • Garden World",
-    color: "#3b82f6",
-    desc: "The cradle of the colonies. Lush, populous and politically dominant, but mineral-poor.",
-    distances: {}, // filled below
-    x: 0,
-    richness: 0.5, fertility: 1.6, industry: 6, tech: 7,
-    base: { minerals: 22, food: 8, goods: 30, fuel: 14 },
-  },
-  {
-    id: "ferros",
-    name: "Ferros Prime",
-    tag: "Mining World",
-    color: "#b45309",
-    desc: "A scarred iron giant riddled with mines. Drowning in ore, starved for food.",
-    distances: {},
-    x: 3,
-    richness: 1.9, fertility: 0.3, industry: 4, tech: 3,
-    base: { minerals: 7, food: 26, goods: 34, fuel: 12 },
-  },
-  {
-    id: "verdani",
-    name: "Verdani",
-    tag: "Agri-World",
-    color: "#16a34a",
-    desc: "Endless terraced farms feed half the sector. Little industry, modest tech.",
-    distances: {},
-    x: 5,
-    richness: 0.4, fertility: 2.0, industry: 3, tech: 4,
-    base: { minerals: 24, food: 5, goods: 32, fuel: 13 },
-  },
-  {
-    id: "kybernet",
-    name: "Kybernet",
-    tag: "Tech Hub",
-    color: "#8b5cf6",
-    desc: "A neon arcology of laboratories and fabricators. High tech, high prices, high crime.",
-    distances: {},
-    x: 8,
-    richness: 0.6, fertility: 0.6, industry: 8, tech: 10,
-    base: { minerals: 20, food: 20, goods: 22, fuel: 16 },
-  },
-  {
-    id: "forge",
-    name: "Forge Station",
-    tag: "Industrial World",
-    color: "#ef4444",
-    desc: "A planet-sized factory. Turns raw ore into goods at unmatched scale.",
-    distances: {},
-    x: 11,
-    richness: 1.1, fertility: 0.5, industry: 10, tech: 6,
-    base: { minerals: 16, food: 22, goods: 16, fuel: 15 },
-  },
-  {
-    id: "oort",
-    name: "Oort Reach",
-    tag: "Frontier Outpost",
-    color: "#06b6d4",
-    desc: "The lawless edge of charted space. Rich, dangerous, and cheap on fuel for the bold.",
-    distances: {},
-    x: 15,
-    richness: 1.6, fertility: 0.7, industry: 2, tech: 2,
-    base: { minerals: 12, food: 24, goods: 38, fuel: 9 },
-  },
+  { id: "terra", name: "Terra Nova", tag: "Capital • Garden World", color: "#3b82f6", x: 0,
+    faction: "core", industry: 6, tech: 7, enforce: 0.92,
+    desc: "Cradle of the colonies — lush, populous, politically dominant and mineral-poor. Smuggling here is suicide.",
+    deposits: { biomass: 1.4, spice: 0.6 } },
+  { id: "glacius", name: "Glacius", tag: "Ice World", color: "#7dd3fc", x: 2,
+    faction: "core", industry: 2, tech: 3, enforce: 0.5,
+    desc: "A frozen ball of water-ice. Crack it for fuel and life-support across the sector.",
+    deposits: { ice: 2.0, gas: 0.4 } },
+  { id: "ferros", name: "Ferros Prime", tag: "Mining World", color: "#b45309", x: 3,
+    faction: "miners", industry: 4, tech: 3, enforce: 0.42,
+    desc: "A scarred iron giant. Drowning in ore and radioactives, starved for food.",
+    deposits: { ore: 2.0, crystals: 0.7, radioactives: 1.0 } },
+  { id: "verdani", name: "Verdani", tag: "Agri-World", color: "#16a34a", x: 5,
+    faction: "agri", industry: 3, tech: 4, enforce: 0.7,
+    desc: "Endless terraced farms feed half the sector. Spice grows wild in the highlands.",
+    deposits: { biomass: 2.0, spice: 1.0 } },
+  { id: "helix", name: "Helix Belt", tag: "Asteroid Belt", color: "#9ca3af", x: 6,
+    faction: "miners", industry: 3, tech: 4, enforce: 0.4, salvage: true,
+    desc: "A glittering ring of rubble — ore, crystals and the wrecks of those who came before.",
+    deposits: { ore: 1.6, crystals: 1.4, radioactives: 1.0 } },
+  { id: "kybernet", name: "Kybernet", tag: "Tech Hub", color: "#8b5cf6", x: 8,
+    faction: "syndicate", industry: 8, tech: 10, enforce: 0.6,
+    desc: "A neon arcology of laboratories and fabricators. Highest tech, high prices, looser laws.",
+    deposits: { crystals: 1.2 } },
+  { id: "nimbus", name: "Nimbus", tag: "Gas Giant", color: "#f59e0b", x: 9,
+    faction: "frontier", industry: 3, tech: 5, enforce: 0.3,
+    desc: "A banded storm-world. Skim its clouds for Helium-3 — if your ship can take the pressure.",
+    deposits: { gas: 2.0 } },
+  { id: "forge", name: "Forge Station", tag: "Industrial World", color: "#ef4444", x: 11,
+    faction: "miners", industry: 10, tech: 6, enforce: 0.6,
+    desc: "A planet-sized factory. Turns raw materials into finished goods at unmatched scale.",
+    deposits: { ore: 1.0 } },
+  { id: "oort", name: "Oort Reach", tag: "Frontier Outpost", color: "#06b6d4", x: 15,
+    faction: "frontier", industry: 2, tech: 2, enforce: 0.15, salvage: true, bounty: true,
+    desc: "The lawless edge of charted space. Rich, dangerous, and the best place to move hot cargo.",
+    deposits: { ore: 1.2, radioactives: 1.2, relics: 0.8 } },
+  { id: "erebus", name: "Erebus", tag: "Ancient Ruins", color: "#a78bfa", x: 18,
+    faction: "frontier", industry: 1, tech: 3, enforce: 0.05, salvage: true, bounty: true,
+    desc: "A dead world wrapped in the ruins of a vanished civilisation. Relics for the brave, law for no one.",
+    deposits: { relics: 2.0, radioactives: 0.6 } },
 ];
-
-/* compute symmetric distances from 1-D positions */
 PLANETS.forEach(a => {
-  PLANETS.forEach(b => {
-    if (a.id !== b.id) a.distances[b.id] = Math.max(1, Math.abs(a.x - b.x));
-  });
+  a.distances = {};
+  PLANETS.forEach(b => { if (a.id !== b.id) a.distances[b.id] = Math.max(1, Math.abs(a.x - b.x)); });
 });
 
-/* ---------- Ship upgrades (10), each tiered ---------- */
+/* ---------- Ship upgrades (15, 3 tiers each) ---------- */
 const UPGRADES = [
-  { id: "cargo",   name: "Cargo Hold",        ico: "📦",
-    desc: "Expand cargo capacity for minerals, food & goods.",
-    tiers: 3, baseCost: 1200, costMul: 2.2,
-    effect: t => `+${t*150} cargo capacity` },
-  { id: "fueltank",name: "Fuel Tanks",        ico: "🛢️",
-    desc: "Carry more fuel for longer voyages.",
-    tiers: 3, baseCost: 800, costMul: 2.0,
-    effect: t => `+${t*40} fuel capacity` },
-  { id: "engine",  name: "Ion Engine",        ico: "🚀",
-    desc: "More efficient drive — every jump burns less fuel.",
-    tiers: 3, baseCost: 1500, costMul: 2.4,
-    effect: t => `-${t*12}% fuel per jump` },
-  { id: "miner",   name: "Mining Laser",      ico: "⛏️",
-    desc: "Boost mineral yield when mining a world.",
-    tiers: 3, baseCost: 1400, costMul: 2.3,
-    effect: t => `+${t*35}% mining yield` },
-  { id: "hydro",   name: "Hydroponics Bay",   ico: "🌱",
-    desc: "Onboard farms boost food output when harvesting.",
-    tiers: 3, baseCost: 1300, costMul: 2.3,
-    effect: t => `+${t*35}% farming yield` },
-  { id: "factory", name: "Fabricator Module", ico: "🏭",
-    desc: "Refine minerals into goods faster and cheaper.",
-    tiers: 3, baseCost: 1800, costMul: 2.5,
-    effect: t => `+${t*30}% manufacturing output` },
-  { id: "lab",     name: "Research Lab",      ico: "🔬",
-    desc: "Generate more tech points from research.",
-    tiers: 3, baseCost: 1700, costMul: 2.5,
-    effect: t => `+${t*40}% research output` },
-  { id: "shield",  name: "Deflector Shield",  ico: "🛡️",
-    desc: "Reduce losses from pirates and cosmic hazards.",
-    tiers: 3, baseCost: 1600, costMul: 2.4,
-    effect: t => `-${t*25}% hazard losses` },
-  { id: "trade",   name: "Trade Computer",    ico: "💹",
-    desc: "Sharper deals — better buy/sell spreads at every market.",
-    tiers: 3, baseCost: 2000, costMul: 2.6,
-    effect: t => `${t*4}% better prices` },
-  { id: "envoy",   name: "Diplomatic Suite",  ico: "🤝",
-    desc: "Lush quarters for dignitaries — gain more influence from politics.",
-    tiers: 3, baseCost: 1500, costMul: 2.4,
-    effect: t => `+${t*40}% influence gain` },
+  { id: "cargo",   name: "Cargo Hold",        ico: "📦", tiers: 3, baseCost: 1200, costMul: 2.2,
+    desc: "Expand cargo capacity for all commodities.", effect: t => `+${t*150} cargo` },
+  { id: "fueltank",name: "Fuel Tanks",        ico: "🛢️", tiers: 3, baseCost: 800,  costMul: 2.0,
+    desc: "Carry more fuel for longer voyages.", effect: t => `+${t*40} fuel cap` },
+  { id: "engine",  name: "Ion Engine",        ico: "🚀", tiers: 3, baseCost: 1500, costMul: 2.4,
+    desc: "Efficient drive — every jump burns less fuel.", effect: t => `-${t*12}% jump fuel` },
+  { id: "miner",   name: "Mining Laser",      ico: "⛏️", tiers: 3, baseCost: 1400, costMul: 2.3,
+    desc: "Boost yield when mining ore, crystals, ice & radioactives.", effect: t => `+${t*35}% mining` },
+  { id: "hydro",   name: "Bio-Harvester",     ico: "🌱", tiers: 3, baseCost: 1300, costMul: 2.3,
+    desc: "Boost yield when foraging biomass & spice.", effect: t => `+${t*35}% foraging` },
+  { id: "gasscoop",name: "Gas Scoop",         ico: "🎈", tiers: 3, baseCost: 1600, costMul: 2.4,
+    desc: "REQUIRED to capture Helium-3 from gas giants. Higher tiers skim faster.", effect: t => `enables + ${t*30}% gas` },
+  { id: "salvager",name: "Salvage Rig",       ico: "🧲", tiers: 3, baseCost: 1500, costMul: 2.4,
+    desc: "REQUIRED to salvage derelicts & belts for metals and parts.", effect: t => `enables + ${t*30}% salvage` },
+  { id: "factory", name: "Fabricator Module", ico: "🏭", tiers: 3, baseCost: 1800, costMul: 2.5,
+    desc: "Refine and assemble faster — more output per production run.", effect: t => `+${t*30}% production` },
+  { id: "reactor", name: "Fusion Reactor",    ico: "☀️", tiers: 3, baseCost: 1700, costMul: 2.5,
+    desc: "Supercharges energy-cell production runs.", effect: t => `+${t*40}% energy output` },
+  { id: "lab",     name: "Research Lab",      ico: "🔬", tiers: 3, baseCost: 1700, costMul: 2.5,
+    desc: "Generate more tech points from research.", effect: t => `+${t*40}% research` },
+  { id: "shield",  name: "Deflector Shield",  ico: "🛡️", tiers: 3, baseCost: 1600, costMul: 2.4,
+    desc: "Reduce losses from pirates, hazards and customs scans.", effect: t => `-${t*20}% losses` },
+  { id: "hazmat",  name: "Shielded Hold",     ico: "☣️", tiers: 3, baseCost: 1500, costMul: 2.3,
+    desc: "Safely carry radioactives, weapons & antimatter — fewer accidents & detections.", effect: t => `-${t*25}% hazard risk` },
+  { id: "smuggler",name: "Smuggler's Hold",   ico: "🕳️", tiers: 3, baseCost: 2200, costMul: 2.7,
+    desc: "Hidden compartments slash the chance customs find contraband.", effect: t => `-${t*22}% bust risk` },
+  { id: "trade",   name: "Trade Computer",    ico: "💹", tiers: 3, baseCost: 2000, costMul: 2.6,
+    desc: "Sharper deals — better buy/sell spreads everywhere.", effect: t => `${t*4}% better prices` },
+  { id: "envoy",   name: "Diplomatic Suite",  ico: "🤝", tiers: 3, baseCost: 1500, costMul: 2.4,
+    desc: "Gain more influence and faction reputation from politics.", effect: t => `+${t*40}% influence` },
 ];
 
-/* ---------- Research technologies ---------- */
+/* ---------- Technology tree ---------- */
 const TECHS = [
-  { id: "deepcore",  name: "Deep-Core Drilling",   cost: 30,  ico: "🪨",
-    desc: "Unlocks richer mineral seams. +25% base mining everywhere.", req: [] },
-  { id: "geneseed",  name: "Gene-Seed Crops",      cost: 30,  ico: "🌾",
-    desc: "Hardier crops. +25% base farming everywhere.", req: [] },
-  { id: "automation",name: "Factory Automation",   cost: 50,  ico: "⚙️",
-    desc: "Automated lines. +1 minerals→goods conversion ratio.", req: ["deepcore"] },
-  { id: "warpdrive", name: "Warp Coils",           cost: 70,  ico: "🌀",
-    desc: "Fold space. Cuts all jump fuel costs by a further 20%.", req: [] },
-  { id: "markets",   name: "Galactic Exchange",    cost: 60,  ico: "📈",
-    desc: "Live market feeds. Reveals price trends & stabilises prices.", req: [] },
-  { id: "fusion",    name: "Fusion Refinement",    cost: 80,  ico: "☀️",
-    desc: "Refine fuel from minerals in the Industry bay.", req: ["automation"] },
-  { id: "diplomacy", name: "Galactic Charter",     cost: 90,  ico: "📜",
-    desc: "Unlocks high-tier political missions for big rewards.", req: ["markets"] },
-  { id: "terraform", name: "Terraforming",         cost: 140, ico: "🌍",
-    desc: "The pinnacle of science. Required to complete your legacy.", req: ["fusion","geneseed"] },
+  { id: "deepcore",   name: "Deep-Core Drilling", cost: 30,  ico: "🪨", req: [],
+    desc: "+25% to all mining yields." },
+  { id: "xenobio",    name: "Xeno-Biology",       cost: 30,  ico: "🌿", req: [],
+    desc: "+25% to all foraging yields." },
+  { id: "gasharvest", name: "Cloud Skimming",     cost: 45,  ico: "🎈", req: [],
+    desc: "+40% Helium-3 capture and unlocks deeper gas layers." },
+  { id: "salvaging",  name: "Salvage Drones",     cost: 45,  ico: "🧲", req: [],
+    desc: "+50% salvage yields and better wreck finds." },
+  { id: "metallurgy", name: "Metallurgy",         cost: 50,  ico: "🔩", req: ["deepcore"],
+    desc: "Unlock Alloy fabrication (metals → alloys)." },
+  { id: "electronics",name: "Microelectronics",   cost: 60,  ico: "🖥️", req: ["metallurgy"],
+    desc: "Unlock Electronics fabrication (crystals + metals)." },
+  { id: "reactors",   name: "Fission Reactors",   cost: 55,  ico: "☢️", req: [],
+    desc: "Unlock high-output Energy from radioactives." },
+  { id: "gasfuel",    name: "Fuel Cracking",      cost: 40,  ico: "⛽", req: ["gasharvest"],
+    desc: "Refine fuel directly from Helium-3 gas." },
+  { id: "biotech",    name: "Biotech",            cost: 70,  ico: "💊", req: ["xenobio"],
+    desc: "Unlock Medicine synthesis (spice + chemicals)." },
+  { id: "markets",    name: "Galactic Exchange",  cost: 60,  ico: "📈", req: [],
+    desc: "Reveal price trends and stabilise markets." },
+  { id: "weapontech", name: "Munitions",          cost: 90,  ico: "🔫", req: ["metallurgy", "electronics"],
+    desc: "Unlock Weapons manufacture. (Politically sensitive.)" },
+  { id: "diplomacy",  name: "Galactic Charter",   cost: 90,  ico: "📜", req: ["markets"],
+    desc: "Unlock faction & senate politics and high-tier missions." },
+  { id: "antimatter", name: "Antimatter Containment", cost: 160, ico: "🌀", req: ["reactors", "electronics"],
+    desc: "Unlock Antimatter synthesis from relics & energy." },
+  { id: "terraform",  name: "Terraforming",       cost: 200, ico: "🌍", req: ["biotech", "antimatter"],
+    desc: "The pinnacle of science. Required to complete your legacy." },
 ];
 
-/* ---------- Political missions ---------- */
+/* ---------- Missions (faction & resource themed) ---------- */
 const MISSIONS = [
-  { id: "trade_route", name: "Broker a Trade Route", tier: 1,
-    cost: { influence: 10, credits: 500 },
-    reward: { credits: 1800 },
-    desc: "Negotiate a lucrative trade pact between two worlds." },
-  { id: "relief", name: "Famine Relief Mission", tier: 1,
-    cost: { influence: 8, food: 80 },
-    reward: { influence: 14, credits: 600 },
-    desc: "Deliver food to a starving colony and earn goodwill." },
-  { id: "tech_summit", name: "Host a Tech Summit", tier: 2,
-    cost: { influence: 25, tech: 20 },
-    reward: { credits: 3000, influence: 10 },
-    desc: "Convene the sector's scientists. Prestige and profit." },
-  { id: "senate", name: "Win a Senate Seat", tier: 2, reqTech: "diplomacy",
-    cost: { influence: 50, credits: 3000 },
+  { id: "relief",   name: "Famine Relief Run",     tier: 1, faction: "agri",
+    cost: { food: 0, influence: 6 }, need: { commodity: "goods", qty: 30 },
+    reward: { influence: 14, credits: 700, rep: { agri: 15 } },
+    desc: "Deliver 30 consumer goods to a struggling colony for the Agri-Combine." },
+  { id: "orepact",  name: "Mining Guild Ore Pact", tier: 1, faction: "miners",
+    cost: { influence: 6 }, need: { commodity: "metals", qty: 25 },
+    reward: { credits: 1600, rep: { miners: 18 } },
+    desc: "Supply 25 metals to the Mining Guild's foundries." },
+  { id: "smuggle",  name: "Discreet Cargo",        tier: 2, faction: "frontier",
+    cost: { influence: 10 }, need: { commodity: "relics", qty: 10 },
+    reward: { credits: 3200, rep: { frontier: 20, core: -15 } },
+    desc: "Move 10 relics no-questions-asked for the Frontier Coalition. The Core will not approve." },
+  { id: "summit",   name: "Host a Tech Summit",    tier: 2, faction: "syndicate", reqTech: "diplomacy",
+    cost: { influence: 22, tech: 25 },
+    reward: { credits: 3000, influence: 10, rep: { syndicate: 20 } },
+    desc: "Convene the sector's scientists. Prestige, profit and Syndicate favour." },
+  { id: "senate",   name: "Win a Senate Seat",     tier: 3, reqTech: "diplomacy",
+    cost: { influence: 60, credits: 4000 }, needRep: { core: 30 },
     reward: { influence: 40, perk: "senator" },
-    desc: "Claim a seat on the Galactic Senate. Unlocks the Governorship." },
-  { id: "governor", name: "Become Sector Governor", tier: 3, reqTech: "diplomacy", reqPerk: "senator",
-    cost: { influence: 120, credits: 12000 },
+    desc: "Claim a seat on the Galactic Senate (needs Core standing). Unlocks the Governorship." },
+  { id: "governor", name: "Become Sector Governor",tier: 3, reqTech: "diplomacy", reqPerk: "senator",
+    cost: { influence: 140, credits: 15000 },
     reward: { perk: "governor" },
-    desc: "Rule the sector. A cornerstone of your legacy." },
+    desc: "Rule the sector — and unlock trade Decrees. A cornerstone of your legacy." },
 ];
 
 /* ============================================================
    GAME STATE
    ============================================================ */
-let S; // global state
+let S;
+const ACTIONS_PER_CYCLE = 4;
+const BASE_CARGO = 120;
+const BASE_FUEL = 100;
 
 function freshState() {
+  const res = { credits: 3000, fuel: 100, tech: 0, influence: 0 };
+  CARGO_IDS.forEach(id => res[id] = 0);
   return {
     turn: 1,
     location: "terra",
-    res: { credits: 3000, fuel: 100, minerals: 0, food: 0, goods: 0, tech: 0, influence: 0 },
-    upgrades: { cargo:0, fueltank:0, engine:0, miner:0, hydro:0, factory:0, lab:0, shield:0, trade:0, envoy:0 },
-    techs: {},          // id -> true
-    missions: {},       // id -> true (completed)
-    perks: {},          // senator / governor
-    actionsUsed: 0,     // local actions used this cycle (mine/farm/etc.)
-    prices: {},         // planetId -> { commodity -> price }
+    res,
+    upgrades: Object.fromEntries(UPGRADES.map(u => [u.id, 0])),
+    techs: {},
+    missions: {},
+    perks: {},
+    rep: { core: 0, miners: 0, agri: 0, syndicate: 0, frontier: 0 },
+    decrees: { monopoly: null, tariff: null },
+    actionsUsed: 0,
+    prices: {},
     visited: { terra: true },
     log: [],
-    stats: { jumps: 0, trades: 0, profit: 0 },
-    achieved: {},       // objectiveKey -> true (celebrated)
+    stats: { jumps: 0, trades: 0, profit: 0, busts: 0 },
+    achieved: {},
     won: false,
   };
 }
 
-/* derived capacities */
-const BASE_CARGO = 100;
-const BASE_FUEL = 100;
-const ACTIONS_PER_CYCLE = 3; // local economic actions before you must end the cycle
-
 function cargoCap()  { return BASE_CARGO + S.upgrades.cargo * 150; }
 function fuelCap()   { return BASE_FUEL + S.upgrades.fueltank * 40; }
-function cargoUsed() { return S.res.minerals + S.res.food + S.res.goods; }
+function cargoUsed() { return CARGO_IDS.reduce((s, id) => s + (S.res[id] || 0), 0); }
 function cargoFree() { return cargoCap() - cargoUsed(); }
+function currentPlanet() { return PLANETS.find(p => p.id === S.location); }
+function actionsLeft() { return ACTIONS_PER_CYCLE - S.actionsUsed; }
+function useAction() { S.actionsUsed++; }
 
 /* ============================================================
-   PRICING
+   PRICING  (per planet, supply/demand + reputation aware)
    ============================================================ */
+function planetPriceMul(p, comId) {
+  let m = 1;
+  const c = COM[comId];
+  const producesRaw = p.deposits && p.deposits[comId];
+  if (producesRaw) m *= 0.55;                          // local raw → cheap
+  if (c.tier === "Raw" && !producesRaw) m *= 1.25;      // imported raw → dear
+  if (["Component", "Finished", "Luxury", "Strategic"].includes(c.tier))
+    m *= 1 - (p.industry - 5) * 0.05;                   // industrial worlds make goods cheaper
+  if (isIllegalAt(comId, p.id)) m *= 1.35;              // scarce/black-market premium
+  return Math.max(0.4, Math.min(1.9, m));
+}
+
 function rollPrices() {
   PLANETS.forEach(p => {
     S.prices[p.id] = S.prices[p.id] || {};
-    COMMODITIES.forEach(c => {
-      const base = p.base[c];
-      const stab = S.techs.markets ? 0.12 : 0.30; // tech tightens volatility
+    COM_IDS.forEach(c => {
+      const target = COM[c].base * planetPriceMul(p, c);
+      const stab = S.techs.markets ? 0.12 : 0.28;
       const cur = S.prices[p.id][c];
-      let price;
-      if (cur == null) {
-        price = base * (1 + (Math.random() * 2 - 1) * stab);
-      } else {
-        // drift toward base + noise
-        const drift = (base - cur) * 0.25;
-        price = cur + drift + base * (Math.random() * 2 - 1) * stab * 0.6;
-      }
+      let price = cur == null
+        ? target * (1 + (Math.random() * 2 - 1) * stab)
+        : cur + (target - cur) * 0.3 + target * (Math.random() * 2 - 1) * stab * 0.6;
       S.prices[p.id][c] = Math.max(2, Math.round(price));
     });
   });
 }
 
-function priceAt(planetId, commodity) {
-  return S.prices[planetId][commodity];
+function repPriceFactor(planet) {
+  const r = S.rep[planet.faction] || 0;
+  return Math.max(-0.12, Math.min(0.12, r / 100 * 0.12)); // friendly faction → up to ±12%
 }
-/* trade computer narrows the spread between buy and sell */
-function tradeSpread() { return Math.max(0.84, 0.90 - S.upgrades.trade * 0.04); } // sell = buy * spread
-function buyPrice(planetId, c)  { return Math.round(priceAt(planetId, c) * (1 + (1 - tradeSpread()) * 0.5)); }
-function sellPrice(planetId, c) { return Math.round(priceAt(planetId, c) * tradeSpread()); }
-
-/* ============================================================
-   CELEBRATIONS — fireworks canvas + announcement banner
-   ============================================================ */
-let _fxCanvas, _fxCtx, _fxParticles = [], _fxRAF = null, _fxUntil = 0, _fxLastLaunch = 0;
-
-function _fxResize() {
-  _fxCanvas.width = window.innerWidth;
-  _fxCanvas.height = window.innerHeight;
+function tradeSpread() { return Math.max(0.84, 0.90 - S.upgrades.trade * 0.04); }
+function buyPrice(pid, c) {
+  const p = PLANETS.find(x => x.id === pid);
+  let v = S.prices[pid][c] * (1 + (1 - tradeSpread()) * 0.5);
+  v *= 1 - repPriceFactor(p);            // friendly faction sells to you cheaper
+  return Math.max(1, Math.round(v));
 }
-
-function _fxBurst(x, y, count, hue, big) {
-  for (let i = 0; i < count; i++) {
-    const ang = (Math.PI * 2 * i) / count + Math.random() * 0.3;
-    const spd = (big ? 4 : 2.6) + Math.random() * (big ? 5.5 : 3);
-    _fxParticles.push({
-      x, y,
-      vx: Math.cos(ang) * spd,
-      vy: Math.sin(ang) * spd,
-      life: 1,
-      decay: 0.008 + Math.random() * 0.013,
-      hue: hue + (Math.random() * 40 - 20),
-      size: big ? 2.4 + Math.random() * 2 : 1.6 + Math.random() * 1.4,
-    });
-  }
-}
-
-function fireworks(duration = 2500, big = false) {
-  if (typeof document === "undefined") return; // headless safety
-  if (!_fxCanvas) {
-    _fxCanvas = document.getElementById("fx");
-    if (!_fxCanvas) return;
-    _fxCtx = _fxCanvas.getContext("2d");
-    window.addEventListener("resize", _fxResize);
-  }
-  _fxResize();
-  _fxUntil = Math.max(_fxUntil, performance.now() + duration);
-  _fxBigMode = big || _fxBigMode;
-  if (_fxRAF) return; // already animating; we just extended the deadline
-
-  const tick = (t) => {
-    const ctx = _fxCtx, W = _fxCanvas.width, H = _fxCanvas.height;
-    ctx.globalCompositeOperation = "source-over";
-    ctx.fillStyle = "rgba(5,7,15,0.18)"; // trailing fade
-    ctx.fillRect(0, 0, W, H);
-    ctx.globalCompositeOperation = "lighter";
-
-    const big = _fxBigMode;
-    if (t < _fxUntil && t - _fxLastLaunch > (big ? 200 : 340)) {
-      _fxLastLaunch = t;
-      const shells = big ? 2 + Math.floor(Math.random() * 2) : 1;
-      for (let k = 0; k < shells; k++) {
-        _fxBurst(
-          W * (0.18 + Math.random() * 0.64),
-          H * (0.18 + Math.random() * 0.42),
-          big ? 60 + Math.floor(Math.random() * 40) : 42,
-          Math.random() * 360, big
-        );
-      }
-    }
-
-    for (let i = _fxParticles.length - 1; i >= 0; i--) {
-      const p = _fxParticles[i];
-      p.vy += 0.05;            // gravity
-      p.vx *= 0.99; p.vy *= 0.99;
-      p.x += p.vx; p.y += p.vy;
-      p.life -= p.decay;
-      if (p.life <= 0) { _fxParticles.splice(i, 1); continue; }
-      ctx.beginPath();
-      ctx.fillStyle = `hsla(${p.hue},100%,${55 + p.life * 25}%,${p.life})`;
-      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    if (t < _fxUntil || _fxParticles.length) {
-      _fxRAF = requestAnimationFrame(tick);
-    } else {
-      _fxCtx.clearRect(0, 0, W, H);
-      _fxRAF = null;
-      _fxBigMode = false;
-    }
-  };
-  _fxRAF = requestAnimationFrame(tick);
-}
-let _fxBigMode = false;
-
-function announce(title, sub, finale = false) {
-  if (typeof document === "undefined") return;
-  const el = document.getElementById("announce");
-  if (!el) return;
-  el.innerHTML =
-    `<div class="ann-kicker">${finale ? "Legacy Complete" : "Objective Reached"}</div>` +
-    `<div class="ann-title">${title}</div>` +
-    `<div class="ann-sub">${sub}</div>`;
-  el.classList.remove("hidden", "finale");
-  if (finale) el.classList.add("finale");
-  el.style.animation = "none";
-  void el.offsetWidth;        // reflow to restart the pop animation
-  el.style.animation = "";
-  clearTimeout(el._t);
-  el._t = setTimeout(() => el.classList.add("hidden"), finale ? 7000 : 3400);
+function sellPrice(pid, c) {
+  const p = PLANETS.find(x => x.id === pid);
+  let v = S.prices[pid][c] * tradeSpread();
+  v *= 1 + repPriceFactor(p);            // friendly faction pays you more
+  if (S.decrees.tariff === c) v *= 1.15; // your governor tariff lifts your sell price
+  return Math.max(1, Math.round(v));
 }
 
 /* ============================================================
@@ -363,11 +341,13 @@ function announce(title, sub, finale = false) {
    ============================================================ */
 function log(msg, type = "") {
   S.log.unshift({ msg, type, turn: S.turn });
-  if (S.log.length > 60) S.log.pop();
+  if (S.log.length > 80) S.log.pop();
   renderLog();
 }
 function toast(msg, type = "") {
+  if (typeof document === "undefined") return;
   const c = document.getElementById("toast-container");
+  if (!c) return;
   const el = document.createElement("div");
   el.className = "toast " + type;
   el.textContent = msg;
@@ -377,249 +357,394 @@ function toast(msg, type = "") {
 }
 
 /* ============================================================
-   RESOURCE HELPERS
+   CELEBRATIONS — fireworks canvas + announcement banner
    ============================================================ */
-function canAfford(cost) {
-  return Object.entries(cost).every(([k, v]) => S.res[k] >= v);
+let _fxCanvas, _fxCtx, _fxParticles = [], _fxRAF = null, _fxUntil = 0, _fxLastLaunch = 0, _fxBigMode = false;
+function _fxResize() { _fxCanvas.width = window.innerWidth; _fxCanvas.height = window.innerHeight; }
+function _fxBurst(x, y, count, hue, big) {
+  for (let i = 0; i < count; i++) {
+    const ang = (Math.PI * 2 * i) / count + Math.random() * 0.3;
+    const spd = (big ? 4 : 2.6) + Math.random() * (big ? 5.5 : 3);
+    _fxParticles.push({ x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+      life: 1, decay: 0.008 + Math.random() * 0.013, hue: hue + (Math.random() * 40 - 20),
+      size: big ? 2.4 + Math.random() * 2 : 1.6 + Math.random() * 1.4 });
+  }
 }
-function pay(cost) {
-  Object.entries(cost).forEach(([k, v]) => { S.res[k] -= v; });
+function fireworks(duration = 2500, big = false) {
+  if (typeof document === "undefined") return;
+  if (!_fxCanvas) {
+    _fxCanvas = document.getElementById("fx");
+    if (!_fxCanvas || !_fxCanvas.getContext) return;
+    _fxCtx = _fxCanvas.getContext("2d");
+    window.addEventListener("resize", _fxResize);
+  }
+  _fxResize();
+  _fxUntil = Math.max(_fxUntil, performance.now() + duration);
+  _fxBigMode = big || _fxBigMode;
+  if (_fxRAF) return;
+  const tick = (t) => {
+    const ctx = _fxCtx, W = _fxCanvas.width, H = _fxCanvas.height;
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = "rgba(5,7,15,0.18)"; ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = "lighter";
+    const big = _fxBigMode;
+    if (t < _fxUntil && t - _fxLastLaunch > (big ? 200 : 340)) {
+      _fxLastLaunch = t;
+      const shells = big ? 2 + Math.floor(Math.random() * 2) : 1;
+      for (let k = 0; k < shells; k++)
+        _fxBurst(W * (0.18 + Math.random() * 0.64), H * (0.18 + Math.random() * 0.42),
+          big ? 60 + Math.floor(Math.random() * 40) : 42, Math.random() * 360, big);
+    }
+    for (let i = _fxParticles.length - 1; i >= 0; i--) {
+      const p = _fxParticles[i];
+      p.vy += 0.05; p.vx *= 0.99; p.vy *= 0.99; p.x += p.vx; p.y += p.vy; p.life -= p.decay;
+      if (p.life <= 0) { _fxParticles.splice(i, 1); continue; }
+      ctx.beginPath();
+      ctx.fillStyle = `hsla(${p.hue},100%,${55 + p.life * 25}%,${p.life})`;
+      ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+    }
+    if (t < _fxUntil || _fxParticles.length) _fxRAF = requestAnimationFrame(tick);
+    else { _fxCtx.clearRect(0, 0, W, H); _fxRAF = null; _fxBigMode = false; }
+  };
+  _fxRAF = requestAnimationFrame(tick);
 }
-function gain(reward) {
-  Object.entries(reward).forEach(([k, v]) => {
-    if (k === "perk") { S.perks[v] = true; return; }
-    S.res[k] = (S.res[k] || 0) + v;
-  });
-}
-function fmt(n) { return Math.round(n).toLocaleString("en-US"); }
-function costString(cost) {
-  return Object.entries(cost).map(([k, v]) => `${fmt(v)} ${RES[k].ico}`).join("  ");
+function announce(title, sub, finale = false) {
+  if (typeof document === "undefined") return;
+  const el = document.getElementById("announce");
+  if (!el) return;
+  el.innerHTML = `<div class="ann-kicker">${finale ? "Legacy Complete" : "Objective Reached"}</div>`
+    + `<div class="ann-title">${title}</div><div class="ann-sub">${sub}</div>`;
+  el.classList.remove("hidden", "finale");
+  if (finale) el.classList.add("finale");
+  el.style.animation = "none"; void el.offsetWidth; el.style.animation = "";
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.classList.add("hidden"), finale ? 7000 : 3400);
 }
 
 /* ============================================================
-   ACTIONS — local economy
+   RESOURCE HELPERS
    ============================================================ */
-function actionsLeft() { return ACTIONS_PER_CYCLE - S.actionsUsed; }
+function canAfford(cost) { return Object.entries(cost).every(([k, v]) => (S.res[k] || 0) >= v); }
+function pay(cost) { Object.entries(cost).forEach(([k, v]) => { S.res[k] -= v; }); }
+function gain(reward) {
+  Object.entries(reward).forEach(([k, v]) => {
+    if (k === "perk") { S.perks[v] = true; return; }
+    if (k === "rep")  { Object.entries(v).forEach(([f, n]) => addRep(f, n)); return; }
+    S.res[k] = (S.res[k] || 0) + v;
+  });
+}
+function addRep(f, n) { S.rep[f] = Math.max(-100, Math.min(100, (S.rep[f] || 0) + n)); }
+function fmt(n) { return Math.round(n).toLocaleString("en-US"); }
+function costString(cost) {
+  return Object.entries(cost).map(([k, v]) => {
+    if (k === "rep") return Object.entries(v).map(([f, n]) => `${n>0?"+":""}${n} ${FACTIONS[f].ico}`).join(" ");
+    if (k === "perk") return `Title: ${v}`;
+    const ico = META[k] ? META[k].ico : COM[k] ? COM[k].ico : "";
+    return `${fmt(v)} ${ico}`;
+  }).join("  ");
+}
 
-function useAction() { S.actionsUsed++; }
+/* ============================================================
+   EXTRACTION  (mine / forage / capture / exploit) — location bound
+   ============================================================ */
+function extractMods(comId) {
+  // returns {moduleMult, techMult, requiredModuleOk, blockMsg}
+  const verb = COM[comId].extract;
+  let mod = 1, tech = 1, ok = true, blockMsg = "";
+  if (verb === "mine") { mod = 1 + S.upgrades.miner * 0.35; if (S.techs.deepcore) tech = 1.25; }
+  else if (verb === "forage") { mod = 1 + S.upgrades.hydro * 0.35; if (S.techs.xenobio) tech = 1.25; }
+  else if (verb === "capture") { // gas — needs scoop
+    if (S.upgrades.gasscoop < 1) { ok = false; blockMsg = "Requires a Gas Scoop module."; }
+    mod = 1 + S.upgrades.gasscoop * 0.30; if (S.techs.gasharvest) tech = 1.40;
+  } else if (verb === "exploit") { mod = 1 + S.upgrades.salvager * 0.10; } // relics; light gear help
+  return { mod, tech, ok, blockMsg };
+}
 
-function currentPlanet() { return PLANETS.find(p => p.id === S.location); }
-
-function mine() {
+function extract(comId) {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  const p = currentPlanet();
+  const dep = p.deposits && p.deposits[comId];
+  if (!dep) return toast(`${COM[comId].name} cannot be extracted here.`, "bad");
   if (cargoFree() <= 0) return toast("Cargo hold full!", "bad");
-  const p = currentPlanet();
-  let yld = 18 * p.richness;
-  yld *= 1 + S.upgrades.miner * 0.35;
-  if (S.techs.deepcore) yld *= 1.25;
-  yld = Math.min(Math.round(yld), cargoFree());
-  S.res.minerals += yld;
+  const { mod, tech, ok, blockMsg } = extractMods(comId);
+  if (!ok) return toast(blockMsg, "bad");
+  let yld = Math.round(14 * dep * mod * tech);
+  yld = Math.min(yld, cargoFree());
+  if (yld <= 0) return toast("No room in the hold.", "bad");
+  S.res[comId] += yld;
   useAction();
-  log(`Mined <span class="c">${yld}</span> minerals on ${p.name}.`, "good");
-  toast(`+${yld} 🪨 minerals`, "good");
+  const verbName = { mine: "Mined", forage: "Foraged", capture: "Captured", exploit: "Recovered" }[COM[comId].extract];
+  log(`${verbName} <span class="c">${yld}</span> ${COM[comId].ico} ${COM[comId].name} on ${p.name}.`, "good");
+  toast(`+${yld} ${COM[comId].ico} ${COM[comId].name}`, "good");
+  if (COM[comId].extract === "exploit" && p.enforce > 0.3 && Math.random() < 0.3)
+    log("Looting ruins draws unwanted attention…", "bad");
   afterAction();
 }
 
-function farm() {
+function salvage() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  const p = currentPlanet();
+  if (!p.salvage) return toast("No wrecks to salvage here.", "bad");
+  if (S.upgrades.salvager < 1) return toast("Requires a Salvage Rig module.", "bad");
   if (cargoFree() <= 0) return toast("Cargo hold full!", "bad");
-  const p = currentPlanet();
-  let yld = 18 * p.fertility;
-  yld *= 1 + S.upgrades.hydro * 0.35;
-  if (S.techs.geneseed) yld *= 1.25;
-  yld = Math.min(Math.round(yld), cargoFree());
-  S.res.food += yld;
+  const mult = (1 + S.upgrades.salvager * 0.30) * (S.techs.salvaging ? 1.5 : 1);
+  let metals = Math.round(8 * mult), parts = Math.round(3 * mult);
+  metals = Math.min(metals, cargoFree());
+  parts = Math.min(parts, cargoFree() - metals);
+  S.res.metals += metals; S.res.electronics += parts;
+  let bonus = "";
+  if (Math.random() < 0.25 && cargoFree() - metals - parts > 0) {
+    const find = Math.random() < 0.5 ? "relics" : "weapons";
+    const q = 1 + Math.floor(Math.random() * 3);
+    S.res[find] += Math.min(q, cargoFree() - metals - parts);
+    bonus = ` Found ${q} ${COM[find].ico} ${COM[find].name}!`;
+  }
   useAction();
-  log(`Harvested <span class="c">${yld}</span> food on ${p.name}.`, "good");
-  toast(`+${yld} 🌾 food`, "good");
+  log(`Salvaged <span class="c">${metals}</span> metals & ${parts} electronics from wrecks.${bonus}`, "good");
+  toast(`Salvage: +${metals} ⛓️ +${parts} 🖥️`, "good");
   afterAction();
 }
 
-function manufacture() {
+function bounty() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
-  const mineralsPerBatch = 2 + (S.techs.automation ? 1 : 0); // minerals per good
-  // output scales with planet industry + module, capped by minerals on hand.
-  // Each batch consumes `mineralsPerBatch` cargo and yields 1 good, so the
-  // hold never overflows — minerals are the only real constraint.
-  let batches = Math.floor((4 + p.industry) * (1 + S.upgrades.factory * 0.30));
-  batches = Math.min(batches, Math.floor(S.res.minerals / mineralsPerBatch));
-  if (batches <= 0) return toast(`Need ${mineralsPerBatch}+ minerals to manufacture.`, "bad");
-  const mineralsUsed = batches * mineralsPerBatch;
-  S.res.minerals -= mineralsUsed;
-  S.res.goods += batches;
+  if (!p.bounty) return toast("No bounties available here.", "bad");
+  const risk = 0.25 * (1 - S.upgrades.shield * 0.2);
   useAction();
-  log(`Manufactured <span class="c">${batches}</span> goods from ${mineralsUsed} minerals on ${p.name}.`, "good");
-  toast(`+${batches} 📦 goods`, "good");
+  if (Math.random() < risk) {
+    const dmg = Math.min(S.res.credits, 200 + Math.round(Math.random() * 400));
+    S.res.credits -= dmg;
+    log(`Bounty hunt went sour — repairs cost <span class="c">${fmt(dmg)}</span> credits.`, "bad");
+    toast(`Bounty failed (−${fmt(dmg)} cr)`, "bad");
+  } else {
+    const cr = 600 + Math.round(Math.random() * 900);
+    const inf = 4 + Math.round(Math.random() * 6);
+    S.res.credits += cr; S.res.influence += inf;
+    addRep("frontier", 6); addRep("core", 3);
+    log(`Collected a pirate bounty: <span class="c">${fmt(cr)}</span> credits, +${inf} influence.`, "good");
+    toast(`Bounty paid: +${fmt(cr)} cr`, "good");
+  }
   afterAction();
 }
 
-function refineFuel() {
-  if (!S.techs.fusion) return;
+/* ============================================================
+   PRODUCTION  (refining & manufacturing)
+   ============================================================ */
+function recipeAvailable(r) { return !r.req || S.techs[r.req]; }
+function recipeMaxBatches(r) {
+  return Math.min(...Object.entries(r.in).map(([k, v]) => Math.floor((S.res[k] || 0) / v)));
+}
+function produce(recipeId) {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
-  const mineralsPer = 2;
-  let out = Math.floor((6 + currentPlanet().industry) );
-  out = Math.min(out, Math.floor(S.res.minerals / mineralsPer), fuelCap() - S.res.fuel);
-  if (out <= 0) return toast("Cannot refine fuel (need minerals / tank space).", "bad");
-  S.res.minerals -= out * mineralsPer;
-  S.res.fuel += out;
+  const r = RECIPES.find(x => x.id === recipeId);
+  if (!recipeAvailable(r)) return toast("Technology not yet researched.", "bad");
+  const p = currentPlanet();
+  let cap = Math.floor((3 + p.industry) * (1 + S.upgrades.factory * 0.30));
+  if (r.reactor) cap = Math.floor(cap * (1 + S.upgrades.reactor * 0.40));
+  let batches = Math.min(cap, recipeMaxBatches(r));
+  // limit by output cargo room (output qty per batch)
+  const outIsFuel = COM[r.out].isFuel;
+  const room = outIsFuel ? (fuelCap() - S.res.fuel) : cargoFree();
+  batches = Math.min(batches, Math.floor(room / r.qty) + 0); // conservative
+  if (batches <= 0) {
+    const lack = Object.entries(r.in).find(([k, v]) => (S.res[k] || 0) < v);
+    return toast(lack ? `Need more ${COM[lack[0]].name}.` : "No room for output.", "bad");
+  }
+  Object.entries(r.in).forEach(([k, v]) => { S.res[k] -= v * batches; });
+  S.res[r.out] += r.qty * batches;
   useAction();
-  log(`Refined <span class="c">${out}</span> fuel from minerals.`, "good");
-  toast(`+${out} ⛽ fuel`, "good");
+  const inStr = Object.entries(r.in).map(([k, v]) => `${v*batches} ${COM[k].ico}`).join(" + ");
+  log(`Produced <span class="c">${r.qty*batches}</span> ${COM[r.out].ico} ${COM[r.out].name} (used ${inStr}) on ${p.name}.`, "good");
+  toast(`+${r.qty*batches} ${COM[r.out].ico} ${COM[r.out].name}`, "good");
   afterAction();
 }
 
+/* ============================================================
+   RESEARCH & POLITICS actions
+   ============================================================ */
 function research() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
-  let pts = Math.round((2 + p.tech) * (1 + S.upgrades.lab * 0.40));
-  S.res.tech += pts;
-  useAction();
+  const pts = Math.round((2 + p.tech) * (1 + S.upgrades.lab * 0.40));
+  S.res.tech += pts; useAction();
   log(`Generated <span class="c">${pts}</span> tech points on ${p.name}.`, "good");
   toast(`+${pts} 🔬 tech`, "good");
   afterAction();
 }
-
 function doPolitics() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
-  // influence scales with planet tech/industry (civic weight) + envoy suite
   let inf = Math.round((2 + (p.tech + p.industry) / 3) * (1 + S.upgrades.envoy * 0.40));
   if (S.perks.senator) inf = Math.round(inf * 1.3);
   if (S.perks.governor) inf = Math.round(inf * 1.6);
   S.res.influence += inf;
+  const repGain = Math.round(3 * (1 + S.upgrades.envoy * 0.4));
+  addRep(p.faction, repGain);
   useAction();
-  log(`Earned <span class="c">${inf}</span> influence lobbying on ${p.name}.`, "good");
+  log(`Lobbied on ${p.name}: +${inf} influence, +${repGain} ${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name} rep.`, "good");
   toast(`+${inf} 🏛️ influence`, "good");
   afterAction();
 }
 
-function afterAction() {
-  checkWin();
-  saveGame();
-  renderAll();
-}
+function afterAction() { checkWin(); saveGame(); renderAll(); }
 
 /* ============================================================
    TRADE
    ============================================================ */
-function buy(commodity, qty) {
-  qty = Math.max(0, Math.floor(qty));
-  if (qty <= 0) return;
-  const price = buyPrice(S.location, commodity);
-  const cost = price * qty;
+function buy(c, qty) {
+  qty = Math.max(0, Math.floor(qty)); if (qty <= 0) return;
+  const cost = buyPrice(S.location, c) * qty;
   if (S.res.credits < cost) return toast("Not enough credits.", "bad");
-  if (commodity === "fuel") {
-    if (S.res.fuel + qty > fuelCap()) return toast("Fuel tank too small.", "bad");
-  } else {
-    if (cargoUsed() + qty > cargoCap()) return toast("Cargo hold full.", "bad");
+  if (COM[c].isFuel) { if (S.res.fuel + qty > fuelCap()) return toast("Fuel tank too small.", "bad"); }
+  else if (cargoUsed() + qty > cargoCap()) return toast("Cargo hold full.", "bad");
+  S.res.credits -= cost; S.res[c] += qty; S.stats.trades++;
+  addRep(currentPlanet().faction, 1);
+  log(`Bought ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(cost)}</span> cr.`);
+  toast(`Bought ${qty} ${COM[c].name}`, "good");
+  afterAction();
+}
+function sell(c, qty) {
+  qty = Math.max(0, Math.floor(qty)); if (qty <= 0) return;
+  if (S.res[c] < qty) return toast("You don't have that many.", "bad");
+  // selling contraband where illegal triggers a customs check
+  if (isIllegalAt(c, S.location)) {
+    const busted = customsCheck(c, qty, "sale");
+    if (busted) return; // goods confiscated
   }
-  S.res.credits -= cost;
-  S.res[commodity] += qty;
-  S.stats.trades++;
-  log(`Bought ${qty} ${RES[commodity].ico} ${RES[commodity].name} for <span class="c">${fmt(cost)}</span> cr.`);
-  toast(`Bought ${qty} ${RES[commodity].name}`, "good");
+  const revenue = sellPrice(S.location, c) * qty;
+  S.res[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue;
+  addRep(currentPlanet().faction, 1);
+  log(`Sold ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(revenue)}</span> cr.`, "good");
+  toast(`Sold ${qty} ${COM[c].name} (+${fmt(revenue)} cr)`, "good");
   afterAction();
 }
 
-function sell(commodity, qty) {
-  qty = Math.max(0, Math.floor(qty));
-  if (qty <= 0) return;
-  if (S.res[commodity] < qty) return toast("You don't have that many.", "bad");
-  const price = sellPrice(S.location, commodity);
-  const revenue = price * qty;
-  S.res[commodity] -= qty;
-  S.res.credits += revenue;
-  S.stats.trades++;
-  S.stats.profit += revenue;
-  log(`Sold ${qty} ${RES[commodity].ico} ${RES[commodity].name} for <span class="c">${fmt(revenue)}</span> cr.`, "good");
-  toast(`Sold ${qty} ${RES[commodity].name} (+${fmt(revenue)} cr)`, "good");
-  afterAction();
+/* ============================================================
+   CONTRABAND / CUSTOMS
+   ============================================================ */
+function bustRisk(comId, qty, planet) {
+  let r = planet.enforce * Math.min(1, Math.max(0.25, qty / 30));
+  r *= 1 - S.upgrades.smuggler * 0.22;
+  r *= 1 - S.upgrades.shield * 0.06;
+  if (COM[comId].hazard) r *= S.upgrades.hazmat ? (1 - S.upgrades.hazmat * 0.25) : 1.3;
+  r *= 1 - Math.max(0, repPriceFactor(planet)) * 1.5;          // good local rep helps
+  if (S.perks.senator) r *= 0.85;
+  if (S.perks.governor) r *= 0.7;
+  return Math.max(0, Math.min(0.95, r));
+}
+function customsCheck(comId, qty, context) {
+  const p = currentPlanet();
+  const risk = bustRisk(comId, qty, p);
+  if (Math.random() < risk) {
+    const conf = S.res[comId];
+    const fine = Math.min(S.res.credits, Math.round(conf * COM[comId].base * 0.4) + 200);
+    S.res[comId] = 0; S.res.credits -= fine;
+    addRep("core", -12); addRep(p.faction, -6); addRep("frontier", 3);
+    S.stats.busts++;
+    log(`🚨 CUSTOMS BUST at ${p.name}! ${conf} ${COM[comId].ico} ${COM[comId].name} seized, fined ${fmt(fine)} cr.`, "bad");
+    toast(`🚨 Busted! ${COM[comId].name} seized`, "bad");
+    afterAction();
+    return true;
+  }
+  if (context === "sale") log(`Customs waved through your ${COM[comId].name}. Risky.`, "event");
+  return false;
+}
+function scanOnArrival(planet) {
+  // check each illegal commodity carried into a world
+  CARGO_IDS.forEach(c => {
+    if (S.res[c] > 0 && isIllegalAt(c, planet.id)) {
+      const risk = bustRisk(c, S.res[c], planet);
+      if (Math.random() < risk) {
+        const conf = S.res[c];
+        const fine = Math.min(S.res.credits, Math.round(conf * COM[c].base * 0.4) + 200);
+        S.res[c] = 0; S.res.credits -= fine;
+        addRep("core", -12); addRep(planet.faction, -6); addRep("frontier", 3);
+        S.stats.busts++;
+        log(`🚨 ${planet.name} customs scan! ${conf} ${COM[c].ico} ${COM[c].name} seized, fined ${fmt(fine)} cr.`, "bad");
+        toast(`🚨 Cargo scan: ${COM[c].name} seized!`, "bad");
+      }
+    }
+  });
 }
 
 /* ============================================================
    TRAVEL
    ============================================================ */
 function fuelCost(destId) {
-  const dist = currentPlanet().distances[destId];
-  let cost = dist * 8;
+  let cost = currentPlanet().distances[destId] * 7;
   cost *= 1 - S.upgrades.engine * 0.12;
-  if (S.techs.warpdrive) cost *= 0.80;
+  if (S.techs.warpdrive) cost *= 0.8;
   return Math.max(1, Math.round(cost));
 }
-
 function travel(destId) {
   if (destId === S.location) return;
   const cost = fuelCost(destId);
   if (S.res.fuel < cost) return toast(`Not enough fuel (need ${cost}).`, "bad");
   const dest = PLANETS.find(p => p.id === destId);
-  S.res.fuel -= cost;
-  S.location = destId;
-  S.visited[destId] = true;
-  S.stats.jumps++;
+  S.res.fuel -= cost; S.location = destId; S.visited[destId] = true; S.stats.jumps++;
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
   toast(`Arrived at ${dest.name}`, "event");
-  endTurn(true); // travelling advances a cycle
+  scanOnArrival(dest);
+  endTurn(true);
 }
 
 /* ============================================================
-   UPGRADES
+   UPGRADES / RESEARCH / MISSIONS
    ============================================================ */
-function upgradeCost(u) {
-  const tier = S.upgrades[u.id];
-  return Math.round(u.baseCost * Math.pow(u.costMul, tier));
-}
+function upgradeCost(u) { return Math.round(u.baseCost * Math.pow(u.costMul, S.upgrades[u.id])); }
 function buyUpgrade(uid) {
   const u = UPGRADES.find(x => x.id === uid);
-  const tier = S.upgrades[uid];
-  if (tier >= u.tiers) return;
+  if (S.upgrades[uid] >= u.tiers) return;
   const cost = upgradeCost(u);
   if (S.res.credits < cost) return toast("Not enough credits.", "bad");
-  S.res.credits -= cost;
-  S.upgrades[uid]++;
+  S.res.credits -= cost; S.upgrades[uid]++;
   log(`Installed ${u.ico} ${u.name} (Tier ${S.upgrades[uid]}).`, "good");
   toast(`${u.name} → Tier ${S.upgrades[uid]}`, "good");
   afterAction();
 }
-
-/* ============================================================
-   RESEARCH TECH
-   ============================================================ */
 function techUnlocked(t) { return !!S.techs[t.id]; }
-function techAvailable(t) {
-  return !techUnlocked(t) && t.req.every(r => S.techs[r]);
-}
+function techAvailable(t) { return !techUnlocked(t) && t.req.every(r => S.techs[r]); }
 function researchTech(tid) {
   const t = TECHS.find(x => x.id === tid);
   if (!techAvailable(t)) return;
   if (S.res.tech < t.cost) return toast("Not enough tech points.", "bad");
-  S.res.tech -= t.cost;
-  S.techs[tid] = true;
+  S.res.tech -= t.cost; S.techs[tid] = true;
   log(`Researched ${t.ico} <span class="c">${t.name}</span>!`, "event");
   toast(`Unlocked: ${t.name}`, "event");
-  checkWin();
   afterAction();
 }
-
-/* ============================================================
-   MISSIONS
-   ============================================================ */
 function missionAvailable(m) {
   if (S.missions[m.id]) return false;
   if (m.reqTech && !S.techs[m.reqTech]) return false;
   if (m.reqPerk && !S.perks[m.reqPerk]) return false;
   return true;
 }
+function missionCanDo(m) {
+  if (!canAfford(m.cost)) return false;
+  if (m.need && (S.res[m.need.commodity] || 0) < m.need.qty) return false;
+  if (m.needRep) return Object.entries(m.needRep).every(([f, n]) => (S.rep[f] || 0) >= n);
+  return true;
+}
 function doMission(mid) {
   const m = MISSIONS.find(x => x.id === mid);
-  if (!missionAvailable(m)) return;
-  if (!canAfford(m.cost)) return toast("Requirements not met.", "bad");
+  if (!missionAvailable(m) || !missionCanDo(m)) return;
   pay(m.cost);
+  if (m.need) S.res[m.need.commodity] -= m.need.qty;
   gain(m.reward);
   S.missions[mid] = true;
   log(`Completed mission: <span class="c">${m.name}</span>.`, "event");
   toast(`Mission complete: ${m.name}`, "event");
-  checkWin();
+  afterAction();
+}
+
+/* ============================================================
+   GOVERNOR DECREES
+   ============================================================ */
+function setDecree(kind, comId) {
+  if (!S.perks.governor) return;
+  S.decrees[kind] = (S.decrees[kind] === comId) ? null : comId;
+  const label = kind === "monopoly" ? "Trade Monopoly" : "Tariff";
+  log(`Governor decree — ${label}: ${S.decrees[kind] ? COM[comId].ico + " " + COM[comId].name : "lifted"}.`, "event");
   afterAction();
 }
 
@@ -627,30 +752,31 @@ function doMission(mid) {
    TURN / EVENTS
    ============================================================ */
 const EVENTS = [
-  { msg: "Solar flare scrambles markets across the sector.", type: "event",
-    fn: () => { COMMODITIES.forEach(c => PLANETS.forEach(p => { S.prices[p.id][c] = Math.round(S.prices[p.id][c] * (0.7 + Math.random() * 0.7)); })); } },
+  { msg: "Solar flare scrambles markets sector-wide.", type: "event",
+    fn: () => COM_IDS.forEach(c => PLANETS.forEach(p => { S.prices[p.id][c] = Math.round(S.prices[p.id][c] * (0.7 + Math.random() * 0.7)); })) },
   { msg: "Pirates ambush your convoy!", type: "bad",
     fn: () => {
-      const mitig = 1 - S.upgrades.shield * 0.25;
-      const loss = Math.round((S.res.goods * 0.2 + 50) * mitig);
-      const stolen = Math.min(S.res.goods, Math.round(S.res.goods * 0.2 * mitig));
-      S.res.goods -= stolen;
-      const credLoss = Math.min(S.res.credits, Math.round(loss));
-      S.res.credits -= credLoss;
-      return ` They grabbed ${stolen} goods and ${fmt(credLoss)} credits.`;
+      const mit = 1 - S.upgrades.shield * 0.25;
+      const target = ["goods", "metals", "electronics", "luxury"].find(c => S.res[c] > 0) || "ore";
+      const stolen = Math.min(S.res[target], Math.round(S.res[target] * 0.25 * mit));
+      const credLoss = Math.min(S.res.credits, Math.round(80 * mit));
+      S.res[target] -= stolen; S.res.credits -= credLoss;
+      return ` They grabbed ${stolen} ${COM[target].name} and ${fmt(credLoss)} credits.`;
     } },
   { msg: "A derelict freighter drifts by — salvage recovered.", type: "good",
     fn: () => { const c = 200 + Math.round(Math.random() * 800); S.res.credits += c; return ` +${fmt(c)} credits.`; } },
-  { msg: "Bumper harvest reported — food prices crash.", type: "event",
-    fn: () => { PLANETS.forEach(p => { S.prices[p.id].food = Math.round(S.prices[p.id].food * 0.6); }); } },
-  { msg: "Mineral shortage — ore prices spike galaxy-wide.", type: "event",
-    fn: () => { PLANETS.forEach(p => { S.prices[p.id].minerals = Math.round(S.prices[p.id].minerals * 1.5); }); } },
+  { msg: "Bumper harvest — biomass & food prices crash.", type: "event",
+    fn: () => PLANETS.forEach(p => { S.prices[p.id].biomass = Math.round(S.prices[p.id].biomass * 0.6); }) },
+  { msg: "Ore shortage — metals prices spike.", type: "event",
+    fn: () => PLANETS.forEach(p => { S.prices[p.id].metals = Math.round(S.prices[p.id].metals * 1.5); }) },
+  { msg: "Energy crisis — power cells in huge demand.", type: "event",
+    fn: () => PLANETS.forEach(p => { S.prices[p.id].energy = Math.round(S.prices[p.id].energy * 1.6); }) },
+  { msg: "Black-market boom — relics & spice prices surge.", type: "event",
+    fn: () => PLANETS.forEach(p => { S.prices[p.id].relics = Math.round(S.prices[p.id].relics * 1.5); S.prices[p.id].spice = Math.round(S.prices[p.id].spice * 1.4); }) },
   { msg: "Scientific breakthrough! Bonus tech points awarded.", type: "good",
     fn: () => { const t = 5 + Math.round(Math.random() * 10); S.res.tech += t; return ` +${t} tech.`; } },
-  { msg: "Diplomatic gala — your standing rises.", type: "good",
-    fn: () => { const i = 4 + Math.round(Math.random() * 8); S.res.influence += i; return ` +${i} influence.`; } },
+  { msg: "Customs crackdown — enforcement tightens this cycle.", type: "event", fn: () => "" },
 ];
-
 function maybeEvent() {
   if (Math.random() < 0.45) {
     const e = EVENTS[Math.floor(Math.random() * EVENTS.length)];
@@ -659,57 +785,52 @@ function maybeEvent() {
     toast(e.msg, e.type === "bad" ? "bad" : "event");
   }
 }
-
+function applyDecreeIncome() {
+  if (S.perks.governor && S.decrees.monopoly) {
+    const c = S.decrees.monopoly;
+    const income = Math.round(COM[c].base * 8);
+    S.res.credits += income;
+    log(`Monopoly on ${COM[c].ico} ${COM[c].name} paid <span class="c">${fmt(income)}</span> credits this cycle.`, "good");
+  }
+}
 function endTurn(fromTravel = false) {
-  S.turn++;
-  S.actionsUsed = 0;
-  rollPrices();
-  maybeEvent();
+  S.turn++; S.actionsUsed = 0;
+  rollPrices(); applyDecreeIncome(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
-  checkWin();
-  saveGame();
-  renderAll();
+  checkWin(); saveGame(); renderAll();
 }
 
 /* ============================================================
-   WIN CONDITION (legacy goal)
+   WIN CONDITION
    ============================================================ */
 function netWorth() {
-  let w = S.res.credits;
-  // value cargo at Terra Nova base prices, plus fuel
-  w += S.res.minerals * 18 + S.res.food * 15 + S.res.goods * 28 + S.res.fuel * 12;
-  // upgrade investment
+  let w = S.res.credits + S.res.fuel * COM.fuel.base;
+  CARGO_IDS.forEach(c => w += S.res[c] * COM[c].base);
   return Math.round(w);
 }
 const OBJECTIVE_META = {
-  worth:     { emoji: "💰", title: "Tycoon",           sub: "Net worth has passed 50,000 credits!" },
+  worth:     { emoji: "💰", title: "Tycoon",           sub: "Net worth has passed 75,000 credits!" },
   terraform: { emoji: "🌍", title: "Master Scientist", sub: "Terraforming researched — you can reshape worlds!" },
   governor:  { emoji: "👑", title: "Sector Governor",  sub: "You now rule the entire sector!" },
-  explored:  { emoji: "🧭", title: "Master Explorer",  sub: "Every one of the six worlds has been charted!" },
+  explored:  { emoji: "🧭", title: "Master Explorer",  sub: "All ten worlds have been charted!" },
 };
-
 function winProgress() {
   return {
-    worth:    { have: netWorth() >= 50000,            label: "Amass 50,000 credits net worth" },
-    terraform:{ have: !!S.techs.terraform,            label: "Research Terraforming" },
-    governor: { have: !!S.perks.governor,             label: "Become Sector Governor" },
-    explored: { have: PLANETS.every(p => S.visited[p.id]), label: "Visit all 6 worlds" },
+    worth:     { have: netWorth() >= 75000,                  label: "Amass 75,000 credits net worth" },
+    terraform: { have: !!S.techs.terraform,                  label: "Research Terraforming" },
+    governor:  { have: !!S.perks.governor,                   label: "Become Sector Governor" },
+    explored:  { have: PLANETS.every(p => S.visited[p.id]),  label: "Visit all 10 worlds" },
   };
 }
-
-/* mark already-met objectives as achieved without celebrating (used on load) */
 function syncObjectives() {
   S.achieved = S.achieved || {};
   const wp = winProgress();
   Object.keys(wp).forEach(k => { if (wp[k].have) S.achieved[k] = true; });
   if (Object.values(wp).every(x => x.have)) S.won = true;
 }
-
 function checkWin() {
   S.achieved = S.achieved || {};
   const wp = winProgress();
-
-  // Celebrate each newly-completed objective
   Object.keys(wp).forEach(key => {
     if (wp[key].have && !S.achieved[key]) {
       S.achieved[key] = true;
@@ -720,12 +841,9 @@ function checkWin() {
       log(`🎆 Objective reached: <span class="c">${m.title}</span> — ${m.sub}`, "good");
     }
   });
-
-  // Grand finale when all objectives are done
   if (!S.won && Object.values(wp).every(x => x.have)) {
     S.won = true;
     log("🏆 LEGACY COMPLETE — You have shaped the destiny of the sector!", "good");
-    // delay slightly so the final objective's own burst leads into the finale
     setTimeout(() => {
       announce("🏆 LEGACY COMPLETE", "You have shaped the destiny of the sector. A legend is born!", true);
       fireworks(8000, true);
@@ -738,362 +856,327 @@ function checkWin() {
    RENDERING
    ============================================================ */
 function renderResources() {
-  const order = ["credits", "fuel", "minerals", "food", "goods", "tech", "influence"];
   const el = document.getElementById("resources");
-  el.innerHTML = order.map(k => {
-    let extra = "";
-    if (k === "fuel") extra = `/${fuelCap()}`;
-    return `<div class="res" data-res="${k}" title="${RES[k].name}">
-      <span class="ico">${RES[k].ico}</span>
-      <span class="val">${fmt(S.res[k])}${extra}</span>
-    </div>`;
-  }).join("");
+  const items = [
+    ["credits", fmt(S.res.credits), ""],
+    ["fuel", `${S.res.fuel}/${fuelCap()}`, ""],
+    ["tech", fmt(S.res.tech), ""],
+    ["influence", fmt(S.res.influence), ""],
+  ].map(([k, v]) => `<div class="res" title="${META[k].name}"><span class="ico">${META[k].ico}</span><span class="val">${v}</span></div>`);
+  items.push(`<div class="res" title="Cargo hold"><span class="ico">🚚</span><span class="val">${cargoUsed()}/${cargoCap()}</span></div>`);
+  el.innerHTML = items.join("");
 }
-
 function renderShip() {
   document.getElementById("currentPlanet").textContent = currentPlanet().name;
   const cu = cargoUsed(), cc = cargoCap();
-  const stats = [
-    ["Cargo", `${cu}/${cc}`, cu / cc],
-    ["Fuel", `${S.res.fuel}/${fuelCap()}`, S.res.fuel / fuelCap()],
-  ];
-  const up = UPGRADES.map(u => {
-    const t = S.upgrades[u.id];
-    return t > 0 ? `${u.ico}${t}` : "";
-  }).filter(Boolean).join(" ");
+  const held = CARGO_IDS.filter(c => S.res[c] > 0)
+    .map(c => `${COM[c].ico}${S.res[c]}`).join("  ") || '<span class="hint">empty</span>';
+  const mods = UPGRADES.filter(u => S.upgrades[u.id] > 0).map(u => `${u.ico}${S.upgrades[u.id]}`).join(" ");
   document.getElementById("shipStats").innerHTML =
-    stats.map(([k, v, frac]) => `
-      <div class="ship-stat"><span class="k">${k}</span><span class="v">${v}</span></div>
-      <div class="bar"><span style="width:${Math.min(100, frac*100)}%"></span></div>
-    `).join("") +
-    `<div class="ship-stat" style="margin-top:8px"><span class="k">Actions</span><span class="v">${actionsLeft()}/${ACTIONS_PER_CYCLE}</span></div>` +
-    (up ? `<div class="ship-stat" style="margin-top:8px"><span class="k">Mods</span></div><div style="font-size:13px">${up}</div>` : "");
+    `<div class="ship-stat"><span class="k">Cargo</span><span class="v">${cu}/${cc}</span></div>
+     <div class="bar"><span style="width:${Math.min(100, cu/cc*100)}%"></span></div>
+     <div class="ship-stat" style="margin-top:6px"><span class="k">Fuel</span><span class="v">${S.res.fuel}/${fuelCap()}</span></div>
+     <div class="bar"><span style="width:${Math.min(100, S.res.fuel/fuelCap()*100)}%"></span></div>
+     <div class="ship-stat" style="margin-top:8px"><span class="k">Actions</span><span class="v">${actionsLeft()}/${ACTIONS_PER_CYCLE}</span></div>
+     <div class="ship-stat" style="margin-top:8px"><span class="k">Hold</span></div>
+     <div style="font-size:12px;line-height:1.7">${held}</div>
+     ${mods ? `<div class="ship-stat" style="margin-top:8px"><span class="k">Mods</span></div><div style="font-size:13px">${mods}</div>` : ""}`;
 }
-
 function renderLog() {
-  const el = document.getElementById("log");
-  if (!el) return;
-  el.innerHTML = S.log.map(e =>
-    `<div class="log-entry ${e.type}"><span style="opacity:.5">[${e.turn}]</span> ${e.msg}</div>`
-  ).join("");
+  const el = document.getElementById("log"); if (!el) return;
+  el.innerHTML = S.log.map(e => `<div class="log-entry ${e.type}"><span style="opacity:.5">[${e.turn}]</span> ${e.msg}</div>`).join("");
 }
 
-/* ----- Galaxy panel ----- */
+function repBar(f) {
+  const r = S.rep[f] || 0;
+  const pct = (r + 100) / 2;
+  const col = r >= 0 ? "var(--good)" : "var(--bad)";
+  return `<div class="ship-stat"><span class="k">${FACTIONS[f].ico} ${FACTIONS[f].name}</span><span class="v" style="color:${col}">${r>0?"+":""}${r}</span></div>
+    <div class="bar"><span style="width:${pct}%;background:${col}"></span></div>`;
+}
+
+/* ----- Galaxy ----- */
 function renderGalaxy() {
   const el = document.getElementById("panel-galaxy");
   const cards = PLANETS.map(p => {
-    const isHere = p.id === S.location;
-    const fc = isHere ? 0 : fuelCost(p.id);
-    const canGo = !isHere && S.res.fuel >= fc;
-    const visited = S.visited[p.id];
-    return `
-    <div class="planet-card ${isHere ? "current" : ""}">
+    const here = p.id === S.location;
+    const fc = here ? 0 : fuelCost(p.id);
+    const canGo = !here && S.res.fuel >= fc;
+    const deps = Object.keys(p.deposits || {}).map(c => COM[c].ico).join(" ")
+      + (p.salvage ? " 🧲" : "") + (p.bounty ? " 🎯" : "");
+    const enf = p.enforce > 0.7 ? '<span class="pill bad">strict law</span>'
+      : p.enforce < 0.25 ? '<span class="pill good">lawless</span>' : '<span class="pill">patrolled</span>';
+    return `<div class="planet-card ${here ? "current" : ""}">
       <div class="planet-orb" style="background:radial-gradient(circle at 35% 30%, ${p.color}, #000 130%)"></div>
-      <div class="planet-name">${p.name} ${visited ? "" : '<span class="badge">unknown</span>'}</div>
-      <div class="planet-tag">${p.tag}</div>
+      <div class="planet-name">${p.name} ${S.visited[p.id] ? "" : '<span class="badge">unknown</span>'}</div>
+      <div class="planet-tag">${p.tag} · ${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}</div>
       <div class="planet-desc">${p.desc}</div>
       <div class="planet-levels">
-        <span class="lvl-chip">⛏️ Mining ${"★".repeat(Math.round(p.richness*2.5)).padEnd(5,"·")}</span>
-        <span class="lvl-chip">🌾 Fertility ${"★".repeat(Math.round(p.fertility*2.5)).padEnd(5,"·")}</span>
-        <span class="lvl-chip">🏭 Industry ${p.industry}/10</span>
+        <span class="lvl-chip">🏭 Ind ${p.industry}/10</span>
         <span class="lvl-chip">🔬 Tech ${p.tech}/10</span>
+        ${enf}
       </div>
-      ${isHere
-        ? `<div class="pill good">◉ You are here</div>`
-        : `<div class="row">
-            <button class="btn btn-primary" ${canGo ? "" : "disabled"} onclick="travel('${p.id}')">Travel ▸</button>
-            <span class="distance">⛽ ${fc} fuel · ${currentPlanet().distances[p.id]} ly</span>
-          </div>`}
+      <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
+      ${here ? `<div class="pill good">◉ You are here</div>`
+        : `<div class="row"><button class="btn btn-primary" ${canGo ? "" : "disabled"} onclick="travel('${p.id}')">Travel ▸</button>
+            <span class="distance">⛽ ${fc} · ${currentPlanet().distances[p.id]} ly</span></div>`}
     </div>`;
   }).join("");
-
   const wp = winProgress();
-  const goals = Object.values(wp).map(g =>
-    `<div class="ship-stat"><span class="k">${g.have ? "✅" : "⬜"} ${g.label}</span></div>`
-  ).join("");
-
-  el.innerHTML = `
-    <h2>Galactic Map</h2>
-    <div class="subtitle">Six worlds, each with its own economy. Jump between them to trade and build your empire. Travelling costs fuel and advances a cycle.</div>
+  const goals = Object.values(wp).map(g => `<div class="ship-stat"><span class="k">${g.have ? "✅" : "⬜"} ${g.label}</span></div>`).join("");
+  el.innerHTML = `<h2>Galactic Map</h2>
+    <div class="subtitle">Ten worlds, each with its own resources, industry, laws and faction. Extraction is bound to where the resource exists. Travelling costs fuel and advances a cycle.</div>
     <div class="planet-grid">${cards}</div>
     <div class="section-title">🏆 Your Legacy (win conditions)</div>
-    <div class="cards"><div class="card">${goals}
-      <div class="hint">Net worth: ${fmt(netWorth())} cr</div>
-    </div></div>`;
+    <div class="cards"><div class="card">${goals}<div class="hint">Net worth: ${fmt(netWorth())} cr</div></div></div>`;
 }
 
-/* ----- Market panel ----- */
+/* ----- Market ----- */
 function renderMarket() {
   const el = document.getElementById("panel-market");
   const p = currentPlanet();
-  const rows = COMMODITIES.map(c => {
-    const bp = buyPrice(p.id, c), sp = sellPrice(p.id, c);
-    const base = p.base[c];
-    const trend = bp > base * 1.1 ? '<span class="price-up">▲ high</span>'
-                : bp < base * 0.9 ? '<span class="price-down">▼ low</span>'
-                : '<span class="hint">— avg</span>';
-    const showTrend = S.techs.markets;
-    return `
-    <tr>
-      <td>${RES[c].ico} ${RES[c].name}</td>
-      <td class="num">${fmt(bp)}</td>
-      <td class="num">${fmt(sp)}</td>
-      <td class="num">${fmt(S.res[c])}</td>
-      <td>${showTrend ? trend : '<span class="hint">?</span>'}</td>
-      <td>
-        <div class="trade-controls">
+  const showTrend = S.techs.markets;
+  let rows = "";
+  TIERS.forEach(tier => {
+    const ids = COM_IDS.filter(c => COM[c].tier === tier);
+    if (!ids.length) return;
+    rows += `<tr><td colspan="6" class="section-title" style="padding-top:14px">${tier}</td></tr>`;
+    ids.forEach(c => {
+      const bp = buyPrice(p.id, c), sp = sellPrice(p.id, c), base = COM[c].base;
+      const trend = bp > base * 1.12 ? '<span class="price-up">▲</span>' : bp < base * 0.88 ? '<span class="price-down">▼</span>' : '<span class="hint">—</span>';
+      const illegal = isIllegalAt(c, p.id) ? ' <span class="pill bad" title="Contraband here">illegal</span>' : '';
+      rows += `<tr>
+        <td>${COM[c].ico} ${COM[c].name}${illegal}</td>
+        <td class="num">${fmt(bp)}</td><td class="num">${fmt(sp)}</td>
+        <td class="num">${fmt(S.res[c] || 0)}</td>
+        <td>${showTrend ? trend : '<span class="hint">?</span>'}</td>
+        <td><div class="trade-controls">
           <input class="qty" id="qty-${c}" type="number" min="1" value="10" />
           <button class="btn btn-sm btn-good" onclick="buyQty('${c}')">Buy</button>
           <button class="btn btn-sm btn-bad" onclick="sellQty('${c}')">Sell</button>
-        </div>
-      </td>
-    </tr>`;
-  }).join("");
-
-  el.innerHTML = `
-    <h2>${p.name} Market</h2>
-    <div class="subtitle">${p.tag}. Buy low here, sell high elsewhere. ${S.techs.markets ? "Galactic Exchange reveals price trends." : "Research the Galactic Exchange to reveal price trends."}</div>
-    <table>
-      <thead><tr><th>Commodity</th><th class="num">Buy</th><th class="num">Sell</th><th class="num">You hold</th><th>Trend</th><th></th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-    <div class="row" style="margin-top:14px">
-      <span class="hint">Cargo ${cargoUsed()}/${cargoCap()} · Fuel ${S.res.fuel}/${fuelCap()} · Credits ${fmt(S.res.credits)}</span>
-    </div>`;
+        </div></td></tr>`;
+    });
+  });
+  el.innerHTML = `<h2>${p.name} Market</h2>
+    <div class="subtitle">${p.tag}. ${showTrend ? "Galactic Exchange reveals trends." : "Research the Galactic Exchange to reveal price trends."} Items marked <span class="pill bad">illegal</span> risk a customs bust here.</div>
+    <table><thead><tr><th>Commodity</th><th class="num">Buy</th><th class="num">Sell</th><th class="num">Hold</th><th>Trend</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="row" style="margin-top:14px"><span class="hint">Cargo ${cargoUsed()}/${cargoCap()} · Fuel ${S.res.fuel}/${fuelCap()} · Credits ${fmt(S.res.credits)}</span></div>`;
 }
-function buyQty(c)  { buy(c, +document.getElementById("qty-" + c).value); }
+function buyQty(c) { buy(c, +document.getElementById("qty-" + c).value); }
 function sellQty(c) { sell(c, +document.getElementById("qty-" + c).value); }
 
-/* ----- Industry panel (mining, farming, manufacturing) ----- */
+/* ----- Industry ----- */
 function renderIndustry() {
   const el = document.getElementById("panel-industry");
   const p = currentPlanet();
   const al = actionsLeft();
-  const ratio = 2 + (S.techs.automation ? 1 : 0);
 
-  const acts = [
-    { name: "⛏️ Mine Minerals", desc: `Extract ore. Yield scales with this world's richness and your Mining Laser.`,
-      val: `≈ ${Math.round(18*p.richness*(1+S.upgrades.miner*0.35)*(S.techs.deepcore?1.25:1))} 🪨`,
-      fn: "mine", on: al>0 && cargoFree()>0 },
-    { name: "🌾 Harvest Food", desc: `Grow food. Yield scales with fertility and your Hydroponics Bay.`,
-      val: `≈ ${Math.round(18*p.fertility*(1+S.upgrades.hydro*0.35)*(S.techs.geneseed?1.25:1))} 🌾`,
-      fn: "farm", on: al>0 && cargoFree()>0 },
-    { name: "🏭 Manufacture Goods", desc: `Refine ${ratio} minerals → 1 good. Output scales with planet industry & Fabricator.`,
-      val: `up to ${Math.floor((4+p.industry)*(1+S.upgrades.factory*0.30))} 📦`,
-      fn: "manufacture", on: al>0 && S.res.minerals>=ratio },
-  ];
-  if (S.techs.fusion) {
-    acts.push({ name: "⛽ Refine Fuel", desc: `Fusion Refinement: convert 2 minerals → 1 fuel.`,
-      val: `up to ${6+p.industry} ⛽`, fn: "refineFuel", on: al>0 && S.res.minerals>=2 && S.res.fuel<fuelCap() });
+  // Extraction cards (location bound)
+  let extractCards = "";
+  Object.keys(p.deposits || {}).forEach(c => {
+    const { mod, tech, ok, blockMsg } = extractMods(c);
+    const est = Math.round(14 * p.deposits[c] * mod * tech);
+    const verb = { mine: "Mine", forage: "Forage", capture: "Capture", exploit: "Recover" }[COM[c].extract];
+    const illegal = COM[c].illegalAt ? ' <span class="pill bad">hot cargo</span>' : '';
+    extractCards += `<div class="card ${ok ? "" : "locked"}">
+      <h4>${COM[c].ico} ${verb} ${COM[c].name}${illegal}</h4>
+      <div class="desc">${({mine:"Mining",forage:"Foraging",capture:"Gas capture",exploit:"Ruin salvage"})[COM[c].extract]} — yield scales with this world's deposit and your gear.</div>
+      <div class="meta"><span class="hint">Est. output</span><span class="cost">≈ ${est} ${COM[c].ico}</span></div>
+      ${ok ? `<button class="btn btn-primary" ${al>0 && cargoFree()>0 ? "" : "disabled"} onclick="extract('${c}')">Extract (1 action)</button>`
+           : `<div class="hint" style="color:var(--bad)">${blockMsg}</div>`}
+    </div>`;
+  });
+  if (p.salvage) {
+    const ok = S.upgrades.salvager >= 1;
+    extractCards += `<div class="card ${ok ? "" : "locked"}">
+      <h4>🧲 Salvage Wrecks</h4>
+      <div class="desc">Strip derelicts for metals & electronics — chance of rare finds. Needs a Salvage Rig.</div>
+      ${ok ? `<button class="btn btn-primary" ${al>0 && cargoFree()>0 ? "" : "disabled"} onclick="salvage()">Salvage (1 action)</button>`
+           : `<div class="hint" style="color:var(--bad)">Requires a Salvage Rig module.</div>`}
+    </div>`;
+  }
+  if (p.bounty) {
+    extractCards += `<div class="card">
+      <h4>🎯 Hunt Bounties</h4>
+      <div class="desc">Track pirates for credits, influence and faction goodwill. Some risk without a Deflector Shield.</div>
+      <button class="btn btn-primary" ${al>0 ? "" : "disabled"} onclick="bounty()">Hunt (1 action)</button>
+    </div>`;
   }
 
-  const cards = acts.map(a => `
-    <div class="card">
-      <h4>${a.name}</h4>
-      <div class="desc">${a.desc}</div>
-      <div class="meta"><span class="hint">Est. output</span><span class="cost">${a.val}</span></div>
-      <button class="btn btn-primary" ${a.on ? "" : "disabled"} onclick="${a.fn}()">Work (1 action)</button>
-    </div>`).join("");
+  // Production cards
+  const prodCards = RECIPES.map(r => {
+    const avail = recipeAvailable(r);
+    const inStr = Object.entries(r.in).map(([k, v]) => `${v}${COM[k].ico}`).join(" + ");
+    let cap = Math.floor((3 + p.industry) * (1 + S.upgrades.factory * 0.30));
+    if (r.reactor) cap = Math.floor(cap * (1 + S.upgrades.reactor * 0.40));
+    const batches = Math.min(cap, recipeMaxBatches(r));
+    const canRun = avail && batches > 0 && al > 0;
+    const reqName = r.req ? TECHS.find(t => t.id === r.req).name : "";
+    return `<div class="card ${avail ? "" : "locked"}">
+      <h4>${COM[r.out].ico} ${COM[r.out].name}</h4>
+      <div class="desc">${inStr} → ${r.qty} ${COM[r.out].ico} per batch.</div>
+      ${avail ? `<div class="meta"><span class="hint">This run</span><span class="cost">${batches>0 ? "×"+batches+" batch"+(batches>1?"es":"") : "missing inputs"}</span></div>
+        <button class="btn btn-primary" ${canRun ? "" : "disabled"} onclick="produce('${r.id}')">Produce (1 action)</button>`
+        : `<div class="hint" style="color:var(--bad)">Requires tech: ${reqName}</div>`}
+    </div>`;
+  }).join("");
 
-  el.innerHTML = `
-    <h2>Industry — ${p.name}</h2>
-    <div class="subtitle">Produce raw resources and goods. Each task uses 1 of your ${ACTIONS_PER_CYCLE} actions per cycle. Actions left: <b>${al}</b>.</div>
-    <div class="cards">${cards}</div>`;
+  el.innerHTML = `<h2>Industry — ${p.name}</h2>
+    <div class="subtitle">Industry level ${p.industry}/10. Extract raw materials (only what this world holds), then refine and manufacture them. Each task uses 1 action. Actions left: <b>${al}</b>.</div>
+    <div class="section-title">⛏️ Extraction (here)</div>
+    <div class="cards">${extractCards || '<div class="hint">No raw deposits on this world — trade or produce instead.</div>'}</div>
+    <div class="section-title">🏭 Production</div>
+    <div class="cards">${prodCards}</div>`;
 }
 
-/* ----- Research panel ----- */
+/* ----- Research ----- */
 function renderResearch() {
   const el = document.getElementById("panel-research");
   const p = currentPlanet();
   const al = actionsLeft();
   const techCards = TECHS.map(t => {
-    const done = techUnlocked(t);
-    const avail = techAvailable(t);
+    const done = techUnlocked(t), avail = techAvailable(t);
     const cls = done ? "card owned" : avail ? "card" : "card locked";
-    const reqTxt = t.req.length ? `Requires: ${t.req.map(r => TECHS.find(x=>x.id===r).name).join(", ")}` : "";
-    return `
-    <div class="${cls}">
+    const reqTxt = t.req.length ? `Requires: ${t.req.map(r => TECHS.find(x => x.id === r).name).join(", ")}` : "";
+    return `<div class="${cls}">
       <h4>${t.ico} ${t.name} ${done ? '<span class="pill good">researched</span>' : ""}</h4>
       <div class="desc">${t.desc}</div>
       ${reqTxt ? `<div class="hint">${reqTxt}</div>` : ""}
       <div class="meta"><span class="cost">${t.cost} 🔬</span>
-        ${done ? "" : `<button class="btn btn-primary" ${avail && S.res.tech>=t.cost ? "" : "disabled"} onclick="researchTech('${t.id}')">Research</button>`}
-      </div>
+        ${done ? "" : `<button class="btn btn-primary" ${avail && S.res.tech >= t.cost ? "" : "disabled"} onclick="researchTech('${t.id}')">Research</button>`}</div>
     </div>`;
   }).join("");
-
-  el.innerHTML = `
-    <h2>Research & Technology</h2>
-    <div class="subtitle">Generate tech points in the lab, then unlock permanent upgrades. You have <b>${fmt(S.res.tech)} 🔬</b>.</div>
-    <div class="cards">
-      <div class="card">
-        <h4>🔬 Run Experiments</h4>
-        <div class="desc">Generate tech points. Output scales with this world's tech level (${p.tech}/10) and your Research Lab.</div>
-        <div class="meta"><span class="hint">Est. output</span><span class="cost">+${Math.round((2+p.tech)*(1+S.upgrades.lab*0.40))} 🔬</span></div>
-        <button class="btn btn-primary" ${al>0 ? "" : "disabled"} onclick="research()">Research (1 action)</button>
-      </div>
-    </div>
+  el.innerHTML = `<h2>Research & Technology</h2>
+    <div class="subtitle">Generate tech points, then unlock new extraction, production and strategic tech. You have <b>${fmt(S.res.tech)} 🔬</b>.</div>
+    <div class="cards"><div class="card">
+      <h4>🔬 Run Experiments</h4>
+      <div class="desc">Output scales with this world's tech level (${p.tech}/10) and your Research Lab.</div>
+      <div class="meta"><span class="hint">Est. output</span><span class="cost">+${Math.round((2 + p.tech) * (1 + S.upgrades.lab * 0.40))} 🔬</span></div>
+      <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="research()">Research (1 action)</button>
+    </div></div>
     <div class="section-title">Technology Tree</div>
     <div class="cards">${techCards}</div>`;
 }
 
-/* ----- Politics panel ----- */
+/* ----- Politics ----- */
 function renderPolitics() {
   const el = document.getElementById("panel-politics");
   const p = currentPlanet();
   const al = actionsLeft();
   const status = S.perks.governor ? "Sector Governor 👑" : S.perks.senator ? "Senator 🎖️" : "Free Trader";
+  const reps = Object.keys(FACTIONS).map(repBar).join("");
+
   const missionCards = MISSIONS.map(m => {
-    const done = S.missions[m.id];
-    const avail = missionAvailable(m);
+    const done = S.missions[m.id], avail = missionAvailable(m), can = avail && missionCanDo(m);
     const cls = done ? "card owned" : avail ? "card" : "card locked";
-    const lock = !avail && !done
-      ? (m.reqPerk && !S.perks[m.reqPerk] ? `Requires: ${m.reqPerk}` : m.reqTech && !S.techs[m.reqTech] ? `Requires tech: ${TECHS.find(x=>x.id===m.reqTech).name}` : "")
-      : "";
-    return `
-    <div class="${cls}">
-      <h4>${m.name} <span class="badge">Tier ${m.tier}</span> ${done ? '<span class="pill good">done</span>' : ""}</h4>
+    const needTxt = m.need ? `Deliver: ${m.need.qty} ${COM[m.need.commodity].ico} ${COM[m.need.commodity].name}. ` : "";
+    const repTxt = m.needRep ? `Needs rep: ${Object.entries(m.needRep).map(([f, n]) => `${FACTIONS[f].ico}≥${n}`).join(", ")}. ` : "";
+    const lock = !avail && !done ? (m.reqPerk && !S.perks[m.reqPerk] ? `Requires: ${m.reqPerk}` : m.reqTech && !S.techs[m.reqTech] ? `Requires tech: ${TECHS.find(x => x.id === m.reqTech).name}` : "") : "";
+    return `<div class="${cls}">
+      <h4>${m.name} <span class="badge">T${m.tier}</span> ${m.faction ? FACTIONS[m.faction].ico : ""} ${done ? '<span class="pill good">done</span>' : ""}</h4>
       <div class="desc">${m.desc}</div>
-      <div class="hint">Cost: ${costString(m.cost)}</div>
-      <div class="hint">Reward: ${m.reward.perk ? "Title: " + m.reward.perk + " " : ""}${costString(Object.fromEntries(Object.entries(m.reward).filter(([k])=>k!=="perk")))}</div>
+      <div class="hint">${needTxt}${repTxt}Cost: ${costString(m.cost)}</div>
+      <div class="hint">Reward: ${costString(m.reward)}</div>
       ${lock ? `<div class="hint" style="color:var(--bad)">${lock}</div>` : ""}
-      ${done ? "" : `<button class="btn btn-primary" ${avail && canAfford(m.cost) ? "" : "disabled"} onclick="doMission('${m.id}')">Undertake</button>`}
+      ${done ? "" : `<button class="btn btn-primary" ${can ? "" : "disabled"} onclick="doMission('${m.id}')">Undertake</button>`}
     </div>`;
   }).join("");
 
-  el.innerHTML = `
-    <h2>Politics & Influence</h2>
-    <div class="subtitle">Status: <b>${status}</b>. Lobby for influence, then spend it on missions for credits, power and titles. You have <b>${fmt(S.res.influence)} 🏛️</b>.</div>
+  // Governor decrees
+  let decrees = "";
+  if (S.perks.governor) {
+    const opts = COM_IDS.map(c => `<button class="btn btn-sm ${S.decrees.monopoly===c?"btn-good":""}" onclick="setDecree('monopoly','${c}')">${COM[c].ico}</button>`).join(" ");
+    const topts = COM_IDS.map(c => `<button class="btn btn-sm ${S.decrees.tariff===c?"btn-good":""}" onclick="setDecree('tariff','${c}')">${COM[c].ico}</button>`).join(" ");
+    decrees = `<div class="section-title">👑 Governor Decrees</div>
+      <div class="cards"><div class="card">
+        <h4>Trade Monopoly ${S.decrees.monopoly ? COM[S.decrees.monopoly].ico + " " + COM[S.decrees.monopoly].name : ""}</h4>
+        <div class="desc">Claim a commodity monopoly for passive credits every cycle. Click to set/clear.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${opts}</div>
+      </div><div class="card">
+        <h4>Sell Tariff ${S.decrees.tariff ? COM[S.decrees.tariff].ico + " " + COM[S.decrees.tariff].name : ""}</h4>
+        <div class="desc">Your political clout lifts YOUR sell price (+15%) for one commodity. Click to set/clear.</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px">${topts}</div>
+      </div></div>`;
+  }
+
+  el.innerHTML = `<h2>Politics, Factions & Trade Law</h2>
+    <div class="subtitle">Status: <b>${status}</b>. Build influence and faction reputation, run missions, and (as Governor) issue trade decrees. You have <b>${fmt(S.res.influence)} 🏛️</b>.</div>
     <div class="cards">
-      <div class="card">
-        <h4>🏛️ Lobby & Network</h4>
-        <div class="desc">Build political capital. Influence scales with this world's civic weight and your Diplomatic Suite${S.perks.senator?" + your title":""}.</div>
-        <div class="meta"><span class="hint">Est. output</span><span class="cost">+${Math.round((2+(p.tech+p.industry)/3)*(1+S.upgrades.envoy*0.40)*(S.perks.governor?1.6:S.perks.senator?1.3:1))} 🏛️</span></div>
-        <button class="btn btn-primary" ${al>0 ? "" : "disabled"} onclick="doPolitics()">Lobby (1 action)</button>
+      <div class="card"><h4>🏛️ Lobby & Network</h4>
+        <div class="desc">Earn influence and reputation with <b>${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}</b> (controls ${p.name}).</div>
+        <div class="meta"><span class="hint">Est.</span><span class="cost">+${Math.round((2 + (p.tech + p.industry) / 3) * (1 + S.upgrades.envoy * 0.40) * (S.perks.governor ? 1.6 : S.perks.senator ? 1.3 : 1))} 🏛️</span></div>
+        <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="doPolitics()">Lobby (1 action)</button>
       </div>
+      <div class="card"><h4>🤝 Faction Standing</h4>${reps}</div>
     </div>
+    ${decrees}
     <div class="section-title">Missions</div>
     <div class="cards">${missionCards}</div>`;
 }
 
-/* ----- Ship / upgrades panel ----- */
+/* ----- Ship ----- */
 function renderShipPanel() {
   const el = document.getElementById("panel-ship");
   const cards = UPGRADES.map(u => {
-    const tier = S.upgrades[u.id];
-    const maxed = tier >= u.tiers;
-    const cost = upgradeCost(u);
-    const dots = Array.from({length: u.tiers}, (_, i) =>
-      `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
+    const tier = S.upgrades[u.id], maxed = tier >= u.tiers, cost = upgradeCost(u);
+    const dots = Array.from({ length: u.tiers }, (_, i) => `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
     const cls = maxed ? "card maxed" : tier > 0 ? "card owned" : "card";
-    return `
-    <div class="${cls}">
+    return `<div class="${cls}">
       <h4>${u.ico} ${u.name} <span class="tier-dots">${dots}</span></h4>
       <div class="desc">${u.desc}</div>
       <div class="hint">Current: ${tier > 0 ? u.effect(tier) : "not installed"}</div>
       ${maxed ? `<div class="pill good">◉ Fully upgraded</div>`
-        : `<div class="meta">
-            <span class="hint">Next: ${u.effect(tier+1)}</span>
-            <span class="cost">${fmt(cost)} 💰</span>
-          </div>
-          <button class="btn btn-primary" ${S.res.credits>=cost ? "" : "disabled"} onclick="buyUpgrade('${u.id}')">Install Tier ${tier+1}</button>`}
+        : `<div class="meta"><span class="hint">Next: ${u.effect(tier + 1)}</span><span class="cost">${fmt(cost)} 💰</span></div>
+           <button class="btn btn-primary" ${S.res.credits >= cost ? "" : "disabled"} onclick="buyUpgrade('${u.id}')">Install Tier ${tier + 1}</button>`}
     </div>`;
   }).join("");
-
-  el.innerHTML = `
-    <h2>Ship Outfitting — S.S. Wanderer</h2>
-    <div class="subtitle">Ten upgrade systems, three tiers each. Spend credits at any spacedock to push your vessel further.</div>
+  el.innerHTML = `<h2>Ship Outfitting — S.S. Wanderer</h2>
+    <div class="subtitle">Fifteen upgrade systems, three tiers each. Some modules (Gas Scoop, Salvage Rig) unlock new extraction; others (Shielded & Smuggler's Holds) keep contraband out of customs' hands.</div>
     <div class="cards">${cards}</div>`;
 }
 
-/* ----- master render ----- */
 function renderAll() {
-  renderResources();
-  renderShip();
-  renderGalaxy();
-  renderMarket();
-  renderIndustry();
-  renderResearch();
-  renderPolitics();
-  renderShipPanel();
-  renderLog();
+  if (typeof document === "undefined") return;
+  renderResources(); renderShip(); renderGalaxy(); renderMarket();
+  renderIndustry(); renderResearch(); renderPolitics(); renderShipPanel(); renderLog();
+  const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
 }
 
 /* ============================================================
-   TABS
+   TABS / PERSISTENCE / INIT
    ============================================================ */
 function setTab(name) {
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".panel").forEach(p => p.classList.add("hidden"));
   document.getElementById("panel-" + name).classList.remove("hidden");
 }
-
-/* ============================================================
-   PERSISTENCE
-   ============================================================ */
-const SAVE_KEY = "stellar-frontier-save-v1";
-function saveGame() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {}
-}
+const SAVE_KEY = "stellar-frontier-save-v2";
+function saveGame() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 function loadGame() {
-  try {
-    const raw = localStorage.getItem(SAVE_KEY);
-    if (raw) { S = JSON.parse(raw); return true; }
-  } catch (e) {}
+  try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { S = JSON.parse(raw); return true; } } catch (e) {}
   return false;
 }
 function newGame() {
-  if (!confirm("Start a new game? Current progress will be lost.")) return;
-  S = freshState();
-  rollPrices();
+  if (typeof confirm === "function" && !confirm("Start a new game? Current progress will be lost.")) return;
+  S = freshState(); rollPrices();
   log("Welcome, Captain. Your journey begins on Terra Nova.");
-  saveGame();
-  renderAll();
-  setTab("galaxy");
+  saveGame(); renderAll(); setTab("galaxy");
 }
-
-/* ============================================================
-   INIT
-   ============================================================ */
 function init() {
-  if (!loadGame()) {
-    S = freshState();
-    rollPrices();
-    log("Welcome, Captain. Your journey begins on Terra Nova.");
-  }
-  // ensure prices exist (older save / safety)
+  if (!loadGame()) { S = freshState(); rollPrices(); log("Welcome, Captain. Your journey begins on Terra Nova."); }
   if (!S.prices || !S.prices.terra) rollPrices();
-  // backfill already-met objectives so we don't replay celebrations on load
   syncObjectives();
-
-  document.querySelectorAll(".tab").forEach(t =>
-    t.addEventListener("click", () => setTab(t.dataset.tab)));
+  document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
-
-  // header: new game button + turn binding
-  document.getElementById("turn").textContent = S.turn;
-  // add a small new-game control into the brand
   const brand = document.querySelector(".brand");
   const ng = document.createElement("button");
-  ng.className = "btn btn-sm";
-  ng.style.marginLeft = "8px";
-  ng.textContent = "⟲ New";
-  ng.title = "New game";
-  ng.addEventListener("click", newGame);
-  brand.appendChild(ng);
-
-  renderAll();
-  setTab("galaxy");
-
-  // keep turn counter live
-  const obs = () => { document.getElementById("turn").textContent = S.turn; requestAnimationFrame(obs); };
-  obs();
+  ng.className = "btn btn-sm"; ng.style.marginLeft = "8px"; ng.textContent = "⟲ New"; ng.title = "New game";
+  ng.addEventListener("click", newGame); brand.appendChild(ng);
+  renderAll(); setTab("galaxy");
 }
-
 window.addEventListener("DOMContentLoaded", init);
 
-/* expose handlers used by inline onclick */
 Object.assign(window, {
-  travel, buyQty, sellQty, mine, farm, manufacture, refineFuel,
-  research, researchTech, doPolitics, doMission, buyUpgrade, newGame,
+  travel, buyQty, sellQty, extract, salvage, bounty, produce,
+  research, researchTech, doPolitics, doMission, buyUpgrade, setDecree, newGame,
 });
