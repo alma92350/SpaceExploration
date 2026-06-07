@@ -106,6 +106,34 @@ for everything, plus **electronics** for high-tech modules (Solar Array, Gas
 Skimmer, Isotope Mine, Crystal Quarry, Excavation Site). Bring the materials
 or make them on site.
 
+## 🌍 Colonies — develop a planet's economy
+
+Frontier worlds marked **colonizable** can be settled and grown into thriving
+economies. Found a colony, then develop it:
+
+- **Population & happiness** — your citizens grow when fed and content, and
+  leave when starving or overtaxed.
+- **Buildings** — Habitat Domes (housing), Agri-Domes (food), Factories
+  (+industry, auto-build goods), Research Campuses (+tech, passive research),
+  Spaceports (trade & tax), and resource extractors for the world's deposits.
+- **Taxes** — set a tax rate for steady credit income (but high taxes sour the
+  mood).
+- **Develop the economy by importing** — ship food, alloys, energy and goods to
+  the colony to keep people happy and feed its factories. As population and
+  buildings grow, the world's **industry and tech levels rise**, improving
+  production, research and prices there.
+
+Colonies live and grow **every cycle, even while you're away**. A populous
+colony is a major asset toward your net worth.
+
+## 🔭 Exploration — chart the unknown
+
+Beyond the charted worlds lie **hidden planets**. Run a **Deep-Space Survey**
+(in the Galaxy tab) to discover them — a Research Lab sharpens your sensors.
+Newly found worlds (jungle Pandora, shattered Tartarus, paradise Elysium) are
+prime, untouched colony sites. Two colonizable worlds (Aurora, Cinder) are
+charted from the start; the rest are yours to find.
+
 ## 🏛️ Politics, factions & trade law (the deep end)
 
 - **Five factions** — Core Authority, Mining Guild, Agri-Combine, Tech

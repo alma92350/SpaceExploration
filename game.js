@@ -148,6 +148,30 @@ const PLANETS = [
     faction: "frontier", industry: 1, tech: 3, enforce: 0.05, salvage: true, bounty: true,
     desc: "A dead world wrapped in the ruins of a vanished civilisation. Relics for the brave, law for no one.",
     deposits: { relics: 1.3, radioactives: 0.6 } },
+
+  // ---- Colonizable frontier worlds (undeveloped; you grow their economy) ----
+  { id: "aurora", name: "Aurora", tag: "Untamed World", color: "#34d399", x: 13,
+    faction: "frontier", industry: 1, tech: 1, enforce: 0.1, colonizable: true,
+    desc: "A green, unclaimed world ripe for settlement. Fertile soil and shallow ore seams await a founder.",
+    deposits: { biomass: 1.3, ore: 0.9 } },
+  { id: "cinder", name: "Cinder", tag: "Volcanic World", color: "#f97316", x: 16,
+    faction: "frontier", industry: 1, tech: 1, enforce: 0.08, colonizable: true,
+    desc: "A restless volcanic world — harsh, but its crust is gorged with ore, crystals and isotopes.",
+    deposits: { ore: 1.5, crystals: 1.1, radioactives: 1.0 } },
+
+  // ---- Hidden worlds (revealed by Deep-Space Survey) ----
+  { id: "pandora", name: "Pandora", tag: "Jungle World", color: "#22c55e", x: 21,
+    faction: "frontier", industry: 1, tech: 2, enforce: 0.05, colonizable: true, hidden: true,
+    desc: "A riotous jungle world rumoured beyond the Reach. Drips with biomass and rare spice.",
+    deposits: { biomass: 1.8, spice: 1.4 } },
+  { id: "tartarus", name: "Tartarus", tag: "Shattered World", color: "#b91c1c", x: 24,
+    faction: "frontier", industry: 1, tech: 1, enforce: 0.03, colonizable: true, hidden: true, salvage: true,
+    desc: "A broken planet of metal and bone at the edge of the charts — ore, isotopes and ancient relics.",
+    deposits: { ore: 1.6, radioactives: 1.3, relics: 1.0 } },
+  { id: "elysium", name: "Elysium", tag: "Paradise World", color: "#38bdf8", x: 28,
+    faction: "frontier", industry: 1, tech: 2, enforce: 0.02, colonizable: true, hidden: true,
+    desc: "A legendary garden world said to lie past the dark. The finest colony site in the galaxy.",
+    deposits: { biomass: 2.0, spice: 1.2, crystals: 1.0 } },
 ];
 PLANETS.forEach(a => {
   a.distances = {};
@@ -297,6 +321,54 @@ function moduleMats(def, nextTier) {
   return mats;
 }
 
+/* ---------- Colonies ----------
+   On a colonizable world you can found a COLONY: population, happiness, tax
+   and buildings. Feeding and supplying it grows the population and raises the
+   world's industry & tech — literally developing the planet's economy.
+   Colony Factories/Labs/Population feed back into effIndustry()/effTech(),
+   which drive production, research, politics and prices on that world.
+*/
+const COLONY_FOUNDATION_COST = 8000;
+const COLONY_FOUNDATION_MATS = { metals: 30, goods: 10 };
+const COLONY_FOOD = "biomass";       // what population eats
+function colonyBuildingList(planet) {
+  const list = [
+    { id: "habitat", name: "Habitat Dome",    ico: "🏘️", tiers: 6, baseCost: 2000, costMul: 1.6,
+      desc: "Housing. Raises this colony's maximum population.", housing: t => t * 12 },
+    { id: "farm",    name: "Agri-Dome",       ico: "🌾", tiers: 6, baseCost: 1800, costMul: 1.6,
+      produces: "biomass", desc: "Grows food (biomass) every cycle to feed the population." },
+    { id: "factory", name: "Factory",         ico: "🏭", tiers: 6, baseCost: 3000, costMul: 1.7,
+      industry: 1, desc: "+1 industry per tier, and auto-builds goods from stored alloys + energy." },
+    { id: "lab",     name: "Research Campus",  ico: "🔬", tiers: 6, baseCost: 3000, costMul: 1.7,
+      tech: 1, desc: "+1 tech per tier, and sends tech points to your research each cycle." },
+    { id: "spaceport", name: "Spaceport",      ico: "🛰️", tiers: 4, baseCost: 4000, costMul: 1.8,
+      desc: "Boosts colony trade liquidity and tax revenue." },
+  ];
+  Object.keys(planet.deposits || {}).forEach(c => {
+    const meta = BASE_EXTRACTORS[c] || { name: "Extractor: " + COM[c].name, ico: COM[c].ico };
+    list.push({ id: "ext_" + c, name: meta.name, ico: meta.ico, tiers: 6, baseCost: 2600, costMul: 1.6,
+      produces: c, extractor: true, desc: `Auto-harvests ${COM[c].name} every cycle.` });
+  });
+  return list;
+}
+function colonyBuildingMats(def, nextTier) {
+  const mats = { metals: 10 + nextTier * 7 };
+  if (["factory", "lab", "spaceport"].includes(def.id) || ADVANCED_MODULES.includes(def.id))
+    mats.electronics = 2 + nextTier * 2;
+  return mats;
+}
+/* effective industry/tech: planet base + colony development */
+function effIndustry(p) {
+  const c = S.colonies && S.colonies[p.id];
+  if (!c) return p.industry;
+  return p.industry + (c.buildings.factory || 0) + Math.floor(c.pop / 12);
+}
+function effTech(p) {
+  const c = S.colonies && S.colonies[p.id];
+  if (!c) return p.tech;
+  return p.tech + (c.buildings.lab || 0) + Math.floor(c.pop / 20);
+}
+
 /* ============================================================
    GAME STATE
    ============================================================ */
@@ -319,6 +391,8 @@ function freshState() {
     rep: { core: 0, miners: 0, agri: 0, syndicate: 0, frontier: 0 },
     decrees: { monopoly: null, tariff: null },
     bases: {},          // planetId -> { modules:{id:tier}, storage:{com:qty} }
+    colonies: {},       // planetId -> { pop, happiness, tax, buildings, storage }
+    discovered: {},     // hidden planetId -> true (revealed by survey)
     contracts: [],      // active time-bounded random contracts
     contractSeq: 0,
     actionsUsed: 0,
@@ -349,7 +423,7 @@ function planetPriceMul(p, comId) {
   if (producesRaw) m *= 0.55;                          // local raw → cheap
   if (c.tier === "Raw" && !producesRaw) m *= 1.25;      // imported raw → dear
   if (["Component", "Finished", "Luxury", "Strategic"].includes(c.tier))
-    m *= 1 - (p.industry - 5) * 0.05;                   // industrial worlds make goods cheaper
+    m *= 1 - (effIndustry(p) - 5) * 0.05;               // industrial worlds make goods cheaper
   if (isIllegalAt(comId, p.id)) m *= 1.35;              // scarce/black-market premium
   return Math.max(0.4, Math.min(1.9, m));
 }
@@ -615,7 +689,7 @@ function produce(recipeId) {
   const r = RECIPES.find(x => x.id === recipeId);
   if (!recipeAvailable(r)) return toast("Technology not yet researched.", "bad");
   const p = currentPlanet();
-  let cap = Math.floor((3 + p.industry) * (1 + S.upgrades.factory * 0.30));
+  let cap = Math.floor((3 + effIndustry(p)) * (1 + S.upgrades.factory * 0.30));
   if (r.reactor) cap = Math.floor(cap * (1 + S.upgrades.reactor * 0.40));
   let batches = Math.min(cap, recipeMaxBatches(r));
   // limit by output cargo room (output qty per batch)
@@ -641,7 +715,7 @@ function produce(recipeId) {
 function research() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
-  const pts = Math.round((2 + p.tech) * (1 + S.upgrades.lab * 0.40));
+  const pts = Math.round((2 + effTech(p)) * (1 + S.upgrades.lab * 0.40));
   S.res.tech += pts; useAction();
   log(`Generated <span class="c">${pts}</span> tech points on ${p.name}.`, "good");
   toast(`+${pts} 🔬 tech`, "good");
@@ -650,7 +724,7 @@ function research() {
 function doPolitics() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
-  let inf = Math.round((2 + (p.tech + p.industry) / 3) * (1 + S.upgrades.envoy * 0.40));
+  let inf = Math.round((2 + (effTech(p) + effIndustry(p)) / 3) * (1 + S.upgrades.envoy * 0.40));
   if (S.perks.senator) inf = Math.round(inf * 1.3);
   if (S.perks.governor) inf = Math.round(inf * 1.6);
   S.res.influence += inf;
@@ -1007,6 +1081,161 @@ function fulfilContract(id) {
 }
 
 /* ============================================================
+   COLONIES  (full development: population, happiness, tax, buildings)
+   ============================================================ */
+function colonyHousing(col, planet) {
+  let h = 14;
+  colonyBuildingList(planet).forEach(b => { if (b.housing) h += b.housing(col.buildings[b.id] || 0); });
+  return h;
+}
+function colonyStorageUsed(col) { return Object.values(col.storage).reduce((s, q) => s + q, 0); }
+function colonyStorageCap(col, planet) {
+  let cap = 300;
+  cap += (col.buildings.spaceport || 0) * 200;
+  cap += (col.buildings.habitat || 0) * 60;
+  return cap;
+}
+function colonyTaxIncome(col) {
+  return Math.round(col.pop * (col.tax / 100) * 5 * (col.happiness / 100));
+}
+
+function colonize() {
+  const pid = S.location, planet = currentPlanet();
+  if (!planet.colonizable) return toast("This world cannot be colonized.", "bad");
+  if (S.colonies[pid]) return;
+  if (S.res.credits < COLONY_FOUNDATION_COST) return toast("Not enough credits.", "bad");
+  if (!canAfford(COLONY_FOUNDATION_MATS)) return toast("Need materials in your hold: metals & goods.", "bad");
+  S.res.credits -= COLONY_FOUNDATION_COST; pay(COLONY_FOUNDATION_MATS);
+  S.colonies[pid] = { pop: 5, happiness: 70, tax: 10, buildings: {}, storage: {} };
+  log(`🌍 Founded a colony on <span class="c">${planet.name}</span>! It will grow as you develop it.`, "event");
+  toast("Colony founded!", "event");
+  afterAction();
+}
+function buildColonyBuilding(buildingId) {
+  const pid = S.location, col = S.colonies[pid];
+  if (!col) return;
+  const planet = currentPlanet();
+  const def = colonyBuildingList(planet).find(b => b.id === buildingId);
+  if (!def) return;
+  const tier = col.buildings[buildingId] || 0;
+  if (tier >= def.tiers) return;
+  const cost = Math.round(def.baseCost * Math.pow(def.costMul, tier));
+  const mats = colonyBuildingMats(def, tier + 1);
+  if (S.res.credits < cost) return toast("Not enough credits.", "bad");
+  if (!canAfford(mats)) return toast("Need materials in your hold: " + Object.keys(mats).map(c => COM[c].name).join(", ") + ".", "bad");
+  S.res.credits -= cost; pay(mats);
+  col.buildings[buildingId] = tier + 1;
+  log(`Built ${def.ico} ${def.name} (Tier ${tier + 1}) on ${planet.name}.`, "good");
+  toast(`${def.name} → Tier ${tier + 1}`, "good");
+  afterAction();
+}
+function setTax(delta) {
+  const col = S.colonies[S.location];
+  if (!col) return;
+  col.tax = Math.max(0, Math.min(50, col.tax + delta));
+  afterAction();
+}
+function colonyDeposit(c) {
+  const col = S.colonies[S.location];
+  if (!col) return;
+  let qty = Math.min(+document.getElementById("col-" + c).value || 0, S.res[c] || 0);
+  qty = Math.floor(Math.max(0, qty));
+  qty = Math.min(qty, colonyStorageCap(col, currentPlanet()) - colonyStorageUsed(col));
+  if (qty <= 0) return toast("Nothing to store (or colony full).", "bad");
+  S.res[c] -= qty; col.storage[c] = (col.storage[c] || 0) + qty;
+  log(`Delivered ${qty} ${COM[c].ico} ${COM[c].name} to ${currentPlanet().name} colony.`);
+  afterAction();
+}
+function colonyWithdraw(c) {
+  const col = S.colonies[S.location];
+  if (!col) return;
+  let qty = Math.min(+document.getElementById("col-" + c).value || 0, col.storage[c] || 0);
+  qty = Math.floor(Math.max(0, Math.min(qty, cargoFree())));
+  if (qty <= 0) return toast("Nothing to withdraw (or hold full).", "bad");
+  col.storage[c] -= qty; S.res[c] += qty;
+  log(`Withdrew ${qty} ${COM[c].ico} ${COM[c].name} from ${currentPlanet().name} colony.`);
+  afterAction();
+}
+
+/* runs every cycle — colonies live and grow on their own */
+function processColonies() {
+  Object.entries(S.colonies).forEach(([pid, col]) => {
+    const planet = PLANETS.find(p => p.id === pid);
+    const cap = colonyStorageCap(col, planet);
+    const store = (c, q) => { const add = Math.min(q, cap - colonyStorageUsed(col)); if (add > 0) col.storage[c] = (col.storage[c] || 0) + add; };
+
+    // 1) buildings produce
+    colonyBuildingList(planet).forEach(b => {
+      const t = col.buildings[b.id] || 0; if (t <= 0) return;
+      if (b.id === "lab") { S.res.tech += t * 3; return; }                 // passive research
+      if (b.id === "factory") {                                           // auto-assemble goods
+        let batches = Math.min(t * 2, col.storage.alloys || 0, col.storage.energy || 0);
+        batches = Math.min(batches, cap - colonyStorageUsed(col));
+        if (batches > 0) { col.storage.alloys -= batches; col.storage.energy -= batches; store("goods", batches); }
+        return;
+      }
+      if (b.produces) {
+        const out = b.id === "farm" ? t * 8 : Math.round(t * 5 * (planet.deposits[b.produces] || 1));
+        store(b.produces, out);
+      }
+    });
+
+    // 2) population eats food (biomass)
+    const need = col.pop;
+    const have = col.storage[COLONY_FOOD] || 0;
+    const eaten = Math.min(need, have);
+    col.storage[COLONY_FOOD] = have - eaten;
+    const fed = eaten >= need;
+
+    // 3) happiness drifts toward a target
+    let target = 55;
+    target += fed ? 18 : -35;
+    if ((col.storage.goods || 0) >= col.pop) target += 12;     // consumer goods keep folk happy
+    if ((col.storage.luxury || 0) > 0) target += 6;
+    target -= col.tax * 0.8;
+    target = Math.max(0, Math.min(100, target));
+    col.happiness = Math.round(col.happiness + (target - col.happiness) * 0.34);
+
+    // 4) population grows or shrinks
+    const housing = colonyHousing(col, planet);
+    if (fed && col.happiness >= 60 && col.pop < housing) col.pop += Math.max(1, Math.round(col.pop * 0.05));
+    else if (!fed || col.happiness < 32) col.pop = Math.max(1, col.pop - 1);
+    col.pop = Math.min(col.pop, housing);
+
+    // 5) tax income
+    const income = colonyTaxIncome(col);
+    if (income > 0) S.res.credits += income;
+  });
+}
+
+/* ============================================================
+   EXPLORATION  (discover hidden worlds)
+   ============================================================ */
+function isVisible(p) { return !p.hidden || S.discovered[p.id]; }
+function undiscoveredHidden() {
+  return PLANETS.filter(p => p.hidden && !S.discovered[p.id]).sort((a, b) => a.x - b.x);
+}
+function explore() {
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  const pool = undiscoveredHidden();
+  if (!pool.length) return toast("No uncharted worlds remain.", "bad");
+  useAction();
+  const sensors = 0.45 + S.upgrades.lab * 0.06;   // research lab doubles as long-range sensors
+  if (Math.random() < sensors) {
+    const w = pool[0];
+    S.discovered[w.id] = true;
+    log(`🛰️ Deep-space survey discovered a new world: <span class="c">${w.name}</span> (${w.tag})!`, "event");
+    toast(`Discovered ${w.name}!`, "event");
+    announce(`🛰️ ${w.name} Discovered`, `${w.tag} — a new world to chart and colonize.`, false);
+    fireworks(2200, false);
+  } else {
+    log("🛰️ Survey swept the dark and found nothing… this time.", "");
+    toast("Survey found nothing.", "");
+  }
+  afterAction();
+}
+
+/* ============================================================
    TURN / EVENTS
    ============================================================ */
 const EVENTS = [
@@ -1053,7 +1282,7 @@ function applyDecreeIncome() {
 }
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
-  rollPrices(); applyDecreeIncome(); processBases(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); processBases(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -1066,6 +1295,10 @@ function netWorth() {
   CARGO_IDS.forEach(c => w += S.res[c] * COM[c].base);
   Object.values(S.bases).forEach(b =>
     Object.entries(b.storage).forEach(([c, q]) => { w += q * COM[c].base; }));
+  Object.values(S.colonies).forEach(col => {
+    Object.entries(col.storage).forEach(([c, q]) => { w += q * COM[c].base; });
+    w += col.pop * 400;   // a populated colony is itself a major asset
+  });
   return Math.round(w);
 }
 const OBJECTIVE_META = {
@@ -1079,7 +1312,7 @@ function winProgress() {
     worth:     { have: netWorth() >= 75000,                  label: "Amass 75,000 credits net worth" },
     terraform: { have: !!S.techs.terraform,                  label: "Research Terraforming" },
     governor:  { have: !!S.perks.governor,                   label: "Become Sector Governor" },
-    explored:  { have: PLANETS.every(p => S.visited[p.id]),  label: "Visit all 10 worlds" },
+    explored:  { have: PLANETS.filter(p => !p.colonizable).every(p => S.visited[p.id]), label: "Visit all 10 core worlds" },
   };
 }
 function syncObjectives() {
@@ -1160,7 +1393,7 @@ function repBar(f) {
 /* ----- Galaxy ----- */
 function renderGalaxy() {
   const el = document.getElementById("panel-galaxy");
-  const cards = PLANETS.map(p => {
+  const cards = PLANETS.filter(isVisible).map(p => {
     const here = p.id === S.location;
     const fc = here ? 0 : fuelCost(p.id);
     const canGo = !here && S.res.fuel >= fc;
@@ -1168,14 +1401,17 @@ function renderGalaxy() {
       + (p.salvage ? " 🧲" : "") + (p.bounty ? " 🎯" : "");
     const enf = p.enforce > 0.7 ? '<span class="pill bad">strict law</span>'
       : p.enforce < 0.25 ? '<span class="pill good">lawless</span>' : '<span class="pill">patrolled</span>';
+    const tag = p.colonizable
+      ? `<span class="pill good">${S.colonies[p.id] ? "your colony 🌍" : "colonizable"}</span>`
+      : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
     return `<div class="planet-card ${here ? "current" : ""}">
       <div class="planet-orb" style="background:radial-gradient(circle at 35% 30%, ${p.color}, #000 130%)"></div>
       <div class="planet-name">${p.name} ${S.visited[p.id] ? "" : '<span class="badge">unknown</span>'}</div>
-      <div class="planet-tag">${p.tag} · ${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}</div>
+      <div class="planet-tag">${p.tag} · ${tag}</div>
       <div class="planet-desc">${p.desc}</div>
       <div class="planet-levels">
-        <span class="lvl-chip">🏭 Ind ${p.industry}/10</span>
-        <span class="lvl-chip">🔬 Tech ${p.tech}/10</span>
+        <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
+        <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
         ${enf}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
@@ -1184,11 +1420,19 @@ function renderGalaxy() {
             <span class="distance">⛽ ${fc} · ${currentPlanet().distances[p.id]} ly</span></div>`}
     </div>`;
   }).join("");
+  const unknownCount = undiscoveredHidden().length;
+  const survey = `<div class="card">
+    <h4>🛰️ Deep-Space Survey</h4>
+    <div class="desc">Scan the dark for uncharted worlds to chart and colonize. ${unknownCount ? unknownCount + " world(s) still hidden." : "All worlds discovered."} A Research Lab improves your sensors.</div>
+    <button class="btn btn-primary" ${unknownCount && actionsLeft() > 0 ? "" : "disabled"} onclick="explore()">Survey (1 action)</button>
+  </div>`;
   const wp = winProgress();
   const goals = Object.values(wp).map(g => `<div class="ship-stat"><span class="k">${g.have ? "✅" : "⬜"} ${g.label}</span></div>`).join("");
   el.innerHTML = `<h2>Galactic Map</h2>
-    <div class="subtitle">Ten worlds, each with its own resources, industry, laws and faction. Extraction is bound to where the resource exists. Travelling costs fuel and advances a cycle.</div>
+    <div class="subtitle">Each world has its own resources, industry, laws and faction. Extraction is bound to where the resource exists. Frontier worlds marked <span class="pill good">colonizable</span> can be settled and developed. Travelling costs fuel and advances a cycle.</div>
     <div class="planet-grid">${cards}</div>
+    <div class="section-title">🔭 Exploration</div>
+    <div class="cards">${survey}</div>
     <div class="section-title">🏆 Your Legacy (win conditions)</div>
     <div class="cards"><div class="card">${goals}<div class="hint">Net worth: ${fmt(netWorth())} cr</div></div></div>`;
 }
@@ -1520,10 +1764,104 @@ function renderBases() {
     ${here}`;
 }
 
+/* ----- Colonies ----- */
+function colonyHealthPill(col) {
+  const h = col.happiness;
+  return h >= 70 ? '<span class="pill good">thriving</span>'
+    : h >= 45 ? '<span class="pill">stable</span>'
+    : '<span class="pill bad">unrest</span>';
+}
+function renderColonies() {
+  const el = document.getElementById("panel-colonies");
+  const pid = S.location, planet = currentPlanet(), col = S.colonies[pid];
+
+  const ids = Object.keys(S.colonies);
+  let overview;
+  if (ids.length) {
+    overview = ids.map(id => {
+      const c = S.colonies[id], pl = PLANETS.find(p => p.id === id);
+      return `<div class="card ${id === pid ? "owned" : ""}">
+        <h4>${pl.name} ${id === pid ? '<span class="pill good">here</span>' : ""} ${colonyHealthPill(c)}</h4>
+        <div class="ship-stat"><span class="k">👥 Population</span><span class="v">${fmt(c.pop)}k</span></div>
+        <div class="ship-stat"><span class="k">😊 Happiness</span><span class="v">${c.happiness}%</span></div>
+        <div class="ship-stat"><span class="k">🏭/🔬 Dev</span><span class="v">Ind ${effIndustry(pl)} · Tech ${effTech(pl)}</span></div>
+        <div class="ship-stat"><span class="k">💰 Tax income</span><span class="v">+${fmt(colonyTaxIncome(c))}/cyc</span></div>
+      </div>`;
+    }).join("");
+  } else {
+    overview = '<div class="hint">You govern no colonies yet. Find a <span class="pill good">colonizable</span> world (e.g. Aurora, Cinder, or one you discover by survey), travel there and found one.</div>';
+  }
+
+  let here;
+  if (!planet.colonizable) {
+    here = `<div class="section-title">📍 ${planet.name}</div><div class="hint">${planet.name} is an established world and cannot be colonized — but you can still build an outpost <b>Base</b> here. Colonize the frontier worlds instead.</div>`;
+  } else if (!col) {
+    const ok = S.res.credits >= COLONY_FOUNDATION_COST && canAfford(COLONY_FOUNDATION_MATS);
+    here = `<div class="section-title">📍 ${planet.name}</div><div class="cards"><div class="card">
+      <h4>🌍 Found a Colony on ${planet.name}</h4>
+      <div class="desc">Settle this world. Build housing, farms, factories and labs; feed and supply your people to grow the population and raise the planet's industry & tech. Tax your citizens for steady income.</div>
+      <div class="meta"><span class="hint">Cost</span><span class="cost">${fmt(COLONY_FOUNDATION_COST)} 💰 + ${matsString(COLONY_FOUNDATION_MATS)}</span></div>
+      <button class="btn btn-primary" ${ok ? "" : "disabled"} onclick="colonize()">Found Colony</button>
+    </div></div>`;
+  } else {
+    const housing = colonyHousing(col, planet);
+    const fedNeed = col.pop, fedHave = col.storage[COLONY_FOOD] || 0;
+    const govCard = `<div class="card">
+      <h4>🏛️ ${planet.name} Colony ${colonyHealthPill(col)}</h4>
+      <div class="ship-stat"><span class="k">👥 Population</span><span class="v">${fmt(col.pop)}k / ${fmt(housing)}k</span></div>
+      <div class="bar"><span style="width:${Math.min(100, col.pop / housing * 100)}%"></span></div>
+      <div class="ship-stat" style="margin-top:6px"><span class="k">😊 Happiness</span><span class="v">${col.happiness}%</span></div>
+      <div class="bar"><span style="width:${col.happiness}%;background:${col.happiness>=60?'var(--good)':col.happiness>=35?'var(--warn)':'var(--bad)'}"></span></div>
+      <div class="ship-stat" style="margin-top:6px"><span class="k">🌾 Food / cycle</span><span class="v" style="color:${fedHave>=fedNeed?'var(--good)':'var(--bad)'}">${fmt(fedHave)} stored · need ${fmt(fedNeed)}</span></div>
+      <div class="ship-stat"><span class="k">🏭 Industry</span><span class="v">${effIndustry(planet)}</span></div>
+      <div class="ship-stat"><span class="k">🔬 Tech</span><span class="v">${effTech(planet)}</span></div>
+      <div class="ship-stat" style="margin-top:8px"><span class="k">💰 Tax rate</span><span class="v">${col.tax}% → +${fmt(colonyTaxIncome(col))}/cyc</span></div>
+      <div class="row"><button class="btn btn-sm" onclick="setTax(-5)">− Tax</button><button class="btn btn-sm" onclick="setTax(5)">+ Tax</button>
+        <span class="hint">High tax lowers happiness.</span></div>
+    </div>`;
+    const buildCards = colonyBuildingList(planet).map(b => {
+      const tier = col.buildings[b.id] || 0, maxed = tier >= b.tiers;
+      const cost = Math.round(b.baseCost * Math.pow(b.costMul, tier));
+      const mats = colonyBuildingMats(b, tier + 1);
+      const ok = S.res.credits >= cost && canAfford(mats);
+      const dots = Array.from({ length: b.tiers }, (_, i) => `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
+      return `<div class="card ${tier > 0 ? (maxed ? "maxed" : "owned") : ""}">
+        <h4>${b.ico} ${b.name} <span class="tier-dots">${dots}</span></h4>
+        <div class="desc">${b.desc}</div>
+        ${maxed ? '<div class="pill good">◉ Fully built</div>'
+          : `<div class="meta"><span class="hint">Tier ${tier + 1}</span><span class="cost">${fmt(cost)} 💰 + ${matsString(mats)}</span></div>
+             <button class="btn btn-primary" ${ok ? "" : "disabled"} onclick="buildColonyBuilding('${b.id}')">${tier > 0 ? "Upgrade" : "Build"}</button>`}
+      </div>`;
+    }).join("");
+    const sids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 || (col.storage[c] || 0) > 0);
+    const rows = sids.length ? sids.map(c => `<tr>
+      <td>${COM[c].ico} ${COM[c].name}</td>
+      <td class="num">${fmt(S.res[c] || 0)}</td><td class="num">${fmt(col.storage[c] || 0)}</td>
+      <td><div class="trade-controls">
+        <input class="qty" id="col-${c}" type="number" min="1" value="10" />
+        <button class="btn btn-sm" onclick="colonyDeposit('${c}')">Supply ▸</button>
+        <button class="btn btn-sm" onclick="colonyWithdraw('${c}')">◂ Take</button>
+      </div></td></tr>`).join("")
+      : '<tr><td colspan="4" class="hint">Nothing in your hold or this colony yet.</td></tr>';
+    here = `<div class="section-title">🏛️ Govern — ${planet.name}</div>
+      <div class="cards">${govCard}</div>
+      <div class="section-title">🏗️ Buildings</div>
+      <div class="cards">${buildCards}</div>
+      <div class="section-title">📦 Supplies (${colonyStorageUsed(col)}/${colonyStorageCap(col, planet)}) — feed & develop your colony</div>
+      <table><thead><tr><th>Commodity</th><th class="num">In ship</th><th class="num">In colony</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  el.innerHTML = `<h2>Colonies</h2>
+    <div class="subtitle">Found colonies on frontier worlds and grow them: build housing, farms, factories and labs, feed your people, set taxes, and watch the planet's industry & tech climb. Colonies live and grow every cycle — even while you're away.</div>
+    <div class="section-title">🌍 Your Colonies</div>
+    <div class="cards">${overview}</div>
+    ${here}`;
+}
+
 function renderAll() {
   if (typeof document === "undefined") return;
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
-  renderIndustry(); renderResearch(); renderPolitics(); renderBases(); renderShipPanel(); renderLog();
+  renderIndustry(); renderResearch(); renderPolitics(); renderBases(); renderColonies(); renderShipPanel(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
 }
 
@@ -1551,6 +1889,8 @@ function init() {
   if (!loadGame()) { S = freshState(); rollPrices(); log("Welcome, Captain. Your journey begins on Terra Nova."); }
   if (!S.prices || !S.prices.terra) rollPrices();
   if (!S.bases) S.bases = {};   // backfill for older saves
+  if (!S.colonies) S.colonies = {};
+  if (!S.discovered) S.discovered = {};
   if (!S.contracts) { S.contracts = []; S.contractSeq = S.contractSeq || 0; }
   syncObjectives();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
@@ -1566,5 +1906,6 @@ window.addEventListener("DOMContentLoaded", init);
 Object.assign(window, {
   travel, buyQty, sellQty, buyMax, sellAll, extract, salvage, bounty, produce,
   research, researchTech, doPolitics, doMission, buyUpgrade, setDecree,
-  buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract, newGame,
+  buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract,
+  colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, explore, newGame,
 });
