@@ -142,6 +142,22 @@ A colony can be lost as well as grown:
 Growing a frontier colony into a thriving 25k-population capital is its own
 **legacy objective** toward winning the game.
 
+### Logistics network — hands-off supply
+
+Once a colony has a **Spaceport** 🛰️ it joins your **logistics network**. Set a
+target stock level ("keep stocked to N") for any key commodity and each cycle
+the network maintains it automatically:
+
+1. **Free redistribution** — surplus on your other networked colonies is shipped
+   in first, at no cost. A farm world can feed a factory world; specialise your
+   colonies and let the network balance them.
+2. **Market import** — any remaining shortfall is bought from market and
+   delivered, for a logistics fee.
+
+Higher Spaceport tiers **lower the fee** (30% → 10%) and **raise throughput**
+(how much can move per commodity per cycle), so a busy capital can keep itself
+fed and stocked without you ever ferrying cargo by hand.
+
 ## 🔭 Exploration — chart the unknown
 
 Beyond the charted worlds lie **hidden planets**. Run a **Deep-Space Survey**
