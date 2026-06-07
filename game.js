@@ -238,6 +238,8 @@ const TECHS = [
     desc: "Unlock Weapons manufacture. (Politically sensitive.)" },
   { id: "diplomacy",  name: "Galactic Charter",   cost: 90,  ico: "📜", req: ["markets"],
     desc: "Unlock faction & senate politics and high-tier missions." },
+  { id: "colonial",   name: "Colonial Charter",   cost: 120, ico: "🏙️", req: ["diplomacy"],
+    desc: "Unlock colonization: found and govern your own colonies on frontier worlds, and run deep-space surveys to chart new ones." },
   { id: "antimatter", name: "Antimatter Containment", cost: 160, ico: "🌀", req: ["reactors", "electronics"],
     desc: "Unlock Antimatter synthesis from relics & energy." },
   { id: "terraform",  name: "Terraforming",       cost: 200, ico: "🌍", req: ["biotech", "antimatter"],
@@ -1099,8 +1101,10 @@ function colonyTaxIncome(col) {
   return Math.round(col.pop * (col.tax / 100) * 5 * (col.happiness / 100));
 }
 
+function canColonize() { return !!S.techs.colonial; }
 function colonize() {
   const pid = S.location, planet = currentPlanet();
+  if (!canColonize()) return toast("Research Colonial Charter first.", "bad");
   if (!planet.colonizable) return toast("This world cannot be colonized.", "bad");
   if (S.colonies[pid]) return;
   if (S.res.credits < COLONY_FOUNDATION_COST) return toast("Not enough credits.", "bad");
@@ -1216,6 +1220,7 @@ function undiscoveredHidden() {
   return PLANETS.filter(p => p.hidden && !S.discovered[p.id]).sort((a, b) => a.x - b.x);
 }
 function explore() {
+  if (!canColonize()) return toast("Research Colonial Charter to run deep-space surveys.", "bad");
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const pool = undiscoveredHidden();
   if (!pool.length) return toast("No uncharted worlds remain.", "bad");
@@ -1421,10 +1426,13 @@ function renderGalaxy() {
     </div>`;
   }).join("");
   const unknownCount = undiscoveredHidden().length;
-  const survey = `<div class="card">
+  const survey = canColonize() ? `<div class="card">
     <h4>🛰️ Deep-Space Survey</h4>
     <div class="desc">Scan the dark for uncharted worlds to chart and colonize. ${unknownCount ? unknownCount + " world(s) still hidden." : "All worlds discovered."} A Research Lab improves your sensors.</div>
     <button class="btn btn-primary" ${unknownCount && actionsLeft() > 0 ? "" : "disabled"} onclick="explore()">Survey (1 action)</button>
+  </div>` : `<div class="card">
+    <h4>🛰️ Deep-Space Survey <span class="pill bad">locked</span></h4>
+    <div class="desc">Uncharted worlds lie beyond the dark. Research <b>Colonial Charter</b> (in the Research tab) to build the sensors and authority to chart and settle them.</div>
   </div>`;
   const wp = winProgress();
   const goals = Object.values(wp).map(g => `<div class="ship-stat"><span class="k">${g.have ? "✅" : "⬜"} ${g.label}</span></div>`).join("");
@@ -1793,7 +1801,15 @@ function renderColonies() {
   }
 
   let here;
-  if (!planet.colonizable) {
+  if (!canColonize()) {
+    const reqs = TECHS.find(t => t.id === "colonial").req.map(r => `${S.techs[r] ? "✅" : "⬜"} ${TECHS.find(x => x.id === r).name}`).join(" · ");
+    here = `<div class="section-title">🔒 Colonization Locked</div><div class="cards"><div class="card">
+      <h4>🏙️ Research Colonial Charter to begin</h4>
+      <div class="desc">Colonies are the next chapter of your story. Once you've mastered trade and politics, the Colonial Charter grants the authority — and the deep-space sensors — to settle the frontier. Frontier worlds marked <span class="pill good">colonizable</span> are already visible on the Galaxy map; survey to find more once unlocked.</div>
+      <div class="meta"><span class="hint">Prerequisites</span><span class="cost">${reqs}</span></div>
+      <div class="hint">Find it in the 🔬 Research tab (cost: 120 tech).</div>
+    </div></div>`;
+  } else if (!planet.colonizable) {
     here = `<div class="section-title">📍 ${planet.name}</div><div class="hint">${planet.name} is an established world and cannot be colonized — but you can still build an outpost <b>Base</b> here. Colonize the frontier worlds instead.</div>`;
   } else if (!col) {
     const ok = S.res.credits >= COLONY_FOUNDATION_COST && canAfford(COLONY_FOUNDATION_MATS);
