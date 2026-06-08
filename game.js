@@ -148,6 +148,26 @@ const PLANETS = [
     faction: "frontier", industry: 1, tech: 3, enforce: 0.05, salvage: true, bounty: true,
     desc: "A dead world wrapped in the ruins of a vanished civilisation. Relics for the brave, law for no one.",
     deposits: { relics: 1.3, radioactives: 0.6 } },
+  { id: "aquaria", name: "Aquaria", tag: "Ocean World", color: "#0ea5e9", x: 4,
+    faction: "agri", industry: 2, tech: 5, enforce: 0.65,
+    desc: "A world of endless seas. Vast kelp farms and clean water keep the inner colonies alive.",
+    deposits: { biomass: 1.6, ice: 1.0 } },
+  { id: "pyralis", name: "Pyralis", tag: "Desert World", color: "#fbbf24", x: 7,
+    faction: "core", industry: 4, tech: 5, enforce: 0.72,
+    desc: "Sun-blasted dunes that glitter with crystal fields and hide isotopes beneath the sand.",
+    deposits: { crystals: 1.4, radioactives: 0.8 } },
+  { id: "cobalt", name: "Cobalt Hub", tag: "Free Port", color: "#6366f1", x: 10,
+    faction: "syndicate", industry: 6, tech: 7, enforce: 0.45,
+    desc: "A free-port arcology where every commodity changes hands. Deep markets, slim margins, few questions.",
+    deposits: { crystals: 0.9, gas: 0.5 } },
+  { id: "korrath", name: "Korrath", tag: "Warlord World", color: "#dc2626", x: 14,
+    faction: "frontier", industry: 3, tech: 2, enforce: 0.1, salvage: true, bounty: true,
+    desc: "A contested frontier world. Bounties posted on every screen, wrecks in every orbit, law a rumour.",
+    deposits: { ore: 1.3, radioactives: 1.1, relics: 0.7 } },
+  { id: "vesper", name: "Vesper", tag: "Twilight World", color: "#64748b", x: 17,
+    faction: "miners", industry: 5, tech: 4, enforce: 0.45,
+    desc: "A perpetual-dusk world straddling the asteroid lanes — ore and gas hauled out in equal measure.",
+    deposits: { ore: 1.5, crystals: 1.0, gas: 0.6 } },
 
   // ---- Colonizable frontier worlds (undeveloped; you grow their economy) ----
   { id: "aurora", name: "Aurora", tag: "Untamed World", color: "#34d399", x: 13,
@@ -177,6 +197,34 @@ PLANETS.forEach(a => {
   a.distances = {};
   PLANETS.forEach(b => { if (a.id !== b.id) a.distances[b.id] = Math.max(1, Math.abs(a.x - b.x)); });
 });
+
+/* ---------- Rotating roster ----------
+   There are 15 core trade worlds, but each new game only features a random 9 of
+   them, so every playthrough has a different map. The 5 colonizable colony
+   worlds are always present (the colony game depends on them).
+*/
+const CORE_PLANETS = PLANETS.filter(p => !p.colonizable);   // 15 in the pool
+const COLONY_WORLDS = PLANETS.filter(p => p.colonizable);   // 5, always active
+const CORE_PER_GAME = 9;
+function chooseActivePlanets() {
+  const pool = CORE_PLANETS.slice();
+  for (let i = pool.length - 1; i > 0; i--) {               // Fisher–Yates shuffle
+    const j = Math.floor(Math.random() * (i + 1));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+  }
+  const active = {};
+  pool.slice(0, CORE_PER_GAME).forEach(p => active[p.id] = true);
+  COLONY_WORLDS.forEach(p => active[p.id] = true);
+  return active;
+}
+function pickStart(active) {
+  const cores = CORE_PLANETS.filter(p => active[p.id]);
+  cores.sort((a, b) => b.enforce - a.enforce || a.x - b.x); // most civilised active world
+  return cores[0].id;
+}
+function isActive(p) { return !S.active || !!S.active[p.id]; }
+function activePlanets() { return PLANETS.filter(isActive); }
+function activeCoreTotal() { return CORE_PLANETS.filter(isActive).length; }
 
 /* ---------- Ship upgrades (15, 3 tiers each) ---------- */
 const UPGRADES = [
@@ -384,9 +432,12 @@ const BASE_FUEL = 100;
 function freshState() {
   const res = { credits: 3000, fuel: 100, tech: 0, influence: 0 };
   CARGO_IDS.forEach(id => res[id] = 0);
+  const active = chooseActivePlanets();
+  const start = pickStart(active);
   return {
     turn: 1,
-    location: "terra",
+    active,              // which planets feature in this playthrough
+    location: start,
     res,
     upgrades: Object.fromEntries(UPGRADES.map(u => [u.id, 0])),
     techs: {},
@@ -401,7 +452,7 @@ function freshState() {
     contractSeq: 0,
     actionsUsed: 0,
     prices: {},
-    visited: { terra: true },
+    visited: { [start]: true },
     log: [],
     stats: { jumps: 0, trades: 0, profit: 0, busts: 0 },
     achieved: {},
@@ -840,9 +891,10 @@ function fuelCost(destId) {
 }
 function travel(destId) {
   if (destId === S.location) return;
+  const dest = PLANETS.find(p => p.id === destId);
+  if (!dest || !isVisible(dest)) return toast("That world isn't on your charts.", "bad");
   const cost = fuelCost(destId);
   if (S.res.fuel < cost) return toast(`Not enough fuel (need ${cost}).`, "bad");
-  const dest = PLANETS.find(p => p.id === destId);
   S.res.fuel -= cost; S.location = destId; S.visited[destId] = true; S.stats.jumps++;
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
   toast(`Arrived at ${dest.name}`, "event");
@@ -1036,8 +1088,9 @@ const STANDINGS = [
 function standing(f) { const r = S.rep[f] || 0; return STANDINGS.find(s => r >= s.min); }
 
 function genContract() {
-  const f = pick(Object.keys(FACTIONS));
-  const homeworlds = PLANETS.filter(p => p.faction === f);
+  const reachable = PLANETS.filter(isVisible);              // only worlds in play this game
+  const f = pick([...new Set(reachable.map(p => p.faction))]);
+  const homeworlds = reachable.filter(p => p.faction === f);
   const planet = pick(homeworlds);
   let commodity, kind = "supply";
   if (f === "frontier" && Math.random() < 0.5) { commodity = pick(["relics", "weapons"]); kind = "smuggle"; }
@@ -1376,7 +1429,7 @@ function processLogistics() {
 /* ============================================================
    EXPLORATION  (discover hidden worlds)
    ============================================================ */
-function isVisible(p) { return !p.hidden || S.discovered[p.id]; }
+function isVisible(p) { return isActive(p) && (!p.hidden || S.discovered[p.id]); }
 function undiscoveredHidden() {
   return PLANETS.filter(p => p.hidden && !S.discovered[p.id]).sort((a, b) => a.x - b.x);
 }
@@ -1471,7 +1524,7 @@ const OBJECTIVE_META = {
   worth:     { emoji: "💰", title: "Tycoon",           sub: "Net worth has passed 75,000 credits!" },
   terraform: { emoji: "🌍", title: "Master Scientist", sub: "Terraforming researched — you can reshape worlds!" },
   governor:  { emoji: "👑", title: "Sector Governor",  sub: "You now rule the entire sector!" },
-  explored:  { emoji: "🧭", title: "Master Explorer",  sub: "All ten worlds have been charted!" },
+  explored:  { emoji: "🧭", title: "Master Explorer",  sub: "Every core world in the sector has been charted!" },
   colony:    { emoji: "🏙️", title: "Colonial Founder", sub: "A frontier colony has grown into a thriving capital!" },
 };
 function winProgress() {
@@ -1479,7 +1532,7 @@ function winProgress() {
     worth:     { have: netWorth() >= 75000,                  label: "Amass 75,000 credits net worth" },
     terraform: { have: !!S.techs.terraform,                  label: "Research Terraforming" },
     governor:  { have: !!S.perks.governor,                   label: "Become Sector Governor" },
-    explored:  { have: PLANETS.filter(p => !p.colonizable).every(p => S.visited[p.id]), label: "Visit all 10 core worlds" },
+    explored:  { have: CORE_PLANETS.filter(isActive).every(p => S.visited[p.id]), label: `Visit all ${activeCoreTotal()} core worlds` },
     colony:    { have: Object.values(S.colonies).some(c => c.pop >= 25), label: "Grow a colony to 25k population" },
   };
 }
@@ -1600,7 +1653,7 @@ function renderGalaxy() {
   const wp = winProgress();
   const goals = Object.values(wp).map(g => `<div class="ship-stat"><span class="k">${g.have ? "✅" : "⬜"} ${g.label}</span></div>`).join("");
   el.innerHTML = `<h2>Galactic Map</h2>
-    <div class="subtitle">Each world has its own resources, industry, laws and faction. Extraction is bound to where the resource exists. Frontier worlds marked <span class="pill good">colonizable</span> can be settled and developed. Travelling costs fuel and advances a cycle.</div>
+    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists. Frontier worlds marked <span class="pill good">colonizable</span> can be settled and developed. Travelling costs fuel and advances a cycle.</div>
     <div class="planet-grid">${cards}</div>
     <div class="section-title">🔭 Exploration</div>
     <div class="cards">${survey}</div>
@@ -2081,12 +2134,12 @@ function loadGame() {
 function newGame() {
   if (typeof confirm === "function" && !confirm("Start a new game? Current progress will be lost.")) return;
   S = freshState(); rollPrices();
-  log("Welcome, Captain. Your journey begins on Terra Nova.");
+  log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`);
   saveGame(); renderAll(); setTab("galaxy");
 }
 function init() {
-  if (!loadGame()) { S = freshState(); rollPrices(); log("Welcome, Captain. Your journey begins on Terra Nova."); }
-  if (!S.prices || !S.prices.terra) rollPrices();
+  if (!loadGame()) { S = freshState(); rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); }
+  if (!S.prices || !S.prices[S.location]) rollPrices();
   if (!S.bases) S.bases = {};   // backfill for older saves
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; });
