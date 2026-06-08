@@ -1,7 +1,7 @@
 # 🚀 Stellar Frontier
 
 A browser-based space exploration & economy game. Pilot the **S.S. Wanderer**
-across a sector of **ten worlds** — extract raw materials, refine them through
+across a sector that's **different every game** — extract raw materials, refine them through
 **multi-step production chains**, trade across living markets, smuggle
 contraband past customs, court rival **factions**, and climb the political
 ladder until you secure your legacy as **Sector Governor**.
@@ -65,7 +65,12 @@ You can only harvest what a world actually holds, using four methods:
 | 🧲 **Salvage** | Metals + Electronics from wrecks | **Salvage Rig required** |
 | 🎯 **Bounties** | Credits + influence (lawless worlds) | Shield reduces risk |
 
-## 🪐 The ten worlds
+## 🪐 The core worlds — a rotating roster
+
+There are **15 core trade worlds**, but **each new game features a random 9 of
+them**, so every playthrough charts a different sector with a different economy,
+faction balance and starting world. The 5 colonizable colony worlds are always
+present.
 
 | World | Type | Faction | Extract |
 |-------|------|---------|---------|
@@ -79,6 +84,11 @@ You can only harvest what a world actually holds, using four methods:
 | **Forge Station** | Industrial | Mining Guild | Ore (best manufacturing) |
 | **Oort Reach** | Frontier Outpost | Frontier Coalition | Ore, Radioactives, Relics, Salvage, Bounties |
 | **Erebus** | Ancient Ruins | Frontier Coalition | Relics, Radioactives, Salvage, Bounties |
+| **Aquaria** | Ocean World | Agri-Combine | Biomass, Ice |
+| **Pyralis** | Desert World | Core Authority | Crystals, Radioactives |
+| **Cobalt Hub** | Free Port | Tech Syndicate | Crystals, gas |
+| **Korrath** | Warlord World | Frontier Coalition | Ore, Radioactives, Relics, Salvage, Bounties |
+| **Vesper** | Twilight World | Mining Guild | Ore, Crystals, gas |
 
 Each world has its own **industry level, tech level, market prices, controlling
 faction** and **law enforcement** strength.
