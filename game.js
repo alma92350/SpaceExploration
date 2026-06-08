@@ -380,6 +380,10 @@ function moduleMats(def, nextTier) {
 */
 const COLONY_FOUNDATION_COST = 8000;
 const COLONY_FOUNDATION_MATS = { metals: 30, goods: 10 };
+// "Colonization start" — skip the trading phase and begin ready to settle.
+const COLONY_START_CREDITS = 16000;                              // foundation + capital to build
+const COLONY_START_KIT = { metals: 50, goods: 20, energy: 15, crystals: 10 };  // fits a base 120 hold
+const COLONY_START_TECHS = ["markets", "diplomacy", "colonial"];// the charter line
 const COLONY_FOOD = "biomass";       // what population eats
 function colonyBuildingList(planet) {
   const list = [
@@ -429,18 +433,28 @@ const ACTIONS_PER_CYCLE = 4;
 const BASE_CARGO = 120;
 const BASE_FUEL = 100;
 
-function freshState() {
+function freshState(opts = {}) {
   const res = { credits: 3000, fuel: 100, tech: 0, influence: 0 };
   CARGO_IDS.forEach(id => res[id] = 0);
   const active = chooseActivePlanets();
-  const start = pickStart(active);
+  const techs = {};
+  let start = pickStart(active);
+  if (opts.colonyStart) {
+    // Skip the trading phase: grant the charter line, seed capital + materials,
+    // and arrive on a colonizable frontier world ready to found a colony now.
+    COLONY_START_TECHS.forEach(t => techs[t] = true);
+    res.credits = COLONY_START_CREDITS;
+    Object.entries(COLONY_START_KIT).forEach(([c, q]) => res[c] = (res[c] || 0) + q);
+    const home = COLONY_WORLDS.find(p => !p.hidden);   // colony worlds are always active
+    if (home) start = home.id;
+  }
   return {
     turn: 1,
     active,              // which planets feature in this playthrough
     location: start,
     res,
     upgrades: Object.fromEntries(UPGRADES.map(u => [u.id, 0])),
-    techs: {},
+    techs,
     missions: {},
     perks: {},
     rep: { core: 0, miners: 0, agri: 0, syndicate: 0, frontier: 0 },
@@ -2131,11 +2145,19 @@ function loadGame() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { S = JSON.parse(raw); return true; } } catch (e) {}
   return false;
 }
-function newGame() {
-  if (typeof confirm === "function" && !confirm("Start a new game? Current progress will be lost.")) return;
-  S = freshState(); rollPrices();
-  log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`);
-  saveGame(); renderAll(); setTab("galaxy");
+function newGame(mode) {
+  const colony = mode === "colony";
+  const msg = colony
+    ? "Start in Colonization mode? You'll skip the trading phase and begin on a frontier world with the Colonial Charter, the capital and the materials to found your first colony right away. Current progress will be lost."
+    : "Start a new game? Current progress will be lost.";
+  if (typeof confirm === "function" && !confirm(msg)) return;
+  S = freshState({ colonyStart: colony }); rollPrices();
+  if (colony) {
+    log(`🌍 Colonization charter granted. You arrive at <span class="c">${currentPlanet().name}</span> with capital and supplies — found your first colony.`, "event");
+  } else {
+    log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`);
+  }
+  saveGame(); renderAll(); setTab(colony ? "colonies" : "galaxy");
 }
 function init() {
   if (!loadGame()) { S = freshState(); rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); }
@@ -2150,8 +2172,11 @@ function init() {
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
   const brand = document.querySelector(".brand");
   const ng = document.createElement("button");
-  ng.className = "btn btn-sm"; ng.style.marginLeft = "8px"; ng.textContent = "⟲ New"; ng.title = "New game";
-  ng.addEventListener("click", newGame); brand.appendChild(ng);
+  ng.className = "btn btn-sm"; ng.style.marginLeft = "8px"; ng.textContent = "⟲ New"; ng.title = "New game (trading start)";
+  ng.addEventListener("click", () => newGame()); brand.appendChild(ng);
+  const nc = document.createElement("button");
+  nc.className = "btn btn-sm"; nc.style.marginLeft = "6px"; nc.textContent = "🌍 Colonize"; nc.title = "New game — skip trading, start ready to colonize";
+  nc.addEventListener("click", () => newGame("colony")); brand.appendChild(nc);
   renderAll(); setTab("galaxy");
 }
 window.addEventListener("DOMContentLoaded", init);
