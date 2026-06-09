@@ -295,6 +295,24 @@ you ruled — **The Statesman** (clean and respected), **The Demagogue** (a
 popularity landslide), **The Kingpin** (bought and blackmailed), or **The
 Consul** (taken by force). Different game, every time.
 
+### 🏴 Trade laws — outlaw or legalize goods to move prices
+
+Bend the market by changing what's legal — two ways, with a real trade-off:
+
+- **Lobby (per planet)** — sway the local authority to **outlaw** a good (chokes
+  supply, so its now-**contraband price climbs** — but selling it risks customs)
+  or **legalize** a restricted one (opens the market and **softens its price**).
+  Local, instant, influence-funded, lasts a few cycles, and a little shady
+  (costs legitimacy, raises Heat). There's an immediate price shock, and while
+  the law stands the good carries the usual black-market premium.
+- **Legislate (sector-wide)** — pass a **Trade Restriction Act** in the Senate
+  on a commodity of your choice to outlaw it **everywhere**, permanently, until
+  repealed (or a **Legalization Act** to strike all contraband laws at once).
+  Slower and needs a Senate majority, but legitimate and far-reaching.
+
+Outlaw a good you can still smuggle and sell into the spike; legalize one to
+crash a rival economy's premium. The law is just another lever on the market.
+
 ## 🛠️ Fifteen ship upgrades (3 tiers each)
 
 Cargo Hold · Fuel Tanks · Ion Engine · Mining Laser · Bio-Harvester ·

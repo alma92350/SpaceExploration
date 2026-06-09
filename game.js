@@ -77,8 +77,10 @@ const TIERS = ["Raw", "Refined", "Component", "Finished", "Luxury", "Strategic"]
 function isIllegalAt(comId, planetId) {
   const c = COM[comId];
   if (typeof S !== "undefined" && S) {
-    if (policyActive("legalize")) return false;                  // nothing is contraband
-    if (policyActive("prohibition") && comId === "spice") return true; // spice banned everywhere
+    if (policyActive("legalize")) return false;                  // sector-wide free-trade law
+    const st = lawStatus(planetId, comId);                       // player bans / legalizations
+    if (st === "legal") return false;
+    if (st === "ban") return true;
   }
   return c.illegalAt && c.illegalAt.includes(planetId);
 }
@@ -450,9 +452,9 @@ const BILLS = [
   { id: "dereg", name: "Deregulation Act", tone: "grey", proposeCost: 30,
     desc: "Gut the inspectors: customs-bust risk drops sharply sector-wide.",
     stance: { core: -3, miners: 1, agri: -1, syndicate: 2, frontier: 3 } },
-  { id: "prohibition", name: "Spice Prohibition", tone: "grey", proposeCost: 30,
-    desc: "Outlaw spice everywhere — contraband prices spike for those who'll still move it.",
-    stance: { core: 2, miners: 0, agri: -2, syndicate: 0, frontier: 2 } },
+  { id: "ban", name: "Trade Restriction Act", tone: "grey", proposeCost: 30, targeted: true,
+    desc: "Outlaw a chosen good sector-wide — its contraband price climbs for those who'll still move it.",
+    stance: { core: 2, miners: 0, agri: -1, syndicate: -1, frontier: 2 } },
   { id: "legalize", name: "Legalization Act", tone: "grey", proposeCost: 30,
     desc: "Strike all contraband laws: nothing is illegal anywhere — smuggling premiums collapse.",
     stance: { core: -3, miners: 0, agri: -1, syndicate: 1, frontier: 3 } },
@@ -468,6 +470,20 @@ const BILLS = [
     stance: { core: -3, miners: 0, agri: -1, syndicate: 1, frontier: 2 } },
 ];
 function policyActive(id) { return !!(S.policies && S.policies[id]); }
+/* Player-imposed trade law on a good at a planet: "ban" | "legal" | null.
+   Sources: temporary per-planet lobbying (S.planetLaws) and the sector-wide
+   Trade Restriction Act (a targeted "ban" policy). */
+function lawStatus(planetId, comId) {
+  const pm = S.planetLaws && S.planetLaws[planetId] && S.planetLaws[planetId][comId];
+  if (pm && pm.until > S.turn) return pm.type;
+  if (policyActive("ban") && S.policies.ban.target === comId) return "ban";
+  return null;
+}
+function priceShock(pid, c, factor) {
+  if (S.prices && S.prices[pid] && S.prices[pid][c] != null)
+    S.prices[pid][c] = Math.max(2, Math.round(S.prices[pid][c] * factor));
+}
+const LAW_DURATION = 6;   // cycles a lobbied local trade law lasts
 
 /* ---------- Player bases ----------
    A base is a permanent outpost on a planet. Its modules produce and store
@@ -614,8 +630,9 @@ function freshState(opts = {}) {
     res,
     pol,                // political meters: popularity / legitimacy / heat / slush
     orgs,               // founded organizations: orgId -> { tier }
-    policies: {},       // enacted laws: policyId -> { since }
-    floor: null,        // bill currently before the Senate: { billId, sway }
+    policies: {},       // enacted laws: policyId -> { since, target }
+    floor: null,        // bill currently before the Senate: { billId, sway, target }
+    planetLaws: {},     // player per-planet trade laws: pid -> com -> { type, until }
     invest: null,       // active corruption investigation: { lead, evidence, defense, cycles }
     jail: 0,            // cycles remaining in detention
     office,             // public office rank (0..4); perks.senator/governor derive from it
@@ -691,15 +708,12 @@ function tradeSpread() {
   return s;
 }
 function policyBuyMul(c) {
-  let m = 1;
-  if (policyActive("prohibition") && c === "spice") m *= 1.4;   // scarcity on the black market
-  return m;
+  return 1;   // (contraband premiums now flow through isIllegalAt -> planetPriceMul)
 }
 function policySellMul(c) {
   let m = 1;
   if (policyActive("tariff")) m *= 1.10;                        // protectionism
   if (policyActive("mining") && COM[c].tier === "Raw") m *= 1.20; // raw-material windfall
-  if (policyActive("prohibition") && c === "spice") m *= 1.5;   // contraband premium
   return m;
 }
 function buyPrice(pid, c) {
@@ -1117,12 +1131,13 @@ function tallyFloor() {
   });
   return { yes, no, abstain };
 }
-function proposeBill(id) {
-  if (!canLegislate()) return toast("Win a Senate seat first (Career Missions).", "bad");
+function proposeBill(id, target) {
+  if (!canLegislate()) return toast("Win a Senate seat first (Office & Elections).", "bad");
   if (S.floor) return toast("A bill is already on the floor.", "bad");
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const bill = billDef(id);
   if (!bill) return;
+  if (bill.targeted && (!target || !COM[target])) return toast("Choose a commodity to target.", "bad");
   if (bill.reqPerk && !S.perks[bill.reqPerk]) return toast(`Requires ${bill.reqPerk === "governor" ? "Sector Governor" : bill.reqPerk}.`, "bad");
   if (!bill.oneShot && policyActive(bill.id)) return toast("That law is already in force.", "bad");
   const cost = bill.proposeCost || 20;
@@ -1130,10 +1145,10 @@ function proposeBill(id) {
   if (bill.proposeCredits && S.res.credits < bill.proposeCredits) return toast(`Need ${fmt(bill.proposeCredits)} credits.`, "bad");
   S.res.influence -= cost;
   if (bill.proposeCredits) S.res.credits -= bill.proposeCredits;
-  S.floor = { billId: id, sway: {} };
+  S.floor = { billId: id, sway: {}, target: bill.targeted ? target : null };
   applyPolDelta({ heat: 2 });
   useAction();
-  log(`📜 Proposed <span class="c">${bill.name}</span> to the Senate.`, "event");
+  log(`📜 Proposed <span class="c">${bill.name}${bill.targeted ? `: ${COM[target].name}` : ""}</span> to the Senate.`, "event");
   toast("Bill on the floor.", "event");
   afterAction();
 }
@@ -1157,12 +1172,13 @@ function bribeFaction(f) {
   log(`💼 Bribed ${FACTIONS[f].ico} ${FACTIONS[f].name} with slush.`, "event");
   afterAction();
 }
-function enactBill(bill) {
+function enactBill(bill, target) {
   Object.keys(FACTIONS).forEach(f => { const st = (bill.stance && bill.stance[f]) || 0; if (st) addRep(f, st * 2); });
   const tone = { bright: { legitimacy: 8, popularity: 5 }, grey: { legitimacy: 0, popularity: 2 }, dark: { legitimacy: -8, popularity: -4 } }[bill.tone];
   applyPolDelta(tone);
   if (bill.oneShot) bill.oneShot();
-  else S.policies[bill.id] = { since: S.turn };
+  else S.policies[bill.id] = { since: S.turn, target: target || null };
+  if (bill.id === "ban" && target) PLANETS.forEach(p => priceShock(p.id, target, 1.25)); // sector-wide price shock
 }
 function callVote() {
   if (!S.floor) return;
@@ -1172,8 +1188,8 @@ function callVote() {
   const t = tallyFloor();
   useAction();
   if (t.yes > t.no) {
-    enactBill(bill);
-    log(`🏛️ <span class="c">${bill.name}</span> PASSED ${t.yes}–${t.no}.`, "good");
+    enactBill(bill, S.floor.target);
+    log(`🏛️ <span class="c">${bill.name}${S.floor.target ? `: ${COM[S.floor.target].name}` : ""}</span> PASSED ${t.yes}–${t.no}.`, "good");
     toast("Bill passed!", "good");
   } else {
     Object.keys(FACTIONS).forEach(f => { if (((bill.stance && bill.stance[f]) || 0) > 0) addRep(f, -2); });
@@ -1209,6 +1225,45 @@ function applyPolicyEffects() {
     Object.values(S.colonies || {}).forEach(c => c.unrest = Math.max(0, (c.unrest || 0) - 2));
     applyPolDelta({ popularity: -1 });
   }
+}
+
+/* ---------- Per-planet trade laws (lobbying) ----------
+   Lobby the local authority to OUTLAW a good (chokes supply → its contraband
+   price climbs, but selling it risks customs) or LEGALIZE a restricted good
+   (opens the market → its price softens). Local, temporary, influence-funded,
+   and a little shady. The sector-wide, permanent version is the Senate's Trade
+   Restriction Act. */
+function lobbyLaw(comId, type) {
+  if (!canPolitick()) return toast("Research Galactic Charter first.", "bad");
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  if (!COM[comId]) return;
+  const p = currentPlanet(), pid = p.id;
+  if (type === "legal" && !isIllegalAt(comId, pid)) return toast(`${COM[comId].name} is already legal here.`, "bad");
+  if (type === "ban" && lawStatus(pid, comId) === "ban") return toast(`${COM[comId].name} is already outlawed here.`, "bad");
+  const cost = 14 + Math.round(p.enforce * 20);          // lawful worlds are harder to sway
+  if ((S.res.influence || 0) < cost) return toast(`Need ${cost} influence to sway ${p.name}.`, "bad");
+  S.res.influence -= cost; useAction();
+  S.planetLaws[pid] = S.planetLaws[pid] || {};
+  S.planetLaws[pid][comId] = { type, until: S.turn + LAW_DURATION };
+  if (type === "ban") { priceShock(pid, comId, 1.25); applyPolDelta({ heat: 6, legitimacy: -2 }); addRep("core", 2); addRep(p.faction, -3); }
+  else               { priceShock(pid, comId, 0.85); applyPolDelta({ heat: 4, legitimacy: -1 }); addRep("frontier", 3); addRep("core", -3); }
+  log(`🏴 You lobbied ${p.name} to ${type === "ban" ? "OUTLAW" : "LEGALIZE"} ${COM[comId].ico} ${COM[comId].name} for ${LAW_DURATION} cycles.`, "event");
+  toast(`${COM[comId].name} ${type === "ban" ? "outlawed" : "legalized"} on ${p.name}.`, "event");
+  afterAction();
+}
+function processPlanetLaws() {
+  if (!S.planetLaws) return;
+  Object.keys(S.planetLaws).forEach(pid => {
+    const m = S.planetLaws[pid];
+    Object.keys(m).forEach(c => {
+      if (m[c].until <= S.turn) {
+        delete m[c];
+        const pl = PLANETS.find(p => p.id === pid);
+        log(`🏴 Your trade law on ${pl ? pl.name : pid} (${COM[c].name}) has lapsed.`, "");
+      }
+    });
+    if (!Object.keys(m).length) delete S.planetLaws[pid];
+  });
 }
 
 /* ---------- Corruption investigations & trials ----------
@@ -2211,7 +2266,7 @@ function applyDecreeIncome() {
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processOrgs(); processInvestigation(); processOffice(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -2636,12 +2691,32 @@ function renderOffice() {
     <button class="btn btn-bad" ${cOk ? "" : "disabled"} onclick="stageCoup()">Seize Power (1 action)</button></div>`;
   return `<div class="section-title">🏛️ Office — next: ${next.ico} ${next.name}</div><div class="cards">${head}${eCard}${aCard}${cCard}</div>`;
 }
+function renderLocalLaws() {
+  if (!canPolitick()) return "";
+  const p = currentPlanet(), pid = p.id, al = actionsLeft();
+  const cost = 14 + Math.round(p.enforce * 20);
+  const pm = S.planetLaws[pid] || {};
+  const laws = Object.keys(pm).map(c =>
+    `<span class="pill ${pm[c].type === "ban" ? "bad" : "good"}">${COM[c].ico} ${COM[c].name}: ${pm[c].type === "ban" ? "outlawed" : "legalized"} (${pm[c].until - S.turn} cyc)</span>`).join(" ");
+  const opts = COM_IDS.map(c => `<option value="${c}">${COM[c].ico} ${COM[c].name}</option>`).join("");
+  return `<div class="section-title">🏴 Local Trade Laws — ${p.name}</div>
+    <div class="cards"><div class="card">
+      <h4>Lobby the ${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name} authority</h4>
+      <div class="desc"><b>Outlaw</b> a good to choke supply and drive up its (now contraband) price, or <b>legalize</b> a restricted good to open the market and soften it. Local, lasts ${LAW_DURATION} cycles, costs ${cost} 🏛️ influence — and it's a little shady.</div>
+      <div class="hint">In force here: ${laws || "none"}</div>
+      <div class="row" style="margin-top:6px">
+        <select id="lawSel" class="lawsel">${opts}</select>
+        <button class="btn btn-bad" ${al > 0 ? "" : "disabled"} onclick="lobbyLaw(document.getElementById('lawSel').value,'ban')">Outlaw</button>
+        <button class="btn btn-good" ${al > 0 ? "" : "disabled"} onclick="lobbyLaw(document.getElementById('lawSel').value,'legal')">Legalize</button>
+      </div>
+    </div></div>`;
+}
 const VOTE_PILL = { yes: `<span class="pill good">YES</span>`, no: `<span class="pill bad">NO</span>`, abstain: `<span class="pill">abstain</span>` };
 function renderSenate() {
   if (!canLegislate()) {
     return `<div class="section-title">⚖️ The Senate</div>
       <div class="cards"><div class="card"><h4>⚖️ No seat in the Senate</h4>
-        <div class="desc">Win a <b>Senate Seat</b> (Career Missions, below) to propose legislation. Senators reshape the sector economy by passing <b>bills</b> the faction blocs vote on.</div></div></div>`;
+        <div class="desc">Win a <b>Senate Seat</b> (the Office & Elections card above) to propose legislation. Senators reshape the sector economy by passing <b>bills</b> the faction blocs vote on — including outlawing or legalizing a good sector-wide.</div></div></div>`;
   }
   // enacted policies
   let policyCards = "";
@@ -2649,8 +2724,9 @@ function renderSenate() {
   if (active.length) {
     policyCards = `<div class="section-title">📐 Standing Laws</div>` +
       `<div class="cards">` + active.map(id => {
-        const b = billDef(id);
-        return `<div class="card owned"><h4>${b ? b.name : id} <span class="pill ${POL_TONE_CLS[b ? b.tone : "grey"]}">${b ? b.tone : ""}</span></h4>
+        const b = billDef(id), tgt = S.policies[id] && S.policies[id].target;
+        const name = (b ? b.name : id) + (tgt ? `: ${COM[tgt].ico} ${COM[tgt].name}` : "");
+        return `<div class="card owned"><h4>${name} <span class="pill ${POL_TONE_CLS[b ? b.tone : "grey"]}">${b ? b.tone : ""}</span></h4>
           <div class="hint">${b ? b.desc : ""}</div>
           <button class="btn btn-sm btn-bad" onclick="repealPolicy('${id}')">Repeal (15 🏛️)</button></div>`;
       }).join("") + `</div>`;
@@ -2672,7 +2748,7 @@ function renderSenate() {
         </span></div>`;
     }).join("");
     floorHtml = `<div class="card" style="border-color:${passing ? "var(--good)" : "var(--warn)"}">
-      <h4>📜 On the floor: ${bill.name} <span class="pill ${POL_TONE_CLS[bill.tone]}">${bill.tone}</span></h4>
+      <h4>📜 On the floor: ${bill.name}${S.floor.target ? `: ${COM[S.floor.target].ico} ${COM[S.floor.target].name}` : ""} <span class="pill ${POL_TONE_CLS[bill.tone]}">${bill.tone}</span></h4>
       <div class="hint">${bill.desc}</div>
       <div style="margin:8px 0">${rows}</div>
       <div class="meta"><span class="hint">Tally</span><span class="cost" style="color:${passing ? "var(--good)" : "var(--bad)"}">YES ${t.yes} – ${t.no} NO · ${t.abstain} abstain → <b>${passing ? "PASSING" : "FAILING"}</b></span></div>
@@ -2682,11 +2758,13 @@ function renderSenate() {
     const proposable = BILLS.filter(b => b.oneShot || !policyActive(b.id)).map(b => {
       const locked = b.reqPerk && !S.perks[b.reqPerk];
       const cstr = `${b.proposeCost || 20} 🏛️${b.proposeCredits ? " + " + fmt(b.proposeCredits) + " 💰" : ""}`;
+      const sel = b.targeted ? `<select id="billtgt-${b.id}" class="lawsel">${COM_IDS.map(c => `<option value="${c}">${COM[c].ico} ${COM[c].name}</option>`).join("")}</select> ` : "";
+      const onclick = b.targeted ? `proposeBill('${b.id}', document.getElementById('billtgt-${b.id}').value)` : `proposeBill('${b.id}')`;
       return `<div class="card"><h4>${b.name} <span class="pill ${POL_TONE_CLS[b.tone]}">${b.tone}</span></h4>
         <div class="desc">${b.desc}</div>
         <div class="meta"><span class="hint">Propose</span><span class="cost">${cstr}</span></div>
         ${locked ? `<div class="hint" style="color:var(--bad)">Requires Sector Governor</div>`
-          : `<button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="proposeBill('${b.id}')">Propose (1 action)</button>`}</div>`;
+          : `<div class="row">${sel}<button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="${onclick}">Propose (1 action)</button></div>`}</div>`;
     }).join("");
     floorHtml = `<div class="hint">The floor is open — propose a bill (one at a time). The blocs vote on its merits, your standing, the public mood, and any lobbying you do.</div>
       <div class="cards">${proposable}</div>`;
@@ -2764,6 +2842,7 @@ function renderPolitics() {
     ${(() => { const ic = renderInvestigation(); return ic ? `<div class="cards">${ic}</div>` : ""; })()}
     ${renderOffice()}
     ${renderPower()}
+    ${renderLocalLaws()}
     ${renderSenate()}
     ${decrees}
     <div class="section-title">📋 Contracts (time-bounded)</div>
@@ -3049,6 +3128,7 @@ function init() {
   if (!S.orgs) S.orgs = {};
   if (!S.policies) S.policies = {};
   if (S.floor === undefined) S.floor = null;
+  if (!S.planetLaws) S.planetLaws = {};
   if (S.invest === undefined) S.invest = null;
   if (S.jail == null) S.jail = 0;
   if (S.office == null) S.office = S.perks.governor ? 3 : S.perks.senator ? 2 : 0;  // migrate from old perks
@@ -3080,5 +3160,5 @@ Object.assign(window, {
   foundOrg, upgradeOrg, runOrgAbility,
   proposeBill, lobbyFaction, bribeFaction, callVote, repealPolicy,
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
-  runForElection, seekAppointment, stageCoup,
+  runForElection, seekAppointment, stageCoup, lobbyLaw,
 });
