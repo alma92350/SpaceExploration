@@ -224,6 +224,31 @@ Clean power is slow and poor; dirty power is fast and fragile — navigate the g
 Jump straight in with the **🏛️ Politics** new-game button (charter, war chest,
 influence and a starter party).
 
+### ⚖️ The Senate — write the law of the sector
+
+Win a **Senate Seat** (Career Missions) to legislate. The five factions are
+**voting blocs** whose seats scale with the worlds they control. Propose a
+**Bill** (costs influence) and it goes to the floor, where each bloc votes on:
+
+- the bill's **stance** toward them (does it help or hurt their interests),
+- your **standing** with them, plus the **public mood** and your **legitimacy**,
+- and any **lobbying** (spend influence) or **bribes** (spend slush — dirty, and
+  it raises Heat and costs legitimacy) you apply to swing their vote.
+
+Win the tally and the bill becomes a **standing law** that reshapes the whole
+sector economy until you repeal it — for example:
+
+- **Free Trade / Tariff / Mining Rights** — move sell & buy prices sector-wide.
+- **Spice Prohibition / Legalization** — rewrite what counts as contraband.
+- **Deregulation / Martial Law** — slash or spike customs-bust risk everywhere.
+- **Universal Basic Income** — treasury cost each cycle for popularity & calm.
+- **Anti-Corruption Act** — makes *your own* dirty deeds generate far more Heat.
+- **Emergency Monopoly Grant / Immunity Act** — naked self-dealing (governor only).
+
+A popular statesman passes reforms on merit; a notorious operator has to buy the
+votes. Either way, the laws you write change the game everyone — including you —
+is playing.
+
 ## 🛠️ Fifteen ship upgrades (3 tiers each)
 
 Cargo Hold · Fuel Tanks · Ion Engine · Mining Laser · Bio-Harvester ·

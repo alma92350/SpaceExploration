@@ -76,6 +76,10 @@ const TIERS = ["Raw", "Refined", "Component", "Finished", "Luxury", "Strategic"]
 
 function isIllegalAt(comId, planetId) {
   const c = COM[comId];
+  if (typeof S !== "undefined" && S) {
+    if (policyActive("legalize")) return false;                  // nothing is contraband
+    if (policyActive("prohibition") && comId === "spice") return true; // spice banned everywhere
+  }
   return c.illegalAt && c.illegalAt.includes(planetId);
 }
 
@@ -400,6 +404,55 @@ const ORGS = [
 ];
 const POL_TONE_CLS = { bright: "good", grey: "", dark: "bad" };
 
+/* ---------- The Senate: bills & enacted policies ----------
+   Win a Senate seat to legislate. Propose a Bill (costs influence); each faction
+   is a voting bloc whose seats scale with the worlds it controls. Blocs vote on
+   the bill's stance toward them, your standing, popularity & legitimacy — and
+   the lobbying/bribes you apply on the floor. Passed bills become standing
+   POLICIES that reshape the whole sector economy until repealed.
+     stance: per-faction lean −3..+3 (how the law helps/hurts them)
+     tone:   bright / grey / dark  (shifts your legitimacy & popularity on passage)
+     reqPerk: office required to propose (senator implied; some need governor)
+     oneShot: applied once on passage instead of becoming a standing policy
+*/
+const BILLS = [
+  { id: "ubi", name: "Universal Basic Income", tone: "bright", proposeCost: 25,
+    desc: "Treasury stipend for every citizen. Costs 2,000 cr/cycle; raises popularity and calms colonies.",
+    stance: { core: -1, miners: 0, agri: 3, syndicate: -2, frontier: 1 } },
+  { id: "anticorr", name: "Anti-Corruption Act", tone: "bright", proposeCost: 30,
+    desc: "Independent oversight. Every shady act you commit now generates far more Heat.",
+    stance: { core: 3, miners: 0, agri: 2, syndicate: -2, frontier: -2 } },
+  { id: "freetrade", name: "Free Trade Act", tone: "grey", proposeCost: 25,
+    desc: "Open the lanes: tighter spreads sector-wide — buy cheaper, sell dearer everywhere.",
+    stance: { core: 0, miners: -2, agri: 1, syndicate: 2, frontier: 3 } },
+  { id: "mining", name: "Mining Rights Act", tone: "grey", proposeCost: 25,
+    desc: "Hand the belts to industry: raw-material sell prices rise +20% sector-wide.",
+    stance: { core: 1, miners: 3, agri: -2, syndicate: 0, frontier: 0 } },
+  { id: "tariff", name: "Protective Tariff Act", tone: "grey", proposeCost: 25,
+    desc: "Protectionism: all sell prices rise +10%, but markets thin out.",
+    stance: { core: 2, miners: 2, agri: 0, syndicate: -1, frontier: -3 } },
+  { id: "dereg", name: "Deregulation Act", tone: "grey", proposeCost: 30,
+    desc: "Gut the inspectors: customs-bust risk drops sharply sector-wide.",
+    stance: { core: -3, miners: 1, agri: -1, syndicate: 2, frontier: 3 } },
+  { id: "prohibition", name: "Spice Prohibition", tone: "grey", proposeCost: 30,
+    desc: "Outlaw spice everywhere — contraband prices spike for those who'll still move it.",
+    stance: { core: 2, miners: 0, agri: -2, syndicate: 0, frontier: 2 } },
+  { id: "legalize", name: "Legalization Act", tone: "grey", proposeCost: 30,
+    desc: "Strike all contraband laws: nothing is illegal anywhere — smuggling premiums collapse.",
+    stance: { core: -3, miners: 0, agri: -1, syndicate: 1, frontier: 3 } },
+  { id: "martial", name: "Martial Law", tone: "dark", proposeCost: 40, reqPerk: "governor",
+    desc: "Troops on every dock: bust risk soars, but unrest is crushed. Resented by the public.",
+    stance: { core: 3, miners: 1, agri: -2, syndicate: 0, frontier: -3 } },
+  { id: "monopoly_grant", name: "Emergency Monopoly Grant", tone: "dark", proposeCost: 40, reqPerk: "governor",
+    desc: "Cronyism by statute: pays you 1,200 cr/cycle — and quietly raises your Heat each cycle.",
+    stance: { core: -2, miners: -1, agri: -1, syndicate: 2, frontier: -1 } },
+  { id: "immunity", name: "Immunity Act", tone: "dark", proposeCost: 60, proposeCredits: 5000, reqPerk: "governor",
+    oneShot: () => { S.pol.heat = 0; },
+    desc: "Legislate yourself clean: instantly clears all Heat. A naked abuse of power.",
+    stance: { core: -3, miners: 0, agri: -1, syndicate: 1, frontier: 2 } },
+];
+function policyActive(id) { return !!(S.policies && S.policies[id]); }
+
 /* ---------- Player bases ----------
    A base is a permanent outpost on a planet. Its modules produce and store
    resources automatically EVERY cycle — even while you are light-years away.
@@ -543,6 +596,8 @@ function freshState(opts = {}) {
     res,
     pol,                // political meters: popularity / legitimacy / heat / slush
     orgs,               // founded organizations: orgId -> { tier }
+    policies: {},       // enacted laws: policyId -> { since }
+    floor: null,        // bill currently before the Senate: { billId, sway }
     upgrades: Object.fromEntries(UPGRADES.map(u => [u.id, 0])),
     techs,
     missions: {},
@@ -606,11 +661,28 @@ function repPriceFactor(planet) {
   const r = S.rep[planet.faction] || 0;
   return Math.max(-0.12, Math.min(0.12, r / 100 * 0.12)); // friendly faction → up to ±12%
 }
-function tradeSpread() { return Math.max(0.84, 0.90 - S.upgrades.trade * 0.04); }
+function tradeSpread() {
+  let s = Math.max(0.84, 0.90 - S.upgrades.trade * 0.04);
+  if (policyActive("freetrade")) s = Math.min(0.97, s + 0.06);  // open lanes tighten spreads
+  return s;
+}
+function policyBuyMul(c) {
+  let m = 1;
+  if (policyActive("prohibition") && c === "spice") m *= 1.4;   // scarcity on the black market
+  return m;
+}
+function policySellMul(c) {
+  let m = 1;
+  if (policyActive("tariff")) m *= 1.10;                        // protectionism
+  if (policyActive("mining") && COM[c].tier === "Raw") m *= 1.20; // raw-material windfall
+  if (policyActive("prohibition") && c === "spice") m *= 1.5;   // contraband premium
+  return m;
+}
 function buyPrice(pid, c) {
   const p = PLANETS.find(x => x.id === pid);
   let v = S.prices[pid][c] * (1 + (1 - tradeSpread()) * 0.5);
   v *= 1 - repPriceFactor(p);            // friendly faction sells to you cheaper
+  v *= policyBuyMul(c);
   return Math.max(1, Math.round(v));
 }
 function sellPrice(pid, c) {
@@ -618,6 +690,7 @@ function sellPrice(pid, c) {
   let v = S.prices[pid][c] * tradeSpread();
   v *= 1 + repPriceFactor(p);            // friendly faction pays you more
   if (S.decrees.tariff === c) v *= 1.15; // your governor tariff lifts your sell price
+  v *= policySellMul(c);
   return Math.max(1, Math.round(v));
 }
 
@@ -914,7 +987,7 @@ function applyPolDelta(d) {
   const P = S.pol;
   if (d.popularity) P.popularity += d.popularity;
   if (d.legitimacy) P.legitimacy += d.legitimacy;
-  if (d.heat)       P.heat += d.heat;
+  if (d.heat)       P.heat += (d.heat > 0 && policyActive("anticorr")) ? d.heat * 1.6 : d.heat; // oversight bites
   if (d.slush)      P.slush += d.slush;
   if (d.influence)  S.res.influence = (S.res.influence || 0) + d.influence;
   if (d.credits)    S.res.credits += d.credits;
@@ -1003,6 +1076,123 @@ function processOrgs() {
   }
 }
 
+/* ---------- The Senate: voting, bills & policies ---------- */
+function canLegislate() { return !!(S.perks.senator || S.perks.governor); }
+function billDef(id) { return BILLS.find(b => b.id === id); }
+function factionSeats(f) { return 2 + activePlanets().filter(p => p.faction === f).length; }
+function senateSize() { return Object.keys(FACTIONS).reduce((s, f) => s + factionSeats(f), 0); }
+function factionInclination(f, bill) {
+  let s = (bill.stance && bill.stance[f]) || 0;
+  s += (S.rep[f] || 0) / 35;                 // standing with the bloc
+  s += (S.pol.popularity - 50) / 40;         // public pressure
+  s += S.pol.legitimacy / 120;               // statesmen are trusted
+  if (S.perks.governor) s += 0.5; else if (S.perks.senator) s += 0.25;
+  if (S.floor && S.floor.billId === bill.id) s += (S.floor.sway[f] || 0); // your whipping
+  return s;
+}
+function factionVote(f, bill) { const s = factionInclination(f, bill); return s > 0.4 ? "yes" : s < -0.4 ? "no" : "abstain"; }
+function tallyFloor() {
+  const bill = billDef(S.floor.billId); let yes = 0, no = 0, abstain = 0;
+  Object.keys(FACTIONS).forEach(f => {
+    const v = factionVote(f, bill), seats = factionSeats(f);
+    if (v === "yes") yes += seats; else if (v === "no") no += seats; else abstain += seats;
+  });
+  return { yes, no, abstain };
+}
+function proposeBill(id) {
+  if (!canLegislate()) return toast("Win a Senate seat first (Career Missions).", "bad");
+  if (S.floor) return toast("A bill is already on the floor.", "bad");
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  const bill = billDef(id);
+  if (!bill) return;
+  if (bill.reqPerk && !S.perks[bill.reqPerk]) return toast(`Requires ${bill.reqPerk === "governor" ? "Sector Governor" : bill.reqPerk}.`, "bad");
+  if (!bill.oneShot && policyActive(bill.id)) return toast("That law is already in force.", "bad");
+  const cost = bill.proposeCost || 20;
+  if ((S.res.influence || 0) < cost) return toast(`Need ${cost} influence to propose.`, "bad");
+  if (bill.proposeCredits && S.res.credits < bill.proposeCredits) return toast(`Need ${fmt(bill.proposeCredits)} credits.`, "bad");
+  S.res.influence -= cost;
+  if (bill.proposeCredits) S.res.credits -= bill.proposeCredits;
+  S.floor = { billId: id, sway: {} };
+  applyPolDelta({ heat: 2 });
+  useAction();
+  log(`📜 Proposed <span class="c">${bill.name}</span> to the Senate.`, "event");
+  toast("Bill on the floor.", "event");
+  afterAction();
+}
+function lobbyFaction(f) {
+  if (!S.floor) return;
+  if ((S.floor.sway[f] || 0) >= 3) return toast("That bloc is fully courted.", "bad");
+  const cost = 8;
+  if ((S.res.influence || 0) < cost) return toast("Need 8 influence.", "bad");
+  S.res.influence -= cost; S.floor.sway[f] = (S.floor.sway[f] || 0) + 0.6;
+  applyPolDelta({ heat: 2 });
+  log(`Lobbied ${FACTIONS[f].ico} ${FACTIONS[f].name} on the floor.`);
+  afterAction();
+}
+function bribeFaction(f) {
+  if (!S.floor) return;
+  if ((S.floor.sway[f] || 0) >= 3) return toast("That bloc is already bought.", "bad");
+  const cost = 600;
+  if (S.pol.slush < cost) return toast("Need 600 slush (raise dirty funds first).", "bad");
+  S.pol.slush -= cost; S.floor.sway[f] = (S.floor.sway[f] || 0) + 1.2;
+  applyPolDelta({ heat: 6, legitimacy: -2 });
+  log(`💼 Bribed ${FACTIONS[f].ico} ${FACTIONS[f].name} with slush.`, "event");
+  afterAction();
+}
+function enactBill(bill) {
+  Object.keys(FACTIONS).forEach(f => { const st = (bill.stance && bill.stance[f]) || 0; if (st) addRep(f, st * 2); });
+  const tone = { bright: { legitimacy: 8, popularity: 5 }, grey: { legitimacy: 0, popularity: 2 }, dark: { legitimacy: -8, popularity: -4 } }[bill.tone];
+  applyPolDelta(tone);
+  if (bill.oneShot) bill.oneShot();
+  else S.policies[bill.id] = { since: S.turn };
+}
+function callVote() {
+  if (!S.floor) return;
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  const bill = billDef(S.floor.billId);
+  if (!bill) { S.floor = null; return; }
+  const t = tallyFloor();
+  useAction();
+  if (t.yes > t.no) {
+    enactBill(bill);
+    log(`🏛️ <span class="c">${bill.name}</span> PASSED ${t.yes}–${t.no}.`, "good");
+    toast("Bill passed!", "good");
+  } else {
+    Object.keys(FACTIONS).forEach(f => { if (((bill.stance && bill.stance[f]) || 0) > 0) addRep(f, -2); });
+    applyPolDelta({ popularity: -2 });
+    log(`🏛️ <span class="c">${bill.name}</span> FAILED ${t.yes}–${t.no}.`, "bad");
+    toast("Bill failed.", "bad");
+  }
+  S.floor = null;
+  afterAction();
+}
+function repealPolicy(id) {
+  if (!S.policies[id]) return;
+  const cost = 15;
+  if ((S.res.influence || 0) < cost) return toast("Need 15 influence to repeal.", "bad");
+  S.res.influence -= cost; delete S.policies[id];
+  log(`Repealed ${billDef(id) ? billDef(id).name : id}.`, "event");
+  afterAction();
+}
+function applyPolicyEffects() {
+  if (!S.policies) return;
+  if (policyActive("ubi")) {
+    const cost = 2000;
+    if (S.res.credits >= cost) {
+      S.res.credits -= cost; applyPolDelta({ popularity: 2 });
+      Object.values(S.colonies || {}).forEach(c => c.unrest = Math.max(0, (c.unrest || 0) - 1));
+    } else {
+      delete S.policies.ubi; applyPolDelta({ popularity: -6 });
+      log("⚠️ The treasury couldn't fund Universal Basic Income — it lapsed amid protests.", "bad");
+    }
+  }
+  if (policyActive("monopoly_grant")) { S.res.credits += 1200; applyPolDelta({ heat: 4 }); }
+  if (policyActive("martial")) {
+    Object.values(S.colonies || {}).forEach(c => c.unrest = Math.max(0, (c.unrest || 0) - 2));
+    applyPolDelta({ popularity: -1 });
+  }
+}
+
 function afterAction() { checkWin(); saveGame(); renderAll(); }
 
 /* ============================================================
@@ -1055,6 +1245,8 @@ function bustRisk(comId, qty, planet) {
   if ((S.rep[planet.faction] || 0) >= 60) r *= 0.4;            // allies look the other way
   if (S.perks.senator) r *= 0.85;
   if (S.perks.governor) r *= 0.7;
+  if (policyActive("dereg")) r *= 0.55;                          // gutted inspectors
+  if (policyActive("martial")) r *= 1.5;                         // troops on the docks
   return Math.max(0, Math.min(0.95, r));
 }
 function customsCheck(comId, qty, context) {
@@ -1713,7 +1905,7 @@ function applyDecreeIncome() {
 }
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
-  rollPrices(); applyDecreeIncome(); processOrgs(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processOrgs(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -2078,6 +2270,63 @@ function renderPower() {
   return `<div class="section-title">🏛️ Power & Organizations</div>
     <div class="cards">${meters}${cards}</div>`;
 }
+const VOTE_PILL = { yes: `<span class="pill good">YES</span>`, no: `<span class="pill bad">NO</span>`, abstain: `<span class="pill">abstain</span>` };
+function renderSenate() {
+  if (!canLegislate()) {
+    return `<div class="section-title">⚖️ The Senate</div>
+      <div class="cards"><div class="card"><h4>⚖️ No seat in the Senate</h4>
+        <div class="desc">Win a <b>Senate Seat</b> (Career Missions, below) to propose legislation. Senators reshape the sector economy by passing <b>bills</b> the faction blocs vote on.</div></div></div>`;
+  }
+  // enacted policies
+  let policyCards = "";
+  const active = Object.keys(S.policies || {});
+  if (active.length) {
+    policyCards = `<div class="section-title">📐 Standing Laws</div>` +
+      `<div class="cards">` + active.map(id => {
+        const b = billDef(id);
+        return `<div class="card owned"><h4>${b ? b.name : id} <span class="pill ${POL_TONE_CLS[b ? b.tone : "grey"]}">${b ? b.tone : ""}</span></h4>
+          <div class="hint">${b ? b.desc : ""}</div>
+          <button class="btn btn-sm btn-bad" onclick="repealPolicy('${id}')">Repeal (15 🏛️)</button></div>`;
+      }).join("") + `</div>`;
+  }
+  // the floor
+  let floorHtml;
+  const al = actionsLeft();
+  if (S.floor) {
+    const bill = billDef(S.floor.billId);
+    const t = tallyFloor();
+    const passing = t.yes > t.no;
+    const rows = Object.keys(FACTIONS).map(f => {
+      const v = factionVote(f, bill), seats = factionSeats(f), bought = (S.floor.sway[f] || 0) >= 3;
+      return `<div class="ship-stat" style="align-items:center">
+        <span class="k">${FACTIONS[f].ico} ${FACTIONS[f].name} <span class="hint">(${seats} seats)</span></span>
+        <span class="v">${VOTE_PILL[v]}
+          <button class="btn btn-sm" ${bought ? "disabled" : ""} title="Lobby: 8 influence" onclick="lobbyFaction('${f}')">Lobby</button>
+          <button class="btn btn-sm" ${bought ? "disabled" : ""} title="Bribe: 600 slush" onclick="bribeFaction('${f}')">Bribe</button>
+        </span></div>`;
+    }).join("");
+    floorHtml = `<div class="card" style="border-color:${passing ? "var(--good)" : "var(--warn)"}">
+      <h4>📜 On the floor: ${bill.name} <span class="pill ${POL_TONE_CLS[bill.tone]}">${bill.tone}</span></h4>
+      <div class="hint">${bill.desc}</div>
+      <div style="margin:8px 0">${rows}</div>
+      <div class="meta"><span class="hint">Tally</span><span class="cost" style="color:${passing ? "var(--good)" : "var(--bad)"}">YES ${t.yes} – ${t.no} NO · ${t.abstain} abstain → <b>${passing ? "PASSING" : "FAILING"}</b></span></div>
+      <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="callVote()">Call the Vote</button>
+    </div>`;
+  } else {
+    const proposable = BILLS.filter(b => b.oneShot || !policyActive(b.id)).map(b => {
+      const locked = b.reqPerk && !S.perks[b.reqPerk];
+      const cstr = `${b.proposeCost || 20} 🏛️${b.proposeCredits ? " + " + fmt(b.proposeCredits) + " 💰" : ""}`;
+      return `<div class="card"><h4>${b.name} <span class="pill ${POL_TONE_CLS[b.tone]}">${b.tone}</span></h4>
+        <div class="desc">${b.desc}</div>
+        <div class="meta"><span class="hint">Propose</span><span class="cost">${cstr}</span></div>
+        ${locked ? `<div class="hint" style="color:var(--bad)">Requires Sector Governor</div>`
+          : `<button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="proposeBill('${b.id}')">Propose (1 action)</button>`}</div>`;
+    }).join("");
+    floorHtml = `<div class="hint">The floor is open — propose a bill (one at a time). The blocs vote on its merits, your standing, the public mood, and any lobbying you do.</div>
+      <div class="cards">${proposable}</div>`;
+  }
+  return `${policyCards}<div class="section-title">⚖️ The Senate <span class="hint">(${senateSize()} seats)</span></div>${S.floor ? `<div class="cards">${floorHtml}</div>` : floorHtml}`;
+}
 function renderPolitics() {
   const el = document.getElementById("panel-politics");
   const p = currentPlanet();
@@ -2147,6 +2396,7 @@ function renderPolitics() {
       <div class="card"><h4>🤝 Faction Standing</h4>${reps}</div>
     </div>
     ${renderPower()}
+    ${renderSenate()}
     ${decrees}
     <div class="section-title">📋 Contracts (time-bounded)</div>
     <div class="cards">${contractCards}</div>
@@ -2429,6 +2679,8 @@ function init() {
   if (!S.contracts) { S.contracts = []; S.contractSeq = S.contractSeq || 0; }
   if (!S.pol) S.pol = { popularity: 0, legitimacy: 0, heat: 0, slush: 0 };  // backfill politics meters
   if (!S.orgs) S.orgs = {};
+  if (!S.policies) S.policies = {};
+  if (S.floor === undefined) S.floor = null;
   syncObjectives();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
@@ -2452,4 +2704,5 @@ Object.assign(window, {
   buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract,
   colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, explore, newGame,
   foundOrg, upgradeOrg, runOrgAbility,
+  proposeBill, lobbyFaction, bribeFaction, callVote, repealPolicy,
 });
