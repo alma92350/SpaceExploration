@@ -980,10 +980,10 @@ function notoriety() {
 function dmgReduction() { return Math.min(0.6, S.upgrades.shield * 0.18); }
 /* prey archetypes — cutthroat buffet: bulk haulers, fat liners, hard patrols */
 const PREY = {
-  hauler:   { name: "Ore Hauler",    ico: "🛻", faction: "miners",    base: 10, wanted: 5,  credits: [200, 600],   goods: ["ore", "metals", "ice"],            bulk: [20, 45] },
-  merchant: { name: "Merchant Freighter", ico: "🚚", faction: null,   base: 16, wanted: 8,  credits: [400, 1100],  goods: ["goods", "machinery", "electronics", "chemicals"], bulk: [10, 24] },
-  liner:    { name: "Luxury Liner",  ico: "🛳️", faction: "core",      base: 20, wanted: 16, credits: [1200, 2800], goods: ["luxury", "medicine", "spice"],     bulk: [6, 14] },
-  smuggler: { name: "Smuggler Runner", ico: "🏴", faction: "frontier", base: 11, wanted: 3, credits: [400, 1100],  goods: ["relics", "weapons", "spice", "radioactives"], bulk: [8, 18] },
+  hauler:   { name: "Ore Hauler",    ico: "🛻", faction: "miners",    base: 10, wanted: 5,  credits: [200, 600],   goods: ["ore", "metals", "ice"],            bulk: [12, 26] },
+  merchant: { name: "Merchant Freighter", ico: "🚚", faction: null,   base: 16, wanted: 8,  credits: [400, 1100],  goods: ["goods", "machinery", "electronics", "chemicals"], bulk: [9, 20] },
+  liner:    { name: "Luxury Liner",  ico: "🛳️", faction: "core",      base: 20, wanted: 16, credits: [1700, 3400], goods: ["luxury", "medicine", "spice"],     bulk: [8, 16] },
+  smuggler: { name: "Smuggler Runner", ico: "🏴", faction: "frontier", base: 11, wanted: 3, credits: [400, 1100],  goods: ["relics", "spice", "radioactives", "chemicals"], bulk: [6, 13] },
   patrol:   { name: "Faction Patrol", ico: "🚔", faction: null,       base: 28, wanted: 14, credits: [300, 800],   goods: ["weapons", "fuel"],                 bulk: [4, 10] },
 };
 function rint(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
@@ -998,7 +998,7 @@ function genPrey() {
   const cargo = {};
   const picks = A.goods.slice().sort(() => Math.random() - 0.5).slice(0, rint(1, 2));
   picks.forEach(c => cargo[c] = rint(A.bulk[0], A.bulk[1]));
-  const strength = Math.round(A.base * (0.7 + law) * (0.85 + Math.random() * 0.5));
+  const strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5)); // lawful escorts tough but beatable
   return {
     type: key, name: A.name, ico: A.ico,
     faction: A.faction || p.faction,
@@ -1163,9 +1163,10 @@ function processWanted() {
 /* ------------------------------------------------------------
    THE LAW STRIKES BACK — navy interdiction, arrest, counterplay
    ------------------------------------------------------------ */
-// strength of the cutter that comes for you: stiffer in lawful space, stiffer the more wanted you are
+// strength of the cutter that comes for you: stiffer in lawful space, stiffer the more wanted you are.
+// tuned so a combat-built captain (high cannons + Dread) can fight clear, while a light build can't.
 function navyStrength(p) {
-  return Math.round((14 + p.enforce * 30) * (0.8 + S.pirate.wanted / 100) * (0.9 + Math.random() * 0.3));
+  return Math.round((12 + p.enforce * 24) * (0.8 + S.pirate.wanted / 130) * (0.9 + Math.random() * 0.3));
 }
 // what a payoff costs — scales with notoriety and how civilised the world is
 function navyBribeCost(p) {
