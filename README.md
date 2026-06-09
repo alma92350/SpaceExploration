@@ -64,6 +64,33 @@ You can only harvest what a world actually holds, using four methods:
 | 🏺 **Exploit** | Relics (ancient ruins) | risky near lawful space |
 | 🧲 **Salvage** | Metals + Electronics from wrecks | **Salvage Rig required** |
 | 🎯 **Bounties** | Credits + influence (lawless worlds) | Shield reduces risk |
+| 🏴‍☠️ **Raid** | Plunder ships on the lanes (the outlaw path) | **Weapon Systems**; see below |
+
+## 🏴‍☠️ Raiding — the outlaw's life
+
+Arm up with **Weapon Systems** and turn pirate. From the **Raid** tab, **Prowl**
+the shipping lanes to find prey — fat, well-escorted Luxury Liners and Patrols
+near lawful worlds, leaner Haulers and Smugglers out on the rim. Then choose how
+to take them:
+
+- **⚔️ Attack** — fight for the cargo; win and you plunder their hold, credits and
+  fuel (taking hull damage; your **Deflector Shield** softens the blow).
+- **☠️ No Quarter** — show the crew no mercy: extra **Dread**, but extra **Wanted**.
+- **💀 Extort** — once you're feared enough, captains pay **tribute** without a
+  shot fired. Build Dread through attacks, then reap it safely.
+
+Three meters define the outlaw:
+
+- **💀 Dread** — your fearsome name. Boosts your raid power and makes prey
+  surrender to extortion. The cutthroat's snowball.
+- **🎯 Wanted** — the bounty on your head. Climbs with every raid (worst for
+  Core liners near lawful space), draws **bounty hunters**, and cools when you
+  lie low on the lawless rim.
+- **🛡️ Hull** — your ship's integrity. Combat wears it down; **repair** for
+  credits at any world. Let it hit zero and your ship is **crippled** — cargo
+  jettisoned and a costly tow home.
+
+Crime pays well — until the whole sector wants you dead.
 
 ## 🪐 The core worlds — a rotating roster
 

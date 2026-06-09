@@ -256,6 +256,8 @@ const UPGRADES = [
     desc: "Generate more tech points from research.", effect: t => `+${t*40}% research` },
   { id: "shield",  name: "Deflector Shield",  ico: "🛡️", tiers: 3, baseCost: 1600, costMul: 2.4,
     desc: "Reduce losses from pirates, hazards and customs scans.", effect: t => `-${t*20}% losses` },
+  { id: "cannons", name: "Weapon Systems",     ico: "🔫", tiers: 3, baseCost: 1800, costMul: 2.4,
+    desc: "Mass drivers and torpedoes — the muscle for raiding ships on the lanes.", effect: t => `+${t*9} raid power` },
   { id: "hazmat",  name: "Shielded Hold",     ico: "☣️", tiers: 3, baseCost: 1500, costMul: 2.3,
     desc: "Safely carry radioactives, weapons & antimatter — fewer accidents & detections.", effect: t => `-${t*25}% hazard risk` },
   { id: "smuggler",name: "Smuggler's Hold",   ico: "🕳️", tiers: 3, baseCost: 2200, costMul: 2.7,
@@ -635,6 +637,8 @@ function freshState(opts = {}) {
     planetLaws: {},     // player per-planet trade laws: pid -> com -> { type, until }
     invest: null,       // active corruption investigation: { lead, evidence, defense, cycles }
     jail: 0,            // cycles remaining in detention
+    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0 },  // outlaw career
+    prey: null,         // current raid encounter: { type, name, ico, cargo, credits, strength, faction, wantedGain }
     office,             // public office rank (0..4); perks.senator/governor derive from it
     officePath,         // how the current office was won: elected / appointed / seized
     term,               // cycles left in the current term (0 = none / life tenure)
@@ -945,6 +949,189 @@ function bounty() {
     toast(`Bounty paid: +${fmt(cr)} cr`, "good");
   }
   afterAction();
+}
+
+/* ============================================================
+   PIRACY — prowl the lanes, raid ships, plunder cargo
+   ============================================================ */
+const HULL_MAX = 100;
+const PROWL_FUEL = 6;
+function clampPirate() {
+  const P = S.pirate;
+  P.wanted = Math.max(0, Math.min(100, P.wanted));
+  P.dread = Math.max(0, Math.min(100, P.dread));
+  P.hull = Math.max(0, Math.min(HULL_MAX, P.hull));
+}
+function raidPower() {
+  return 6 + S.upgrades.cannons * 9 + S.pirate.dread * 0.15 + (S.techs.weapontech ? 6 : 0);
+}
+function dmgReduction() { return Math.min(0.6, S.upgrades.shield * 0.18); }
+/* prey archetypes — cutthroat buffet: bulk haulers, fat liners, hard patrols */
+const PREY = {
+  hauler:   { name: "Ore Hauler",    ico: "🛻", faction: "miners",    base: 10, wanted: 5,  credits: [200, 600],   goods: ["ore", "metals", "ice"],            bulk: [20, 45] },
+  merchant: { name: "Merchant Freighter", ico: "🚚", faction: null,   base: 16, wanted: 8,  credits: [500, 1400],  goods: ["goods", "machinery", "electronics", "chemicals"], bulk: [10, 24] },
+  liner:    { name: "Luxury Liner",  ico: "🛳️", faction: "core",      base: 20, wanted: 16, credits: [1500, 3500], goods: ["luxury", "medicine", "spice"],     bulk: [6, 14] },
+  smuggler: { name: "Smuggler Runner", ico: "🏴", faction: "frontier", base: 11, wanted: 3, credits: [400, 1100],  goods: ["relics", "weapons", "spice", "radioactives"], bulk: [8, 18] },
+  patrol:   { name: "Faction Patrol", ico: "🚔", faction: null,       base: 28, wanted: 14, credits: [300, 800],   goods: ["weapons", "fuel"],                 bulk: [4, 10] },
+};
+function rint(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+function genPrey() {
+  const p = currentPlanet(), law = p.enforce;       // lawful space → richer, better-escorted prey
+  // weight prey by locale
+  let pool;
+  if (law >= 0.5)      pool = ["liner", "merchant", "merchant", "patrol", "hauler"];
+  else if (law >= 0.25) pool = ["merchant", "hauler", "hauler", "smuggler", "patrol"];
+  else                  pool = ["hauler", "smuggler", "smuggler", "merchant"];
+  const key = pick(pool), A = PREY[key];
+  const cargo = {};
+  const picks = A.goods.slice().sort(() => Math.random() - 0.5).slice(0, rint(1, 2));
+  picks.forEach(c => cargo[c] = rint(A.bulk[0], A.bulk[1]));
+  const strength = Math.round(A.base * (0.7 + law) * (0.85 + Math.random() * 0.5));
+  return {
+    type: key, name: A.name, ico: A.ico,
+    faction: A.faction || p.faction,
+    cargo, credits: rint(A.credits[0], A.credits[1]),
+    strength,
+    wantedGain: Math.round(A.wanted * (1 + law)),
+  };
+}
+function prowl() {
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  if (S.prey) return toast("You're already shadowing a target.", "bad");
+  if (S.res.fuel < PROWL_FUEL) return toast(`Need ${PROWL_FUEL} fuel to prowl the lanes.`, "bad");
+  S.res.fuel -= PROWL_FUEL; useAction();
+  if (Math.random() < 0.15) {
+    log("🔭 You prowled the lanes but found no prey worth the powder.", "");
+    toast("No prey found.", "");
+    return afterAction();
+  }
+  S.prey = genPrey();
+  log(`🔭 Prey sighted: a ${S.prey.ico} <span class="c">${S.prey.name}</span> (${FACTIONS[S.prey.faction].name}).`, "event");
+  toast(`Target sighted: ${S.prey.name}`, "event");
+  afterAction();
+}
+function takeHullDamage(amount) {
+  amount = Math.max(0, Math.round(amount * (1 - dmgReduction())));
+  S.pirate.hull -= amount;
+  clampPirate();
+  if (S.pirate.hull <= 0) shipCrippled();
+  return amount;
+}
+function shipCrippled() {
+  // jettison half the hold, pay a tow, limp home
+  const jettisoned = [];
+  CARGO_IDS.forEach(c => { const lose = Math.floor((S.res[c] || 0) / 2); if (lose > 0) { S.res[c] -= lose; jettisoned.push(`${lose} ${COM[c].ico}`); } });
+  const tow = Math.min(S.res.credits, 1500);
+  S.res.credits -= tow;
+  S.pirate.hull = 30; clampPirate();
+  log(`💥 Your hull buckled! You limp away — lost ${jettisoned.join(" ") || "no cargo"} and paid ${fmt(tow)} cr for a tow.`, "bad");
+  toast("Ship crippled!", "bad");
+  if (typeof announce === "function") announce("💥 Ship Crippled", "Your hull gave out under fire. Cargo jettisoned and a tow paid — patch up before you raid again.", true);
+}
+function plunder(prey) {
+  const taken = [];
+  Object.keys(prey.cargo).forEach(c => {
+    const room = cargoFree();
+    const q = Math.min(prey.cargo[c], room);
+    if (q > 0) { S.res[c] = (S.res[c] || 0) + q; taken.push(`${q} ${COM[c].ico}`); }
+  });
+  S.res.credits += prey.credits;
+  let value = prey.credits;
+  Object.keys(prey.cargo).forEach(c => value += (prey.cargo[c]) * COM[c].base);
+  S.pirate.plundered += Math.round(value);
+  return taken;
+}
+function resolveRaid(noQuarter) {
+  const prey = S.prey; if (!prey) return;
+  useAction();
+  const power = raidPower() + Math.random() * 10;
+  const def = prey.strength + Math.random() * 10;
+  const margin = power - def;
+  S.pirate.raids++;
+  if (margin > 0) {
+    const taken = plunder(prey);
+    const dmg = takeHullDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5));
+    let dread = noQuarter ? 9 : 5;
+    let wanted = prey.wantedGain + (noQuarter ? 8 : 0);
+    S.pirate.dread += dread; S.pirate.wanted += wanted;
+    addRep(prey.faction, noQuarter ? -14 : -8);
+    addRep("core", -(prey.faction === "core" ? 8 : 5));
+    addRep("frontier", 3);
+    clampPirate();
+    log(`🏴‍☠️ You raided the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"} + ${fmt(prey.credits)} cr. (Hull −${dmg}, Dread +${dread}, Wanted +${wanted})`, "good");
+    toast(`Plundered ${prey.name}!`, "good");
+  } else {
+    const dmg = takeHullDamage(prey.strength * 0.8 * (0.6 + Math.random() * 0.6) + 6);
+    S.pirate.wanted += Math.round(prey.wantedGain * 0.5);
+    clampPirate();
+    log(`🛡️ The ${prey.ico} ${prey.name} fought you off — you took Hull −${dmg} and it slipped away. (Wanted +${Math.round(prey.wantedGain * 0.5)})`, "bad");
+    toast("Driven off!", "bad");
+  }
+  S.prey = null;
+  afterAction();
+}
+function raidAttack() { if (!S.prey) return; if (actionsLeft() <= 0) return toast("No actions left.", "bad"); resolveRaid(false); }
+function raidNoQuarter() { if (!S.prey) return; if (actionsLeft() <= 0) return toast("No actions left.", "bad"); resolveRaid(true); }
+function raidExtort() {
+  const prey = S.prey; if (!prey) return;
+  if (actionsLeft() <= 0) return toast("No actions left.", "bad");
+  useAction();
+  const intimidation = S.pirate.dread + raidPower() * 0.3 + Math.random() * 20;
+  if (intimidation >= prey.strength * 1.4) {
+    // they surrender tribute without a fight — partial haul, low heat
+    const tributeCargo = {};
+    Object.keys(prey.cargo).forEach(c => { const q = Math.floor(prey.cargo[c] * 0.6); if (q > 0) tributeCargo[c] = q; });
+    const credits = Math.round(prey.credits * 0.6);
+    const taken = plunder({ cargo: tributeCargo, credits });
+    S.pirate.dread += 3; S.pirate.wanted += Math.round(prey.wantedGain * 0.4);
+    addRep(prey.faction, -5); clampPirate();
+    log(`💀 Your reputation alone broke the ${prey.ico} ${prey.name} — it paid tribute: ${taken.join(" ") || "credits"} + ${fmt(credits)} cr. No shots fired.`, "good");
+    toast(`Tribute extorted from ${prey.name}!`, "good");
+  } else {
+    S.pirate.wanted += Math.round(prey.wantedGain * 0.3); clampPirate();
+    log(`💀 The ${prey.ico} ${prey.name} called your bluff and ran. You aren't feared enough… yet.`, "bad");
+    toast("They called your bluff.", "bad");
+  }
+  S.prey = null;
+  afterAction();
+}
+function raidDisengage() {
+  if (!S.prey) return;
+  S.prey = null;
+  log("You let the target slip past, unmolested.", "");
+  afterAction();
+}
+function repairShip() {
+  if (S.pirate.hull >= HULL_MAX) return toast("Hull is already pristine.", "bad");
+  const cost = Math.round((HULL_MAX - S.pirate.hull) * 25);
+  if (S.res.credits < cost) return toast(`Repairs cost ${fmt(cost)} credits.`, "bad");
+  S.res.credits -= cost; S.pirate.hull = HULL_MAX;
+  log(`🔧 Hull fully repaired at ${currentPlanet().name} for ${fmt(cost)} credits.`, "good");
+  toast("Hull repaired.", "good");
+  afterAction();
+}
+function processWanted() {
+  if (!S.pirate) return;
+  const P = S.pirate;
+  // wanted cools when you lie low; faster out on the lawless rim
+  const cool = (currentPlanet().enforce < 0.2) ? 4 : 2;
+  P.wanted = Math.max(0, P.wanted - cool);
+  // bounty hunters come for the notorious
+  if (P.wanted >= 40 && Math.random() < (P.wanted - 30) / 220) {
+    const hunterStr = 18 + Math.round(P.wanted * 0.4);
+    const power = raidPower() + Math.random() * 12;
+    if (power > hunterStr + Math.random() * 12) {
+      P.dread += 4; P.wanted = Math.max(0, P.wanted - 10); clampPirate();
+      log(`🎯 A bounty hunter came for your head — you blew them out of the void. (Dread +4, Wanted −10)`, "good");
+    } else {
+      const dmg = takeHullDamage(hunterStr * 0.7);
+      const loss = Math.min(S.res.credits, 400 + rint(0, 600));
+      S.res.credits -= loss; clampPirate();
+      log(`🎯 A bounty hunter ambushed you — Hull −${dmg}, ${fmt(loss)} cr in damages.`, "bad");
+      toast("Bounty hunter attack!", "bad");
+    }
+  }
+  clampPirate();
 }
 
 /* ============================================================
@@ -2266,7 +2453,7 @@ function applyDecreeIncome() {
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -2357,6 +2544,8 @@ function renderShip() {
      <div class="ship-stat" style="margin-top:6px"><span class="k">Fuel</span><span class="v">${S.res.fuel}/${fuelCap()}</span></div>
      <div class="bar"><span style="width:${Math.min(100, S.res.fuel/fuelCap()*100)}%"></span></div>
      <div class="ship-stat" style="margin-top:8px"><span class="k">Actions</span><span class="v">${actionsLeft()}/${ACTIONS_PER_CYCLE}</span></div>
+     ${(S.pirate && S.pirate.hull < HULL_MAX) ? `<div class="ship-stat" style="margin-top:6px"><span class="k">Hull</span><span class="v" style="color:${S.pirate.hull>=60?'var(--good)':S.pirate.hull>=30?'var(--warn)':'var(--bad)'}">${S.pirate.hull}/${HULL_MAX}</span></div>
+     <div class="bar"><span style="width:${S.pirate.hull}%;background:${S.pirate.hull>=60?'var(--good)':S.pirate.hull>=30?'var(--warn)':'var(--bad)'}"></span></div>` : ""}
      <div class="ship-stat" style="margin-top:8px"><span class="k">Hold</span></div>
      <div style="font-size:12px;line-height:1.7">${held}</div>
      ${mods ? `<div class="ship-stat" style="margin-top:8px"><span class="k">Mods</span></div><div style="font-size:13px">${mods}</div>` : ""}`;
@@ -2852,6 +3041,53 @@ function renderPolitics() {
 }
 
 /* ----- Ship ----- */
+function renderRaid() {
+  const el = document.getElementById("panel-raid");
+  if (!el) return;
+  const P = S.pirate, p = currentPlanet(), al = actionsLeft();
+  const wantedCol = P.wanted >= 60 ? "var(--bad)" : P.wanted >= 30 ? "var(--warn)" : "var(--good)";
+  const hullCol = P.hull >= 60 ? "var(--good)" : P.hull >= 30 ? "var(--warn)" : "var(--bad)";
+  const status = `<div class="card"><h4>🏴‍☠️ Outlaw Status</h4>
+    ${polMeter("Wanted", "🎯", P.wanted, 100, wantedCol)}
+    ${polMeter("Dread", "💀", P.dread, 100, "var(--accent-2)")}
+    ${polMeter("Hull", "🛡️", P.hull, 100, hullCol)}
+    <div class="ship-stat" style="margin-top:6px"><span class="k">Raids pulled</span><span class="v">${fmt(P.raids)}</span></div>
+    <div class="ship-stat"><span class="k">Total plundered</span><span class="v">${fmt(P.plundered)} cr</span></div>
+    <div class="ship-stat"><span class="k">Raid power</span><span class="v">${Math.round(raidPower())}</span></div>
+    ${P.hull < HULL_MAX ? `<button class="btn btn-good" style="margin-top:8px" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * 25))} 💰)</button>` : `<div class="pill good" style="margin-top:8px">◉ Hull pristine</div>`}
+  </div>`;
+  let action;
+  if (S.prey) {
+    const prey = S.prey;
+    const cargoStr = Object.keys(prey.cargo).map(c => `${prey.cargo[c]} ${COM[c].ico} ${COM[c].name}`).join(", ") || "scant cargo";
+    const rp = raidPower();
+    const odds = rp >= prey.strength * 1.2 ? "favorable" : rp >= prey.strength * 0.8 ? "even" : "risky";
+    const oddsCol = odds === "favorable" ? "var(--good)" : odds === "even" ? "var(--warn)" : "var(--bad)";
+    action = `<div class="card" style="border-color:var(--warn)">
+      <h4>${prey.ico} ${prey.name} <span class="pill">${FACTIONS[prey.faction].ico} ${FACTIONS[prey.faction].name}</span></h4>
+      <div class="hint">Hold: ${cargoStr} · ${fmt(prey.credits)} 💰 · escort strength ~${prey.strength}</div>
+      <div class="meta"><span class="hint">Your odds</span><span class="cost" style="color:${oddsCol}">${odds} — power ${Math.round(rp)} vs ~${prey.strength}</span></div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="raidAttack()">⚔️ Attack</button>
+        <button class="btn btn-bad" ${al > 0 ? "" : "disabled"} title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
+        <button class="btn btn-sm" ${al > 0 ? "" : "disabled"} title="Use your Dread to extort tribute — no fight" onclick="raidExtort()">💀 Extort</button>
+        <button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>
+      </div>
+    </div>`;
+  } else {
+    const armed = S.upgrades.cannons >= 1;
+    const richness = p.enforce >= 0.5 ? "fat, well-escorted lawful traffic" : p.enforce >= 0.25 ? "mixed traffic" : "lean rim runners & smugglers";
+    action = `<div class="card">
+      <h4>🔭 Prowl the lanes near ${p.name}</h4>
+      <div class="desc">Hunt for prey on the shipping lanes (${richness}). Lawful space carries richer cargo but heavier escorts and stiffer bounties; the lawless rim is leaner but safer. Costs ${PROWL_FUEL} ⛽ and one action.</div>
+      ${armed ? "" : `<div class="hint" style="color:var(--warn)">Install 🔫 Weapon Systems (Ship tab) to raid with any real teeth.</div>`}
+      <button class="btn btn-primary" ${al > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="prowl()">Prowl (1 action)</button>
+    </div>`;
+  }
+  el.innerHTML = `<h2>🏴‍☠️ Raiding</h2>
+    <div class="subtitle">Prey on the lanes for plunder. Build <b>Dread</b> and captains surrender without a fight; mind your <b>Wanted</b> level — the notorious draw bounty hunters (and soon the navy).</div>
+    <div class="cards">${status}${action}</div>`;
+}
 function renderShipPanel() {
   const el = document.getElementById("panel-ship");
   const cards = UPGRADES.map(u => {
@@ -3080,7 +3316,7 @@ function renderColonies() {
 function renderAll() {
   if (typeof document === "undefined") return;
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
-  renderIndustry(); renderResearch(); renderPolitics(); renderBases(); renderColonies(); renderShipPanel(); renderLog();
+  renderIndustry(); renderResearch(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderShipPanel(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
 }
 
@@ -3135,6 +3371,9 @@ function init() {
   if (S.term == null) S.term = 0;
   if (S.officePath === undefined) S.officePath = null;
   if (S.legacyTitle === undefined) S.legacyTitle = null;
+  if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0 };
+  if (S.prey === undefined) S.prey = null;
+  UPGRADES.forEach(u => { if (S.upgrades[u.id] == null) S.upgrades[u.id] = 0; });  // backfill new upgrades (cannons)
   syncObjectives();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
@@ -3161,4 +3400,5 @@ Object.assign(window, {
   proposeBill, lobbyFaction, bribeFaction, callVote, repealPolicy,
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
   runForElection, seekAppointment, stageCoup, lobbyLaw,
+  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, repairShip,
 });
