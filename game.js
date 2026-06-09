@@ -641,6 +641,7 @@ function freshState(opts = {}) {
     prey: null,         // current raid encounter: { type, name, ico, cargo, credits, strength, faction, wantedGain }
     interdiction: null, // active navy confrontation: { kind, planet, strength, bribe }
     haven: null,        // pirate hideout: { planet, tier, stash } — lie low, stash loot, collect tribute
+    commission: null,   // privateer letter of marque: { patron, target, expires, quota, done, bounty, reward }
     office,             // public office rank (0..4); perks.senator/governor derive from it
     officePath,         // how the current office was won: elected / appointed / seized
     term,               // cycles left in the current term (0 = none / life tenure)
@@ -1066,17 +1067,19 @@ function resolveRaid(noQuarter) {
   const def = prey.strength + Math.random() * 10;
   const margin = power - def;
   S.pirate.raids++;
+  const betray = S.commission && prey.faction === S.commission.patron;
   if (margin > 0) {
     const taken = plunder(prey);
     const dmg = takeHullDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5) + 3); // every fight scars the hull
     let dread = noQuarter ? 9 : 5;
-    let wanted = prey.wantedGain + (noQuarter ? 8 : 0);
+    const sanctioned = applyCommissionRaid(prey);     // legal kill under marque
+    let wanted = sanctioned ? (noQuarter ? 8 : 0) : prey.wantedGain + (noQuarter ? 8 : 0);
     S.pirate.dread += dread; S.pirate.wanted += wanted;
     addRep(prey.faction, noQuarter ? -14 : -8);
-    addRep("core", -(prey.faction === "core" ? 8 : 5));
+    if (!sanctioned) addRep("core", -(prey.faction === "core" ? 8 : 5));
     addRep("frontier", 3);
     clampPirate();
-    log(`🏴‍☠️ You raided the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"} + ${fmt(prey.credits)} cr. (Hull −${dmg}, Dread +${dread}, Wanted +${wanted})`, "good");
+    log(`🏴‍☠️ You raided the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"} + ${fmt(prey.credits)} cr.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Hull −${dmg}, Dread +${dread}, Wanted +${wanted})`, "good");
     toast(`Plundered ${prey.name}!`, "good");
   } else {
     const dmg = takeHullDamage(prey.strength * 0.8 * (0.6 + Math.random() * 0.6) + 6);
@@ -1085,6 +1088,7 @@ function resolveRaid(noQuarter) {
     log(`🛡️ The ${prey.ico} ${prey.name} fought you off — you took Hull −${dmg} and it slipped away. (Wanted +${Math.round(prey.wantedGain * 0.5)})`, "bad");
     toast("Driven off!", "bad");
   }
+  if (betray) revokeCommission(true);   // raiding your own patron tears up the marque
   S.prey = null;
   afterAction();
 }
@@ -1101,15 +1105,17 @@ function raidExtort() {
     Object.keys(prey.cargo).forEach(c => { const q = Math.floor(prey.cargo[c] * 0.6); if (q > 0) tributeCargo[c] = q; });
     const credits = Math.round(prey.credits * 0.6);
     const taken = plunder({ cargo: tributeCargo, credits });
-    S.pirate.dread += 3; S.pirate.wanted += Math.round(prey.wantedGain * 0.4);
+    const sanctioned = applyCommissionRaid(prey);
+    S.pirate.dread += 3; if (!sanctioned) S.pirate.wanted += Math.round(prey.wantedGain * 0.4);
     addRep(prey.faction, -5); clampPirate();
-    log(`💀 Your reputation alone broke the ${prey.ico} ${prey.name} — it paid tribute: ${taken.join(" ") || "credits"} + ${fmt(credits)} cr. No shots fired.`, "good");
+    log(`💀 Your reputation alone broke the ${prey.ico} ${prey.name} — it paid tribute: ${taken.join(" ") || "credits"} + ${fmt(credits)} cr.${sanctioned ? ` ⚖️ Sanctioned bounty +${fmt(COMM_BOUNTY)} cr.` : ""} No shots fired.`, "good");
     toast(`Tribute extorted from ${prey.name}!`, "good");
   } else {
     S.pirate.wanted += Math.round(prey.wantedGain * 0.3); clampPirate();
     log(`💀 The ${prey.ico} ${prey.name} called your bluff and ran. You aren't feared enough… yet.`, "bad");
     toast("They called your bluff.", "bad");
   }
+  if (S.commission && prey.faction === S.commission.patron) revokeCommission(true);
   S.prey = null;
   afterAction();
 }
@@ -1177,6 +1183,7 @@ function startInterdiction(p, kind) {
 // called on arrival at a port: notorious captains can't just stroll into lawful space
 function maybeInterdict(dest) {
   if (!S.pirate || S.interdiction || S.jail > 0) return;
+  if (S.commission && dest.faction === S.commission.patron) return; // your patron's ports wave you through
   if (S.pirate.wanted < 25) return;                       // below "Wanted" the ports don't bother
   if (Math.random() < (S.pirate.wanted / 100) * dest.enforce * 1.15) startInterdiction(dest, "dock");
 }
@@ -1319,6 +1326,54 @@ function processHaven() {
     S.res.credits += tribute;
     if (S.turn % 4 === 0) log(`👑 Your haven drew ${fmt(tribute)} cr in tribute from rim crews who fear your name.`, "good");
   }
+}
+
+/* ------------------------------------------------------------
+   PRIVATEER COMMISSIONS — letters of marque: raid a faction's rivals, legally
+   ------------------------------------------------------------ */
+const FACTION_RIVAL = { core: "frontier", frontier: "core", syndicate: "core", miners: "agri", agri: "miners" };
+const COMM_DURATION = 12, COMM_QUOTA = 5, COMM_BOUNTY = 800, COMM_REWARD = 4000, COMM_REP_REQ = 5;
+function commissionCovers(faction) { return !!(S.commission && S.commission.target === faction); }
+function acceptCommission() {
+  if (S.commission) return toast("You already sail under a letter of marque.", "bad");
+  const p = currentPlanet(), patron = p.faction, target = FACTION_RIVAL[patron];
+  if (!target) return toast("No commission on offer here.", "bad");
+  if ((S.rep[patron] || 0) < COMM_REP_REQ) return toast(`${FACTIONS[patron].name} won't commission a stranger — earn their trust first.`, "bad");
+  S.commission = { patron, target, expires: S.turn + COMM_DURATION, quota: COMM_QUOTA, done: 0, bounty: COMM_BOUNTY, reward: COMM_REWARD };
+  addRep(patron, 5); addRep(target, -8);
+  log(`📜 ${FACTIONS[patron].name} grants you a letter of marque against the ${FACTIONS[target].name}. Hunt their shipping — and the law looks the other way.`, "event");
+  toast("Letter of marque accepted!", "good");
+  afterAction();
+}
+// applied on a successful raid: pays bounty, counts quota, and waives the Wanted you'd normally earn
+function applyCommissionRaid(prey) {
+  if (!commissionCovers(prey.faction)) return false;
+  const c = S.commission;
+  c.done++; S.res.credits += c.bounty; addRep(c.patron, 2);
+  return true;
+}
+function revokeCommission(betrayed) {
+  if (!S.commission) return;
+  const c = S.commission;
+  if (betrayed) {
+    addRep(c.patron, -20); S.pirate.wanted = Math.min(100, S.pirate.wanted + 15);
+    log(`📜 You turned on your patron — ${FACTIONS[c.patron].name} tears up your letter of marque and brands you an oathbreaker!`, "bad");
+    toast("Commission betrayed!", "bad");
+  }
+  S.commission = null; clampPirate();
+}
+function processCommission() {
+  if (!S.commission || S.turn < S.commission.expires) return;
+  const c = S.commission;
+  if (c.done >= c.quota) {
+    S.res.credits += c.reward; S.res.influence = (S.res.influence || 0) + 10; addRep(c.patron, 10);
+    log(`📜 Commission fulfilled! ${FACTIONS[c.patron].name} pays a ${fmt(c.reward)} cr bonus and hails you a privateer. (+influence, +rep)`, "good");
+    toast("Commission fulfilled!", "good");
+  } else {
+    addRep(c.patron, -3);
+    log(`📜 Your letter of marque against the ${FACTIONS[c.target].name} lapsed with the quota unmet (${c.done}/${c.quota}).`, "bad");
+  }
+  S.commission = null;
 }
 
 /* ============================================================
@@ -2697,7 +2752,7 @@ function applyDecreeIncome() {
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -3400,9 +3455,30 @@ function renderRaid() {
       <button class="btn btn-primary" ${S.res.credits >= HAVEN_COST && (S.res.metals || 0) >= HAVEN_METALS ? "" : "disabled"} onclick="establishHaven()">Establish Haven</button>
     </div>`;
   }
+  // ---- Privateer commission ----
+  let commCard = "";
+  if (S.commission) {
+    const c = S.commission, left = Math.max(0, c.expires - S.turn);
+    commCard = `<div class="card" style="border-color:var(--good)">
+      <h4>📜 Letter of Marque <span class="pill good">${FACTIONS[c.patron].ico} ${FACTIONS[c.patron].name}</span></h4>
+      <div class="hint">Sanctioned to raid <b>${FACTIONS[c.target].ico} ${FACTIONS[c.target].name}</b> shipping — their kills draw no Wanted and pay a ${fmt(c.bounty)} cr bounty. Don't turn on your patron.</div>
+      <div class="ship-stat" style="margin-top:6px"><span class="k">Progress</span><span class="v">${c.done}/${c.quota} raids</span></div>
+      <div class="ship-stat"><span class="k">Cycles left</span><span class="v">${left}</span></div>
+      <div class="ship-stat"><span class="k">Completion bonus</span><span class="v">${fmt(c.reward)} 💰</span></div>
+    </div>`;
+  } else {
+    const patron = p.faction, target = FACTION_RIVAL[patron];
+    if (target && (S.rep[patron] || 0) >= COMM_REP_REQ) {
+      commCard = `<div class="card">
+        <h4>📜 Privateer Commission</h4>
+        <div class="desc">${FACTIONS[patron].name} will issue a letter of marque against the <b>${FACTIONS[target].name}</b>: hunt their shipping legally — no Wanted, a ${fmt(COMM_BOUNTY)} cr bounty per raid, and a ${fmt(COMM_REWARD)} cr bonus for ${COMM_QUOTA} raids in ${COMM_DURATION} cycles. Their ports will stop interdicting you; the target's will hate you.</div>
+        <button class="btn btn-primary" onclick="acceptCommission()">Accept Letter of Marque</button>
+      </div>`;
+    }
+  }
   el.innerHTML = `<h2>🏴‍☠️ Raiding</h2>
-    <div class="subtitle">Prey on the lanes for plunder. Build <b>Dread</b> and captains surrender without a fight; mind your <b>Wanted</b> level — the notorious draw bounty hunters <i>and the navy</i>, who interdict you in lawful ports and on patrolled lanes. Settle warrants or carve out a <b>haven</b> in lawless space to cool the heat.</div>
-    <div class="cards">${status}${action}${havenCard}</div>`;
+    <div class="subtitle">Prey on the lanes for plunder. Build <b>Dread</b> and captains surrender without a fight; mind your <b>Wanted</b> level — the notorious draw bounty hunters <i>and the navy</i>, who interdict you in lawful ports and on patrolled lanes. Settle warrants or carve out a <b>haven</b> to cool the heat — or take a <b>letter of marque</b> and raid a faction's rivals, legally.</div>
+    <div class="cards">${status}${action}${commCard}${havenCard}</div>`;
 }
 function renderShipPanel() {
   const el = document.getElementById("panel-ship");
@@ -3691,6 +3767,7 @@ function init() {
   if (S.prey === undefined) S.prey = null;
   if (S.interdiction === undefined) S.interdiction = null;
   if (S.haven === undefined) S.haven = null;
+  if (S.commission === undefined) S.commission = null;
   UPGRADES.forEach(u => { if (S.upgrades[u.id] == null) S.upgrades[u.id] = 0; });  // backfill new upgrades (cannons)
   syncObjectives();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
@@ -3722,4 +3799,5 @@ Object.assign(window, {
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
+  acceptCommission,
 });
