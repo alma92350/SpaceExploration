@@ -224,6 +224,77 @@ Clean power is slow and poor; dirty power is fast and fragile — navigate the g
 Jump straight in with the **🏛️ Politics** new-game button (charter, war chest,
 influence and a starter party).
 
+### ⚖️ The Senate — write the law of the sector
+
+Win a **Senate Seat** (Career Missions) to legislate. The five factions are
+**voting blocs** whose seats scale with the worlds they control. Propose a
+**Bill** (costs influence) and it goes to the floor, where each bloc votes on:
+
+- the bill's **stance** toward them (does it help or hurt their interests),
+- your **standing** with them, plus the **public mood** and your **legitimacy**,
+- and any **lobbying** (spend influence) or **bribes** (spend slush — dirty, and
+  it raises Heat and costs legitimacy) you apply to swing their vote.
+
+Win the tally and the bill becomes a **standing law** that reshapes the whole
+sector economy until you repeal it — for example:
+
+- **Free Trade / Tariff / Mining Rights** — move sell & buy prices sector-wide.
+- **Spice Prohibition / Legalization** — rewrite what counts as contraband.
+- **Deregulation / Martial Law** — slash or spike customs-bust risk everywhere.
+- **Universal Basic Income** — treasury cost each cycle for popularity & calm.
+- **Anti-Corruption Act** — makes *your own* dirty deeds generate far more Heat.
+- **Emergency Monopoly Grant / Immunity Act** — naked self-dealing (governor only).
+
+A popular statesman passes reforms on merit; a notorious operator has to buy the
+votes. Either way, the laws you write change the game everyone — including you —
+is playing.
+
+### 🚨 Investigations & trials — Heat has consequences
+
+Let your **Heat** run hot and the faction most opposed to you opens a **corruption
+investigation**. A case file builds each cycle — faster the hotter you run,
+slower the more **legitimacy** you've banked (and an Anti-Corruption law on the
+books makes it build faster still). Reach **100 evidence** and you're indicted.
+
+You can fight the case — cleanly or otherwise:
+
+- **Lawyer Up** — credits build a real legal defense and chip at the evidence.
+- **Bribe the investigator** — slush makes evidence vanish, but it can backfire.
+- **Spin** (Media), **Bury Evidence** (Intel), **Strong-arm witnesses** (Security)
+  — your organizations earn their keep, each with its own risk.
+- **Scapegoat** — pin it on one of your own organizations and dissolve it to make
+  the case collapse.
+- **Face the Trial now** — gamble on the current evidence if you think you'll win.
+
+At **trial**, the evidence is weighed against your legitimacy, popularity, the
+defense you built, and your standing with the prosecutor — for a verdict that
+ranges from **acquittal** through **fines**, **censure**, **removal from office**
+and **imprisonment** (you lose cycles in detention while your machine runs on),
+all the way to **disgrace & exile** that wipes your political career to the
+ground. Crime can pay — until it doesn't.
+
+### 🗳️ Office & Elections — three routes to power
+
+Climb a ladder of public office — **Councillor → Senator → Sector Governor →
+First Consul** — and claim each rung **three different ways**:
+
+- **🗳️ Election** — win at the ballot box on your **popularity** (and a campaign
+  chest). The clean, populist route; victory builds legitimacy.
+- **🤝 Appointment** — get an **allied faction** to install you with **influence**
+  and money. Backroom power, no public mandate, and rivals resent the deal.
+- **⚔️ Coup** — seize power by force with your **Private Security** and slush. It
+  craters your legitimacy, enrages every faction, spikes Heat — and it can fail
+  catastrophically.
+
+**Terms expire.** Hold an elected or appointed office only while your support
+holds up (popularity keeps decaying, so keep campaigning); hold a seized office
+only while you keep the muscle. Fall short at term's end and you're demoted.
+
+Reach the summit and you complete a **political legacy** whose title reflects how
+you ruled — **The Statesman** (clean and respected), **The Demagogue** (a
+popularity landslide), **The Kingpin** (bought and blackmailed), or **The
+Consul** (taken by force). Different game, every time.
+
 ## 🛠️ Fifteen ship upgrades (3 tiers each)
 
 Cargo Hold · Fuel Tanks · Ion Engine · Mining Laser · Bio-Harvester ·
