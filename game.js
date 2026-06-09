@@ -969,8 +969,8 @@ function dmgReduction() { return Math.min(0.6, S.upgrades.shield * 0.18); }
 /* prey archetypes — cutthroat buffet: bulk haulers, fat liners, hard patrols */
 const PREY = {
   hauler:   { name: "Ore Hauler",    ico: "🛻", faction: "miners",    base: 10, wanted: 5,  credits: [200, 600],   goods: ["ore", "metals", "ice"],            bulk: [20, 45] },
-  merchant: { name: "Merchant Freighter", ico: "🚚", faction: null,   base: 16, wanted: 8,  credits: [500, 1400],  goods: ["goods", "machinery", "electronics", "chemicals"], bulk: [10, 24] },
-  liner:    { name: "Luxury Liner",  ico: "🛳️", faction: "core",      base: 20, wanted: 16, credits: [1500, 3500], goods: ["luxury", "medicine", "spice"],     bulk: [6, 14] },
+  merchant: { name: "Merchant Freighter", ico: "🚚", faction: null,   base: 16, wanted: 8,  credits: [400, 1100],  goods: ["goods", "machinery", "electronics", "chemicals"], bulk: [10, 24] },
+  liner:    { name: "Luxury Liner",  ico: "🛳️", faction: "core",      base: 20, wanted: 16, credits: [1200, 2800], goods: ["luxury", "medicine", "spice"],     bulk: [6, 14] },
   smuggler: { name: "Smuggler Runner", ico: "🏴", faction: "frontier", base: 11, wanted: 3, credits: [400, 1100],  goods: ["relics", "weapons", "spice", "radioactives"], bulk: [8, 18] },
   patrol:   { name: "Faction Patrol", ico: "🚔", faction: null,       base: 28, wanted: 14, credits: [300, 800],   goods: ["weapons", "fuel"],                 bulk: [4, 10] },
 };
@@ -992,7 +992,7 @@ function genPrey() {
     faction: A.faction || p.faction,
     cargo, credits: rint(A.credits[0], A.credits[1]),
     strength,
-    wantedGain: Math.round(A.wanted * (1 + law)),
+    wantedGain: Math.round(A.wanted * (1 + law * 0.6)),
   };
 }
 function prowl() {
@@ -1050,7 +1050,7 @@ function resolveRaid(noQuarter) {
   S.pirate.raids++;
   if (margin > 0) {
     const taken = plunder(prey);
-    const dmg = takeHullDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5));
+    const dmg = takeHullDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5) + 3); // every fight scars the hull
     let dread = noQuarter ? 9 : 5;
     let wanted = prey.wantedGain + (noQuarter ? 8 : 0);
     S.pirate.dread += dread; S.pirate.wanted += wanted;
@@ -1103,7 +1103,7 @@ function raidDisengage() {
 }
 function repairShip() {
   if (S.pirate.hull >= HULL_MAX) return toast("Hull is already pristine.", "bad");
-  const cost = Math.round((HULL_MAX - S.pirate.hull) * 25);
+  const cost = Math.round((HULL_MAX - S.pirate.hull) * 30);
   if (S.res.credits < cost) return toast(`Repairs cost ${fmt(cost)} credits.`, "bad");
   S.res.credits -= cost; S.pirate.hull = HULL_MAX;
   log(`🔧 Hull fully repaired at ${currentPlanet().name} for ${fmt(cost)} credits.`, "good");
@@ -1116,6 +1116,7 @@ function processWanted() {
   // wanted cools when you lie low; faster out on the lawless rim
   const cool = (currentPlanet().enforce < 0.2) ? 4 : 2;
   P.wanted = Math.max(0, P.wanted - cool);
+  P.dread = Math.max(0, P.dread - 1);     // a fearsome name fades if you stop raiding
   // bounty hunters come for the notorious
   if (P.wanted >= 40 && Math.random() < (P.wanted - 30) / 220) {
     const hunterStr = 18 + Math.round(P.wanted * 0.4);
@@ -3054,7 +3055,7 @@ function renderRaid() {
     <div class="ship-stat" style="margin-top:6px"><span class="k">Raids pulled</span><span class="v">${fmt(P.raids)}</span></div>
     <div class="ship-stat"><span class="k">Total plundered</span><span class="v">${fmt(P.plundered)} cr</span></div>
     <div class="ship-stat"><span class="k">Raid power</span><span class="v">${Math.round(raidPower())}</span></div>
-    ${P.hull < HULL_MAX ? `<button class="btn btn-good" style="margin-top:8px" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * 25))} 💰)</button>` : `<div class="pill good" style="margin-top:8px">◉ Hull pristine</div>`}
+    ${P.hull < HULL_MAX ? `<button class="btn btn-good" style="margin-top:8px" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * 30))} 💰)</button>` : `<div class="pill good" style="margin-top:8px">◉ Hull pristine</div>`}
   </div>`;
   let action;
   if (S.prey) {
