@@ -640,6 +640,7 @@ function freshState(opts = {}) {
     pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0 },  // outlaw career
     prey: null,         // current raid encounter: { type, name, ico, cargo, credits, strength, faction, wantedGain }
     interdiction: null, // active navy confrontation: { kind, planet, strength, bribe }
+    haven: null,        // pirate hideout: { planet, tier, stash } — lie low, stash loot, collect tribute
     office,             // public office rank (0..4); perks.senator/governor derive from it
     officePath,         // how the current office was won: elected / appointed / seized
     term,               // cycles left in the current term (0 = none / life tenure)
@@ -1120,10 +1121,11 @@ function raidDisengage() {
 }
 function repairShip() {
   if (S.pirate.hull >= HULL_MAX) return toast("Hull is already pristine.", "bad");
-  const cost = Math.round((HULL_MAX - S.pirate.hull) * 30);
+  const rate = atHaven() ? 18 : 30;          // your own dry-dock patches up cheap
+  const cost = Math.round((HULL_MAX - S.pirate.hull) * rate);
   if (S.res.credits < cost) return toast(`Repairs cost ${fmt(cost)} credits.`, "bad");
   S.res.credits -= cost; S.pirate.hull = HULL_MAX;
-  log(`🔧 Hull fully repaired at ${currentPlanet().name} for ${fmt(cost)} credits.`, "good");
+  log(`🔧 Hull fully repaired at ${currentPlanet().name}${atHaven() ? " (haven dry-dock)" : ""} for ${fmt(cost)} credits.`, "good");
   toast("Hull repaired.", "good");
   afterAction();
 }
@@ -1243,6 +1245,80 @@ function settleWarrants() {
   log(`📝 You laundered your record through ${p.name}'s corruptible officials for ${fmt(cost)} cr. (Wanted −${cut})`, "good");
   toast(`Warrants settled (−${cut} Wanted).`, "good");
   afterAction();
+}
+
+/* ------------------------------------------------------------
+   PIRATE HAVEN — a hidden hideout: lie low, stash loot, draw tribute
+   ------------------------------------------------------------ */
+const HAVEN_COST = 6000, HAVEN_METALS = 30, HAVEN_STASH_BASE = 120, HAVEN_MAX_TIER = 3;
+function canHaven(p) { return p.enforce <= 0.2 && p.faction !== "core"; } // only the lawless deep rim hides a den
+function atHaven() { return S.haven && S.haven.planet === S.location; }
+function havenStashCap() { return S.haven ? HAVEN_STASH_BASE * S.haven.tier : 0; }
+function havenStashUsed() { return S.haven ? Object.values(S.haven.stash).reduce((s, q) => s + q, 0) : 0; }
+function havenTributeRate() { return S.haven ? Math.round(S.pirate.dread * S.haven.tier * 1.2) : 0; }
+function establishHaven() {
+  if (S.haven) return toast("You already command a haven.", "bad");
+  const p = currentPlanet();
+  if (!canHaven(p)) return toast("Too exposed — carve a haven out of the lawless deep rim.", "bad");
+  if (S.res.credits < HAVEN_COST || (S.res.metals || 0) < HAVEN_METALS)
+    return toast(`A haven costs ${fmt(HAVEN_COST)} cr and ${HAVEN_METALS} ⛓️ metals.`, "bad");
+  S.res.credits -= HAVEN_COST; S.res.metals -= HAVEN_METALS;
+  S.haven = { planet: p.id, tier: 1, stash: {} };
+  log(`🏴‍☠️ You carved a hidden haven out of <span class="c">${p.name}</span>. A lair to lie low, stash plunder, and rule the rim.`, "event");
+  toast("Haven established!", "good");
+  afterAction();
+}
+function upgradeHaven() {
+  if (!S.haven) return;
+  if (S.haven.tier >= HAVEN_MAX_TIER) return toast("Your haven is already a fortress.", "bad");
+  const cost = HAVEN_COST * S.haven.tier;
+  if (S.res.credits < cost) return toast(`Expanding the haven costs ${fmt(cost)} cr.`, "bad");
+  S.res.credits -= cost; S.haven.tier++;
+  log(`🏗️ Your haven grows to tier ${S.haven.tier} — more stash, fatter tribute.`, "good");
+  toast(`Haven → tier ${S.haven.tier}`, "good");
+  afterAction();
+}
+function layLow() {
+  if (!atHaven()) return toast("Lie low only at your haven.", "bad");
+  if (actionsLeft() <= 0) return toast("No actions left.", "bad");
+  if (S.pirate.wanted <= 0) return toast("Your slate is already clean.", "bad");
+  const cut = 22 + S.haven.tier * 4;
+  S.pirate.wanted = Math.max(0, S.pirate.wanted - cut);
+  S.pirate.dread = Math.max(0, S.pirate.dread - 3); // out of sight, out of mind
+  useAction(); clampPirate();
+  log(`🤫 You vanish into the haven and let the heat die down. (Wanted −${cut})`, "good");
+  toast(`Lying low (−${cut} Wanted).`, "good");
+  afterAction();
+}
+function havenStashAll() {
+  if (!atHaven()) return toast("No haven here.", "bad");
+  let room = havenStashCap() - havenStashUsed(), moved = 0;
+  CARGO_IDS.forEach(c => {
+    if (room <= 0) return;
+    const q = Math.min(S.res[c] || 0, room);
+    if (q > 0) { S.res[c] -= q; S.haven.stash[c] = (S.haven.stash[c] || 0) + q; room -= q; moved += q; }
+  });
+  if (moved > 0) { log(`🗄️ Stashed ${moved} units of plunder at your haven — safe from any boarding party.`, "good"); afterAction(); }
+  else toast("Nothing to stash (or stash full).", "bad");
+}
+function havenTakeAll() {
+  if (!atHaven()) return toast("No haven here.", "bad");
+  let room = cargoFree(), moved = 0;
+  CARGO_IDS.forEach(c => {
+    if (room <= 0) return;
+    const q = Math.min(S.haven.stash[c] || 0, room);
+    if (q > 0) { S.haven.stash[c] -= q; if (S.haven.stash[c] <= 0) delete S.haven.stash[c]; S.res[c] = (S.res[c] || 0) + q; room -= q; moved += q; }
+  });
+  if (moved > 0) { log(`📦 Loaded ${moved} units from the haven stash.`, "good"); afterAction(); }
+  else toast("Nothing to take (or hold full).", "bad");
+}
+function processHaven() {
+  if (!S.haven || !S.pirate) return;
+  const tribute = havenTributeRate();
+  if (tribute > 0) {
+    S.res.credits += tribute;
+    if (S.turn % 4 === 0) log(`👑 Your haven drew ${fmt(tribute)} cr in tribute from rim crews who fear your name.`, "good");
+  }
 }
 
 /* ============================================================
@@ -2621,7 +2697,7 @@ function applyDecreeIncome() {
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -3247,7 +3323,7 @@ function renderRaid() {
     <div class="ship-stat" style="margin-top:6px"><span class="k">Raids pulled</span><span class="v">${fmt(P.raids)}</span></div>
     <div class="ship-stat"><span class="k">Total plundered</span><span class="v">${fmt(P.plundered)} cr</span></div>
     <div class="ship-stat"><span class="k">Raid power</span><span class="v">${Math.round(raidPower())}</span></div>
-    ${P.hull < HULL_MAX ? `<button class="btn btn-good" style="margin-top:8px" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * 30))} 💰)</button>` : `<div class="pill good" style="margin-top:8px">◉ Hull pristine</div>`}
+    ${P.hull < HULL_MAX ? `<button class="btn btn-good" style="margin-top:8px" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * (atHaven() ? 18 : 30)))} 💰${atHaven() ? ", haven rate" : ""})</button>` : `<div class="pill good" style="margin-top:8px">◉ Hull pristine</div>`}
     ${P.wanted > 0 && !S.interdiction ? (corruptible
       ? `<button class="btn btn-sm" style="margin-top:6px" ${al > 0 && S.res.credits >= settleCost ? "" : "disabled"} title="Bribe corruptible officials to wipe warrants" onclick="settleWarrants()">📝 Settle warrants (${fmt(settleCost)} 💰)</button>`
       : `<div class="hint" style="margin-top:6px">Officials here are incorruptible — settle warrants in lawless space.</div>`) : ""}
@@ -3298,9 +3374,35 @@ function renderRaid() {
       <button class="btn btn-primary" ${al > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="prowl()">Prowl (1 action)</button>
     </div>`;
   }
+  // ---- Pirate haven ----
+  let havenCard = "";
+  if (S.haven) {
+    const hp = PLANETS.find(x => x.id === S.haven.planet);
+    const here = atHaven();
+    const stash = Object.entries(S.haven.stash).filter(([, q]) => q > 0).map(([c, q]) => `${q}${COM[c].ico}`).join(" ") || "empty";
+    havenCard = `<div class="card" style="border-color:var(--accent-2)">
+      <h4>🏴‍☠️ Haven: ${hp.name} <span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)">tier ${S.haven.tier}</span></h4>
+      <div class="ship-stat"><span class="k">Stash</span><span class="v">${havenStashUsed()}/${havenStashCap()}</span></div>
+      <div style="font-size:12px;line-height:1.7">${stash}</div>
+      <div class="ship-stat"><span class="k">Tribute/cycle</span><span class="v">${fmt(havenTributeRate())} 💰</span></div>
+      ${here ? `<div class="row" style="margin-top:8px">
+        <button class="btn btn-primary" ${al > 0 && P.wanted > 0 ? "" : "disabled"} title="Disappear and let the heat die down" onclick="layLow()">🤫 Lie Low (−${22 + S.haven.tier * 4} Wanted)</button>
+        <button class="btn btn-sm" onclick="havenStashAll()">🗄️ Stash hold</button>
+        <button class="btn btn-sm" onclick="havenTakeAll()">📦 Take all</button>
+        ${S.haven.tier < HAVEN_MAX_TIER ? `<button class="btn btn-sm" ${S.res.credits >= HAVEN_COST * S.haven.tier ? "" : "disabled"} onclick="upgradeHaven()">🏗️ Expand (${fmt(HAVEN_COST * S.haven.tier)} 💰)</button>` : ""}
+      </div>` : `<div class="hint" style="margin-top:6px">Return to ${hp.name} to lie low, stash plunder, and dry-dock cheap.</div>`}
+    </div>`;
+  } else if (canHaven(p)) {
+    havenCard = `<div class="card">
+      <h4>🏴‍☠️ Establish a Haven</h4>
+      <div class="desc">${p.name} is lawless enough to hide a den. A haven lets you <b>lie low</b> to shed Wanted, <b>stash plunder</b> safe from boarding, dry-dock at half cost, and collect <b>tribute</b> scaling with your Dread.</div>
+      <div class="meta"><span class="hint">Cost</span><span class="cost">${fmt(HAVEN_COST)} 💰 + ${HAVEN_METALS} ⛓️</span></div>
+      <button class="btn btn-primary" ${S.res.credits >= HAVEN_COST && (S.res.metals || 0) >= HAVEN_METALS ? "" : "disabled"} onclick="establishHaven()">Establish Haven</button>
+    </div>`;
+  }
   el.innerHTML = `<h2>🏴‍☠️ Raiding</h2>
-    <div class="subtitle">Prey on the lanes for plunder. Build <b>Dread</b> and captains surrender without a fight; mind your <b>Wanted</b> level — the notorious draw bounty hunters <i>and the navy</i>, who interdict you in lawful ports and on patrolled lanes. Settle warrants in lawless space to cool the heat.</div>
-    <div class="cards">${status}${action}</div>`;
+    <div class="subtitle">Prey on the lanes for plunder. Build <b>Dread</b> and captains surrender without a fight; mind your <b>Wanted</b> level — the notorious draw bounty hunters <i>and the navy</i>, who interdict you in lawful ports and on patrolled lanes. Settle warrants or carve out a <b>haven</b> in lawless space to cool the heat.</div>
+    <div class="cards">${status}${action}${havenCard}</div>`;
 }
 function renderShipPanel() {
   const el = document.getElementById("panel-ship");
@@ -3588,6 +3690,7 @@ function init() {
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0 };
   if (S.prey === undefined) S.prey = null;
   if (S.interdiction === undefined) S.interdiction = null;
+  if (S.haven === undefined) S.haven = null;
   UPGRADES.forEach(u => { if (S.upgrades[u.id] == null) S.upgrades[u.id] = 0; });  // backfill new upgrades (cannons)
   syncObjectives();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
@@ -3618,4 +3721,5 @@ Object.assign(window, {
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, repairShip,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
+  establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
 });
