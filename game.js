@@ -598,6 +598,8 @@ function freshState(opts = {}) {
     orgs,               // founded organizations: orgId -> { tier }
     policies: {},       // enacted laws: policyId -> { since }
     floor: null,        // bill currently before the Senate: { billId, sway }
+    invest: null,       // active corruption investigation: { lead, evidence, defense, cycles }
+    jail: 0,            // cycles remaining in detention
     upgrades: Object.fromEntries(UPGRADES.map(u => [u.id, 0])),
     techs,
     missions: {},
@@ -624,7 +626,7 @@ function fuelCap()   { return BASE_FUEL + S.upgrades.fueltank * 40; }
 function cargoUsed() { return CARGO_IDS.reduce((s, id) => s + (S.res[id] || 0), 0); }
 function cargoFree() { return cargoCap() - cargoUsed(); }
 function currentPlanet() { return PLANETS.find(p => p.id === S.location); }
-function actionsLeft() { return ACTIONS_PER_CYCLE - S.actionsUsed; }
+function actionsLeft() { return (S.jail > 0) ? 0 : ACTIONS_PER_CYCLE - S.actionsUsed; }
 function useAction() { S.actionsUsed++; }
 
 /* ============================================================
@@ -1064,16 +1066,10 @@ function processOrgs() {
   P.popularity += Math.round(P.legitimacy / 40);
   P.popularity -= 1;
   clampPol();
-  // heat that boiled over this cycle breaks as a scandal; otherwise it cools
-  if (P.heat >= 100) {
-    applyPolDelta({ popularity: -15, legitimacy: -10, heat: -45 });
-    log(`🚨 A scandal breaks! Public trust and your standing take a hit.`, "bad");
-    toast("Scandal breaks!", "bad");
-  } else {
-    if (P.heat >= 65) log(`🕵️ Investigators are sniffing around your affairs (Heat ${Math.round(P.heat)}).`, "bad");
-    P.heat = Math.max(0, P.heat - 3);
-    clampPol();
-  }
+  // heat cools over time; sustained heat feeds corruption investigations (processInvestigation)
+  if (P.heat >= 65 && !S.invest) log(`🕵️ Investigators are sniffing around your affairs (Heat ${Math.round(P.heat)}).`, "bad");
+  P.heat = Math.max(0, P.heat - 3);
+  clampPol();
 }
 
 /* ---------- The Senate: voting, bills & policies ---------- */
@@ -1193,6 +1189,167 @@ function applyPolicyEffects() {
   }
 }
 
+/* ---------- Corruption investigations & trials ----------
+   Sustained Heat opens a formal investigation led by the faction most opposed
+   to you. Each cycle a case file builds (faster with high Heat, slower if you're
+   a respected statesman). Manage the evidence — clean (lawyer up) or dirty
+   (bribe / bury / strong-arm / scapegoat) — or it reaches trial at 100. The
+   verdict weighs the evidence against your legitimacy, popularity, defense and
+   standing with the prosecutor: from acquittal through fines, censure, removal
+   from office and imprisonment, to disgrace and exile. */
+function pickLeadFaction() {
+  const fs = Object.keys(FACTIONS).filter(f => activePlanets().some(p => p.faction === f));
+  fs.sort((a, b) => (S.rep[a] || 0) - (S.rep[b] || 0));   // your biggest adversary prosecutes
+  return fs[0] || "core";
+}
+function openInvestigation(lead) {
+  S.invest = { lead, evidence: 25, defense: 0, cycles: 0, opened: S.turn };
+  log(`🚨 ${FACTIONS[lead].ico} ${FACTIONS[lead].name} has opened a corruption investigation into your affairs!`, "bad");
+  toast("Investigation opened!", "bad");
+  if (typeof announce === "function") announce("🚨 Investigation Opened", `${FACTIONS[lead].name} is building a case. Manage the evidence — or face trial.`, true);
+}
+function processInvestigation() {
+  if (!S.pol) return;
+  const P = S.pol;
+  if (!S.invest) {
+    let openChance = 0;
+    if (P.heat >= 100) openChance = 1;
+    else if (P.heat >= 55) openChance = (P.heat - 50) / 130;
+    if (openChance > 0 && Math.random() < openChance) openInvestigation(pickLeadFaction());
+    return;
+  }
+  const inv = S.invest;
+  let d = (P.heat - 35) / 8 - P.legitimacy / 45;          // heat builds the case; legitimacy slows it
+  if (policyActive("anticorr") && d > 0) d *= 1.5;        // oversight accelerates the case
+  inv.evidence = Math.max(0, Math.min(100, inv.evidence + d));
+  inv.cycles = (inv.cycles || 0) + 1;
+  if (inv.evidence <= 0 && inv.cycles >= 2) {
+    log(`⚖️ The investigation against you collapsed for lack of evidence.`, "good");
+    applyPolDelta({ legitimacy: 4 });
+    S.invest = null;
+  } else if (inv.evidence >= 100) {
+    log(`⚖️ The evidence is overwhelming — you are indicted and brought to trial.`, "bad");
+    holdTrial(false);
+  } else {
+    log(`⚖️ Investigation continues — evidence ${Math.round(inv.evidence)}/100 (${FACTIONS[inv.lead].name} leading).`, "");
+  }
+}
+function holdTrial(voluntary) {
+  const inv = S.invest;
+  if (!inv) return;
+  const P = S.pol;
+  const guilt = inv.evidence + Math.max(0, -P.legitimacy) * 0.6 + P.heat * 0.2;
+  const defense = (inv.defense || 0) + Math.max(0, P.legitimacy) * 0.5 + P.popularity * 0.4 + Math.max(0, S.rep[inv.lead] || 0) * 0.3;
+  const net = guilt - defense + (Math.random() * 20 - 10);  // jury noise
+  const ev = Math.round(inv.evidence);
+  S.invest = null;                                          // case is resolved either way
+  if (net < 8) {
+    applyPolDelta({ legitimacy: 8, popularity: 6 }); S.pol.heat = Math.max(0, S.pol.heat - 40);
+    log(`🏛️ Trial verdict: <span class="c">ACQUITTED</span>. You walk free, vindicated — public sympathy swells.`, "good");
+    toast("Acquitted!", "good"); if (typeof fireworks === "function") fireworks(1800, false);
+  } else if (net < 30) {
+    const fine = Math.min(S.res.credits, 3000 + ev * 60);
+    S.res.credits -= fine; applyPolDelta({ heat: -20, legitimacy: -2 });
+    log(`🏛️ Trial verdict: <span class="c">FINED</span> ${fmt(fine)} credits for minor improprieties.`, "bad");
+    toast(`Fined ${fmt(fine)} cr.`, "bad");
+  } else if (net < 60) {
+    S.res.influence = Math.max(0, (S.res.influence || 0) - 30);
+    addRep(inv.lead, -10); applyPolDelta({ popularity: -10, legitimacy: -6, heat: -25 });
+    log(`🏛️ Trial verdict: <span class="c">CENSURED</span>. Your influence and standing take a public beating.`, "bad");
+    toast("Censured.", "bad");
+  } else if (net < 90) {
+    const office = stripOffice();
+    const fine = Math.min(S.res.credits, 4000);
+    S.res.credits -= fine; S.res.influence = Math.max(0, (S.res.influence || 0) - 40);
+    applyPolDelta({ popularity: -12, legitimacy: -8, heat: -20 });
+    log(`🏛️ Trial verdict: <span class="c">REMOVED FROM OFFICE</span>${office ? ` — you lose your ${office} title` : ""}, and fined ${fmt(fine)} credits.`, "bad");
+    toast("Removed from office.", "bad");
+  } else if (net < 120) {
+    const office = stripOffice();
+    S.jail = 2; const fine = Math.min(S.res.credits, 3000); S.res.credits -= fine;
+    applyPolDelta({ popularity: -15, legitimacy: -10 }); S.pol.heat = 10;
+    log(`🏛️ Trial verdict: <span class="c">IMPRISONED</span> for 2 cycles${office ? `, stripped of your ${office} title` : ""}, and fined ${fmt(fine)} credits.`, "bad");
+    toast("Imprisoned!", "bad");
+    if (typeof announce === "function") announce("⛓️ Imprisoned", "You are jailed for 2 cycles. Your machine runs on without you.", true);
+  } else {
+    // disgrace & exile — the political career is wiped (you remain a trader)
+    S.perks.senator = false; S.perks.governor = false;
+    S.orgs = {}; S.policies = {}; S.floor = null; S.decrees = { monopoly: null, tariff: null };
+    S.pol = { popularity: 5, legitimacy: -55, heat: 0, slush: 0 }; S.res.influence = 0; S.jail = 2;
+    log(`🏛️ Trial verdict: <span class="c">DISGRACED & EXILED</span>. You are stripped of every office, organization and law — your political career lies in ruins.`, "bad");
+    toast("Disgraced and exiled.", "bad");
+    if (typeof announce === "function") announce("🏛️ Disgraced", "Stripped of all office and power. You'll have to rebuild — or return to trade.", true);
+  }
+}
+function stripOffice() {
+  if (S.perks.governor) { S.perks.governor = false; S.decrees = { monopoly: null, tariff: null }; return "Governor"; }
+  if (S.perks.senator)  { S.perks.senator = false; return "Senator"; }
+  return "";
+}
+/* ----- countermeasures (each costs 1 action) ----- */
+function investAct() { return S.invest && actionsLeft() > 0; }
+function investLawyer() {
+  if (!investAct()) return toast(S.invest ? "No actions left." : "No active case.", "bad");
+  const cost = 1500;
+  if (S.res.credits < cost) return toast("Need 1,500 credits.", "bad");
+  S.res.credits -= cost; S.invest.defense += 12; S.invest.evidence = Math.max(0, S.invest.evidence - 4);
+  applyPolDelta({ legitimacy: 1 }); useAction();
+  log("⚖️ Your lawyers build the defense and chip at the case.", "good"); afterAction();
+}
+function investBribe() {
+  if (!investAct()) return toast(S.invest ? "No actions left." : "No active case.", "bad");
+  const cost = 800;
+  if (S.pol.slush < cost) return toast("Need 800 slush.", "bad");
+  S.pol.slush -= cost; useAction();
+  if (Math.random() < 0.65) { S.invest.evidence = Math.max(0, S.invest.evidence - 18); log("💼 A quiet payment makes evidence vanish.", "event"); }
+  else { S.invest.evidence = Math.min(100, S.invest.evidence + 12); applyPolDelta({ heat: 10, legitimacy: -4 }); log("💼 Your bribe was exposed — it backfires badly!", "bad"); }
+  afterAction();
+}
+function investSpin() {
+  if (!investAct()) return toast(S.invest ? "No actions left." : "No active case.", "bad");
+  if (!S.orgs.media) return toast("Requires a Media Network.", "bad");
+  const cost = 600;
+  if (S.res.credits < cost) return toast("Need 600 credits.", "bad");
+  S.res.credits -= cost; S.invest.evidence = Math.max(0, S.invest.evidence - 6); applyPolDelta({ heat: -8 });
+  useAction(); log("🧼 Your media spins the story — the case softens.", "good"); afterAction();
+}
+function investBury() {
+  if (!investAct()) return toast(S.invest ? "No actions left." : "No active case.", "bad");
+  if (!S.orgs.intel) return toast("Requires an Intelligence Cell.", "bad");
+  const cost = 1000;
+  if (S.res.credits < cost) return toast("Need 1,000 credits.", "bad");
+  S.res.credits -= cost; useAction();
+  if (Math.random() < 0.85) { S.invest.evidence = Math.max(0, S.invest.evidence - 14); applyPolDelta({ legitimacy: -2 }); log("🗄️ Evidence quietly disappears.", "event"); }
+  else { S.invest.evidence = Math.min(100, S.invest.evidence + 8); applyPolDelta({ heat: 8, legitimacy: -3 }); log("🗄️ Your operatives were caught tampering — it backfires!", "bad"); }
+  afterAction();
+}
+function investStrongarm() {
+  if (!investAct()) return toast(S.invest ? "No actions left." : "No active case.", "bad");
+  if (!S.orgs.pmc) return toast("Requires Private Security.", "bad");
+  const cost = 8;
+  if ((S.res.influence || 0) < cost) return toast("Need 8 influence.", "bad");
+  S.res.influence -= cost; useAction();
+  if (Math.random() < 0.7) { S.invest.evidence = Math.max(0, S.invest.evidence - 12); applyPolDelta({ heat: 6, legitimacy: -3 }); log("😠 Witnesses suddenly forget what they saw.", "event"); }
+  else { S.invest.evidence = Math.min(100, S.invest.evidence + 8); applyPolDelta({ heat: 12, legitimacy: -4 }); log("😠 The intimidation leaks — outrage strengthens the case!", "bad"); }
+  afterAction();
+}
+function investScapegoat() {
+  if (!investAct()) return toast(S.invest ? "No actions left." : "No active case.", "bad");
+  const ids = Object.keys(S.orgs || {});
+  if (!ids.length) return toast("No organization to scapegoat.", "bad");
+  ids.sort((a, b) => orgDef(a).foundCost * S.orgs[a].tier - orgDef(b).foundCost * S.orgs[b].tier);
+  const victim = ids[0], d = orgDef(victim);
+  delete S.orgs[victim];
+  S.invest.evidence = Math.max(0, S.invest.evidence - 30); applyPolDelta({ popularity: -6, legitimacy: -2 });
+  useAction();
+  log(`🪤 You pin it all on ${d.ico} ${d.name} — the organization is dissolved and the case weakens.`, "event");
+  afterAction();
+}
+function faceTrial() {
+  if (!investAct()) return toast(S.invest ? "No actions left." : "No active case.", "bad");
+  useAction(); holdTrial(true); afterAction();
+}
+
 function afterAction() { checkWin(); saveGame(); renderAll(); }
 
 /* ============================================================
@@ -1295,6 +1452,7 @@ function fuelCost(destId) {
 }
 function travel(destId) {
   if (destId === S.location) return;
+  if (S.jail > 0) return toast("You're imprisoned — you can't travel.", "bad");
   const dest = PLANETS.find(p => p.id === destId);
   if (!dest || !isVisible(dest)) return toast("That world isn't on your charts.", "bad");
   const cost = fuelCost(destId);
@@ -1905,7 +2063,8 @@ function applyDecreeIncome() {
 }
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
-  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processOrgs(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
+  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processOrgs(); processInvestigation(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -2270,6 +2429,32 @@ function renderPower() {
   return `<div class="section-title">🏛️ Power & Organizations</div>
     <div class="cards">${meters}${cards}</div>`;
 }
+function renderInvestigation() {
+  if (S.jail > 0) {
+    return `<div class="card" style="border-color:var(--bad)"><h4>⛓️ Imprisoned</h4>
+      <div class="desc">You're serving time — <b>${S.jail} cycle(s)</b> remain. You cannot act or travel; your organizations and laws run on without you. End the cycle to serve your sentence.</div></div>`;
+  }
+  if (!S.invest) return "";
+  const inv = S.invest, pct = Math.round(inv.evidence), al = actionsLeft();
+  const col = pct >= 70 ? "var(--bad)" : pct >= 40 ? "var(--warn)" : "var(--good)";
+  const btn = (fn, label, hint) => `<button class="btn btn-sm" ${al > 0 ? "" : "disabled"} title="${hint}" onclick="${fn}">${label}</button>`;
+  const cms = [
+    btn("investLawyer()", "⚖️ Lawyer Up", "1,500 cr: build your defense, shave evidence (clean)"),
+    btn("investBribe()", "💼 Bribe", "800 slush: cut evidence — risk of backfire"),
+  ];
+  if (S.orgs.media) cms.push(btn("investSpin()", "🧼 Spin", "600 cr (Media): evidence & heat down"));
+  if (S.orgs.intel) cms.push(btn("investBury()", "🗄️ Bury", "1,000 cr (Intel): big evidence cut — risky"));
+  if (S.orgs.pmc)   cms.push(btn("investStrongarm()", "😠 Strong-arm", "8 inf (PMC): lean on witnesses — risky"));
+  if (Object.keys(S.orgs || {}).length) cms.push(btn("investScapegoat()", "🪤 Scapegoat", "sacrifice an org to drop evidence"));
+  cms.push(btn("faceTrial()", "🏛️ Face Trial", "gamble on the current evidence now"));
+  return `<div class="card" style="border-color:var(--bad)">
+    <h4>🚨 Under Investigation <span class="pill bad">${FACTIONS[inv.lead].ico} ${FACTIONS[inv.lead].name}</span></h4>
+    <div class="hint">A corruption case is building. Drive the evidence down — or it reaches trial at 100.</div>
+    ${polMeter("Evidence", "📁", inv.evidence, 100, col)}
+    <div class="hint">Defense built: ${Math.round(inv.defense || 0)}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${cms.join("")}</div>
+  </div>`;
+}
 const VOTE_PILL = { yes: `<span class="pill good">YES</span>`, no: `<span class="pill bad">NO</span>`, abstain: `<span class="pill">abstain</span>` };
 function renderSenate() {
   if (!canLegislate()) {
@@ -2395,6 +2580,7 @@ function renderPolitics() {
       </div>
       <div class="card"><h4>🤝 Faction Standing</h4>${reps}</div>
     </div>
+    ${(() => { const ic = renderInvestigation(); return ic ? `<div class="cards">${ic}</div>` : ""; })()}
     ${renderPower()}
     ${renderSenate()}
     ${decrees}
@@ -2705,4 +2891,5 @@ Object.assign(window, {
   colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, explore, newGame,
   foundOrg, upgradeOrg, runOrgAbility,
   proposeBill, lobbyFaction, bribeFaction, callVote, repealPolicy,
+  investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
 });

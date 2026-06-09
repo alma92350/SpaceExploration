@@ -249,6 +249,30 @@ A popular statesman passes reforms on merit; a notorious operator has to buy the
 votes. Either way, the laws you write change the game everyone — including you —
 is playing.
 
+### 🚨 Investigations & trials — Heat has consequences
+
+Let your **Heat** run hot and the faction most opposed to you opens a **corruption
+investigation**. A case file builds each cycle — faster the hotter you run,
+slower the more **legitimacy** you've banked (and an Anti-Corruption law on the
+books makes it build faster still). Reach **100 evidence** and you're indicted.
+
+You can fight the case — cleanly or otherwise:
+
+- **Lawyer Up** — credits build a real legal defense and chip at the evidence.
+- **Bribe the investigator** — slush makes evidence vanish, but it can backfire.
+- **Spin** (Media), **Bury Evidence** (Intel), **Strong-arm witnesses** (Security)
+  — your organizations earn their keep, each with its own risk.
+- **Scapegoat** — pin it on one of your own organizations and dissolve it to make
+  the case collapse.
+- **Face the Trial now** — gamble on the current evidence if you think you'll win.
+
+At **trial**, the evidence is weighed against your legitimacy, popularity, the
+defense you built, and your standing with the prosecutor — for a verdict that
+ranges from **acquittal** through **fines**, **censure**, **removal from office**
+and **imprisonment** (you lose cycles in detention while your machine runs on),
+all the way to **disgrace & exile** that wipes your political career to the
+ground. Crime can pay — until it doesn't.
+
 ## 🛠️ Fifteen ship upgrades (3 tiers each)
 
 Cargo Hold · Fuel Tanks · Ion Engine · Mining Laser · Bio-Harvester ·
