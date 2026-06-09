@@ -637,7 +637,7 @@ function freshState(opts = {}) {
     planetLaws: {},     // player per-planet trade laws: pid -> com -> { type, until }
     invest: null,       // active corruption investigation: { lead, evidence, defense, cycles }
     jail: 0,            // cycles remaining in detention
-    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0 },  // outlaw career
+    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 },  // outlaw career
     prey: null,         // current raid encounter: { type, name, ico, cargo, credits, strength, faction, wantedGain }
     interdiction: null, // active navy confrontation: { kind, planet, strength, bribe }
     haven: null,        // pirate hideout: { planet, tier, stash } — lie low, stash loot, collect tribute
@@ -1362,11 +1362,51 @@ function revokeCommission(betrayed) {
   }
   S.commission = null; clampPirate();
 }
+/* ------------------------------------------------------------
+   PIRATE LORD — the outlaw capstone legacy
+   ------------------------------------------------------------ */
+const LORD_DREAD = 80, LORD_HAVEN_TIER = 2, LORD_PLUNDER = 50000, LORD_RAIDS = 20;
+function pirateLordCriteria() {
+  const P = S.pirate;
+  return [
+    { label: `Strike terror — Dread ${LORD_DREAD}+`, ok: P.dread >= LORD_DREAD },
+    { label: `Command a stronghold — Haven tier ${LORD_HAVEN_TIER}+`, ok: !!(S.haven && S.haven.tier >= LORD_HAVEN_TIER) },
+    { label: `Amass plunder — ${fmt(LORD_PLUNDER)} cr looted`, ok: P.plundered >= LORD_PLUNDER },
+    { label: `Earn your reputation — ${LORD_RAIDS} raids`, ok: P.raids >= LORD_RAIDS },
+  ];
+}
+function pirateLordReady() {
+  return S.pirate && !S.legacyTitle && pirateLordCriteria().every(c => c.ok);
+}
+function pirateLegacy() {
+  if (S.legacyTitle) return toast("Your legacy is already sealed.", "bad");
+  if (!pirateLordReady()) return toast("You are not yet feared enough to claim the throne.", "bad");
+  const coreRep = S.rep.core || 0;
+  let title, blurb;
+  if (coreRep >= 20 || (S.pirate.commissionsDone || 0) >= 2) {
+    title = "The Corsair King";
+    blurb = "Half-privateer, half-pirate, you turned the great powers' wars to your profit — ruling the lanes with their blessing and their fear alike.";
+  } else if (coreRep <= -40) {
+    title = "The Dread Lord";
+    blurb = "A name whispered in terror from the Core to the rim; captains strike their colors at the mere sight of your sails.";
+  } else {
+    title = "The Pirate King";
+    blurb = "From a hidden haven you command the outlaws of the rim, and the sector's wealth flows through your hands.";
+  }
+  S.legacyTitle = title;
+  log(`🏴‍☠️ PIRATE LEGACY — <span class="c">${title}</span>: ${blurb}`, "good");
+  if (typeof announce === "function") announce(`⭐ ${title}`, `${blurb} Your outlaw legacy is complete!`, true);
+  if (typeof fireworks === "function") fireworks(8000, true);
+  if (!S.won) S.won = true;
+  toast(`⭐ ${title} — pirate legacy complete!`, "good");
+  afterAction();
+}
 function processCommission() {
   if (!S.commission || S.turn < S.commission.expires) return;
   const c = S.commission;
   if (c.done >= c.quota) {
     S.res.credits += c.reward; S.res.influence = (S.res.influence || 0) + 10; addRep(c.patron, 10);
+    S.pirate.commissionsDone = (S.pirate.commissionsDone || 0) + 1;
     log(`📜 Commission fulfilled! ${FACTIONS[c.patron].name} pays a ${fmt(c.reward)} cr bonus and hails you a privateer. (+influence, +rep)`, "good");
     toast("Commission fulfilled!", "good");
   } else {
@@ -3476,9 +3516,24 @@ function renderRaid() {
       </div>`;
     }
   }
+  // ---- Pirate Lord capstone ----
+  let lordCard = "";
+  if (S.legacyTitle) {
+    lordCard = `<div class="card maxed"><h4>👑 Outlaw Legacy</h4>
+      <div class="pill good">${S.legacyTitle}</div>
+      <div class="hint" style="margin-top:6px">Your name is written into the sector's legend.</div></div>`;
+  } else if (P.raids > 0 || S.haven || S.commission) {
+    const crit = pirateLordCriteria(), ready = crit.every(c => c.ok);
+    lordCard = `<div class="card" style="border-color:${ready ? "var(--good)" : "var(--accent-2)"}">
+      <h4>👑 Path to Pirate Lord</h4>
+      <div class="hint">Dominate the rim to claim an outlaw legacy — a path to victory all your own.</div>
+      <div style="font-size:13px;line-height:2;margin-top:4px">${crit.map(c => `${c.ok ? "✅" : "⬜"} ${c.label}`).join("<br>")}</div>
+      ${ready ? `<button class="btn btn-primary" style="margin-top:8px" onclick="pirateLegacy()">👑 Claim your throne</button>` : ""}
+    </div>`;
+  }
   el.innerHTML = `<h2>🏴‍☠️ Raiding</h2>
-    <div class="subtitle">Prey on the lanes for plunder. Build <b>Dread</b> and captains surrender without a fight; mind your <b>Wanted</b> level — the notorious draw bounty hunters <i>and the navy</i>, who interdict you in lawful ports and on patrolled lanes. Settle warrants or carve out a <b>haven</b> to cool the heat — or take a <b>letter of marque</b> and raid a faction's rivals, legally.</div>
-    <div class="cards">${status}${action}${commCard}${havenCard}</div>`;
+    <div class="subtitle">Prey on the lanes for plunder. Build <b>Dread</b> and captains surrender without a fight; mind your <b>Wanted</b> level — the notorious draw bounty hunters <i>and the navy</i>, who interdict you in lawful ports and on patrolled lanes. Settle warrants or carve out a <b>haven</b> to cool the heat — or take a <b>letter of marque</b> and raid a faction's rivals, legally. Become the legend of the rim: a <b>Pirate Lord</b>.</div>
+    <div class="cards">${status}${action}${commCard}${havenCard}${lordCard}</div>`;
 }
 function renderShipPanel() {
   const el = document.getElementById("panel-ship");
@@ -3763,7 +3818,8 @@ function init() {
   if (S.term == null) S.term = 0;
   if (S.officePath === undefined) S.officePath = null;
   if (S.legacyTitle === undefined) S.legacyTitle = null;
-  if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0 };
+  if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
+  if (S.pirate.commissionsDone == null) S.pirate.commissionsDone = 0;
   if (S.prey === undefined) S.prey = null;
   if (S.interdiction === undefined) S.interdiction = null;
   if (S.haven === undefined) S.haven = null;
@@ -3799,5 +3855,5 @@ Object.assign(window, {
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
-  acceptCommission,
+  acceptCommission, pirateLegacy,
 });
