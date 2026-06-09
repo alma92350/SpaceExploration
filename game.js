@@ -1890,6 +1890,61 @@ function sell(c, qty) {
 }
 
 /* ============================================================
+   BLACK MARKET / FENCES — offload plunder off the books
+   Syndicate worlds and the lawless rim run fences: no customs, no Wanted,
+   a premium on hot (illicit) goods but a haircut on mundane cargo. With
+   the navy interdicting you at lawful ports once notorious, this becomes
+   the outlaw's main outlet. A fearsome name (Dread) drives a better bargain.
+   ============================================================ */
+function hasBlackMarket(p) {
+  return p.faction === "syndicate" || p.enforce <= 0.3 || !!p.bounty;
+}
+function isIllicit(c) { return !!COM[c].illegalAt; }   // goods the law bans somewhere = the underworld's trade
+function fenceMul(c) {
+  const dreadBonus = 1 + (S.pirate ? S.pirate.dread : 0) / 100 * 0.15; // feared captains bargain harder
+  return (isIllicit(c) ? 1.35 : 0.80) * dreadBonus;
+}
+function fencePrice(pid, c) {
+  return Math.max(1, Math.round(sellPrice(pid, c) * fenceMul(c)));
+}
+function fence(c, qty) {
+  qty = Math.max(0, Math.floor(qty)); if (qty <= 0) return;
+  const p = currentPlanet();
+  if (!hasBlackMarket(p)) return toast("No fence operates here — try a syndicate world or the lawless rim.", "bad");
+  if ((S.res[c] || 0) < qty) return toast("You don't have that many.", "bad");
+  const slip = tradeSlippage(p, c, qty);
+  const revenue = Math.round(fencePrice(S.location, c) * (1 - slip / 2) * qty);
+  S.res[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue;
+  applyMarketMove(S.location, c, slip, true);
+  addRep("syndicate", 1);
+  log(`🕴️ Fenced ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(revenue)}</span> cr — no questions asked.`, "good");
+  toast(`Fenced ${qty} ${COM[c].name} (+${fmt(revenue)} cr)`, "good");
+  afterAction();
+}
+function fenceAll(c) {
+  if ((S.res[c] || 0) <= 0) return toast(`No ${COM[c].name} to fence.`, "bad");
+  fence(c, S.res[c]);
+}
+function fenceQty(c) { fence(c, +document.getElementById("fq-" + c).value); }
+function fenceAllPlunder() {
+  const p = currentPlanet();
+  if (!hasBlackMarket(p)) return toast("No fence operates here.", "bad");
+  const ids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0);
+  if (!ids.length) return toast("Your hold is empty.", "bad");
+  let total = 0; const parts = [];
+  ids.forEach(c => {
+    const qty = S.res[c], slip = tradeSlippage(p, c, qty);
+    const rev = Math.round(fencePrice(S.location, c) * (1 - slip / 2) * qty);
+    S.res[c] = 0; S.res.credits += rev; total += rev; parts.push(`${qty}${COM[c].ico}`);
+    applyMarketMove(S.location, c, slip, true);
+  });
+  S.stats.trades++; S.stats.profit += total; addRep("syndicate", 2);
+  log(`🕴️ Dumped your whole hold to the fence — ${parts.join(" ")} for <span class="c">${fmt(total)}</span> cr.`, "good");
+  toast(`Fenced everything (+${fmt(total)} cr)`, "good");
+  afterAction();
+}
+
+/* ============================================================
    CONTRABAND / CUSTOMS
    ============================================================ */
 function bustRisk(comId, qty, planet) {
@@ -2756,9 +2811,31 @@ function renderMarket() {
         </div></td></tr>`;
     });
   });
+  // ---- Black market: fence held cargo off the books (no customs, no Wanted) ----
+  let blackMarket = "";
+  if (hasBlackMarket(p)) {
+    const held = CARGO_IDS.filter(c => (S.res[c] || 0) > 0);
+    let frows = held.map(c => `<tr>
+        <td>${COM[c].ico} ${COM[c].name}${isIllicit(c) ? ' <span class="pill bad" title="Hot goods — fences pay a premium">hot</span>' : ''}</td>
+        <td class="num">${fmt(fencePrice(p.id, c))}</td>
+        <td class="num">${fmt(S.res[c])}</td>
+        <td><div class="trade-controls">
+          <input class="qty" id="fq-${c}" type="number" min="1" value="10" />
+          <button class="btn btn-sm btn-bad" onclick="fenceQty('${c}')">Fence</button>
+          <button class="btn btn-sm btn-bad" title="Fence your entire stock" onclick="fenceAll('${c}')">All</button>
+        </div></td></tr>`).join("");
+    if (!held.length) frows = `<tr><td colspan="4" class="hint">Your hold is empty — bring plunder to fence.</td></tr>`;
+    blackMarket = `<div class="card" style="border-color:var(--accent-2);margin-top:18px">
+      <h4>🕴️ Black Market <span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)">no questions asked</span></h4>
+      <div class="hint">Fences here buy off the books — no customs, no Wanted. <b>Hot</b> goods fetch a premium; mundane cargo takes a haircut. Your Dread sweetens every deal.</div>
+      <table style="margin-top:8px"><thead><tr><th>Commodity</th><th class="num">Fence</th><th class="num">Hold</th><th></th></tr></thead><tbody>${frows}</tbody></table>
+      ${held.length ? `<button class="btn btn-bad" style="margin-top:10px" onclick="fenceAllPlunder()">🕴️ Fence entire hold</button>` : ""}
+    </div>`;
+  }
   el.innerHTML = `<h2>${p.name} Market</h2>
-    <div class="subtitle">${p.tag}. ${showTrend ? "Galactic Exchange reveals trends &amp; deepens liquidity." : "Research the Galactic Exchange to reveal price trends."} Large trades move the price — dumping a lot crashes it, bulk buying spikes it; markets recover over cycles. Items marked <span class="pill bad">illegal</span> risk a customs bust here.</div>
+    <div class="subtitle">${p.tag}. ${showTrend ? "Galactic Exchange reveals trends &amp; deepens liquidity." : "Research the Galactic Exchange to reveal price trends."} Large trades move the price — dumping a lot crashes it, bulk buying spikes it; markets recover over cycles. Items marked <span class="pill bad">illegal</span> risk a customs bust here.${hasBlackMarket(p) ? ' A <span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)">black market</span> operates here.' : ''}</div>
     <table><thead><tr><th>Commodity</th><th class="num">Buy</th><th class="num">Sell</th><th class="num">Hold</th><th>Trend</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    ${blackMarket}
     <div class="row" style="margin-top:14px"><span class="hint">Cargo ${cargoUsed()}/${cargoCap()} · Fuel ${S.res.fuel}/${fuelCap()} · Credits ${fmt(S.res.credits)}</span></div>`;
 }
 function buyQty(c) { buy(c, +document.getElementById("qty-" + c).value); }
@@ -3540,4 +3617,5 @@ Object.assign(window, {
   runForElection, seekAppointment, stageCoup, lobbyLaw,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, repairShip,
   navyBribe, navyFight, navySurrender, settleWarrants,
+  fence, fenceAll, fenceQty, fenceAllPlunder,
 });
