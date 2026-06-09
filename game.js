@@ -322,6 +322,84 @@ const MISSIONS = [
     desc: "Rule the sector — and unlock trade Decrees. A cornerstone of your legacy." },
 ];
 
+/* ---------- Political organizations (the politician career) ----------
+   You found organizations that run automatically every cycle (passive yields),
+   draw a credit upkeep, and unlock active abilities. Tone (bright/grey/dark)
+   colours them and shapes their effect on Legitimacy & Heat:
+     popularity  public support (0..100) — elections, calms unrest
+     legitimacy  statesman (+) ⟷ notorious (−)  (−100..100)
+     heat        suspicion (0..100) — boils over into scandal
+     slush       dirty credits — launder before spending openly
+   Abilities cost credits / influence / slush and one action.
+*/
+const ORGS = [
+  { id: "party", name: "People's Movement", ico: "📣", tone: "bright",
+    foundCost: 4000, upkeep: 250, tiers: 4, costMul: 1.7,
+    blurb: "A grassroots party that builds public support every cycle and lets you stage rallies.",
+    passive: o => ({ popularity: 1 + o.tier }),
+    abilities: [ { id: "rally", name: "Stage Rally", ico: "📣", cost: { credits: 400 },
+      desc: "Spend on a rally for a burst of popularity.",
+      effect: o => applyPolDelta({ popularity: 5 + 2 * o.tier }) } ] },
+
+  { id: "lobby", name: "Lobbying Firm", ico: "🤝", tone: "grey",
+    foundCost: 4500, upkeep: 350, tiers: 4, costMul: 1.8,
+    blurb: "A backroom operation that turns money into influence, cycle after cycle.",
+    passive: o => ({ influence: 1 + o.tier }),
+    abilities: [ { id: "whip", name: "Buy Influence", ico: "💼", cost: { credits: 800 },
+      desc: "Grease palms for a lump of influence.",
+      effect: o => applyPolDelta({ influence: 6 + 3 * o.tier }) } ] },
+
+  { id: "media", name: "Media Network", ico: "📺", tone: "grey",
+    foundCost: 5000, upkeep: 350, tiers: 4, costMul: 1.8,
+    blurb: "Own the narrative: polish your image, or smear opponents for cheap popularity.",
+    passive: o => ({ popularity: o.tier }),
+    abilities: [
+      { id: "spin", name: "Spin Story", ico: "🧼", cost: { credits: 600 },
+        desc: "Manage a scandal — cools investigators' interest (−Heat).",
+        effect: o => applyPolDelta({ heat: -(8 + 4 * o.tier) }) },
+      { id: "smear", name: "Smear Campaign", ico: "🗞️", cost: { influence: 10 },
+        desc: "Manufacture outrage for popularity — cynical, and it leaves a trail.",
+        effect: o => applyPolDelta({ popularity: 5 + 2 * o.tier, legitimacy: -4, heat: 6 }) } ] },
+
+  { id: "foundation", name: "Charitable Foundation", ico: "🕊️", tone: "bright",
+    foundCost: 5000, upkeep: 300, tiers: 4, costMul: 1.7,
+    blurb: "Visible good works build legitimacy and calm your colonies — and make a tidy laundry.",
+    passive: o => ({ popularity: o.tier, legitimacy: o.tier, unrest: -o.tier }),
+    abilities: [
+      { id: "launder", name: "Launder Funds", ico: "🧺",
+        desc: "Wash dirty slush into clean credits (keeps a cut). Slightly raises Heat.",
+        effect: o => {
+          const rate = 0.5 + 0.08 * o.tier;
+          const take = Math.min(S.pol.slush, 2000 + 1000 * o.tier);
+          if (take <= 0) { toast("No slush to launder.", "bad"); return; }
+          const clean = Math.round(take * rate);
+          S.pol.slush -= take; S.res.credits += clean;
+          applyPolDelta({ heat: 3 });
+          log(`🧺 Foundation laundered ${fmt(take)} slush into ${fmt(clean)} clean credits.`, "event"); } } ] },
+
+  { id: "intel", name: "Intelligence Cell", ico: "🕵️", tone: "grey",
+    foundCost: 5500, upkeep: 400, tiers: 4, costMul: 1.9,
+    blurb: "Counter-surveillance and quiet leverage. Keeps the heat off and the influence on.",
+    passive: o => ({ influence: Math.ceil(o.tier / 2), heat: -o.tier }),
+    abilities: [
+      { id: "bury", name: "Bury Evidence", ico: "🗄️", cost: { credits: 1000 },
+        desc: "Make a problem disappear — a big Heat cut, at the edge of the law.",
+        effect: o => applyPolDelta({ heat: -(10 + 4 * o.tier), legitimacy: -2 }) } ] },
+
+  { id: "pmc", name: "Private Security", ico: "🛡️", tone: "dark",
+    foundCost: 6000, upkeep: 450, tiers: 4, costMul: 1.9,
+    blurb: "Muscle for hire: guards your colonies, leans on opponents, shakes loose dirty money.",
+    passive: o => ({ unrest: -(1 + o.tier) }),
+    abilities: [
+      { id: "shakedown", name: "Shakedown", ico: "💰", cost: {},
+        desc: "Extort the local economy for slush. Ugly, and it gets noticed.",
+        effect: o => applyPolDelta({ slush: 800 + 400 * o.tier, heat: 10, legitimacy: -5, popularity: -2 }) },
+      { id: "intimidate", name: "Intimidate", ico: "😠", cost: { influence: 8 },
+        desc: "Rule by fear — popularity through intimidation.",
+        effect: o => applyPolDelta({ popularity: 4 + o.tier, legitimacy: -3, heat: 5 }) } ] },
+];
+const POL_TONE_CLS = { bright: "good", grey: "", dark: "bad" };
+
 /* ---------- Player bases ----------
    A base is a permanent outpost on a planet. Its modules produce and store
    resources automatically EVERY cycle — even while you are light-years away.
@@ -438,6 +516,8 @@ function freshState(opts = {}) {
   CARGO_IDS.forEach(id => res[id] = 0);
   const active = chooseActivePlanets();
   const techs = {};
+  const pol = { popularity: 10, legitimacy: 0, heat: 0, slush: 0 };
+  const orgs = {};
   let start = pickStart(active);
   if (opts.colonyStart) {
     // Skip the trading phase: grant the charter line, seed capital + materials,
@@ -448,11 +528,21 @@ function freshState(opts = {}) {
     const home = COLONY_WORLDS.find(p => !p.hidden);   // colony worlds are always active
     if (home) start = home.id;
   }
+  if (opts.politicsStart) {
+    // Skip the trading grind and begin as a fledgling politician: the charter,
+    // a campaign chest, some clout and a ready-made party to build on.
+    ["markets", "diplomacy"].forEach(t => techs[t] = true);
+    res.credits = 6000; res.influence = 30;
+    pol.popularity = 25;
+    orgs.party = { tier: 1 };
+  }
   return {
     turn: 1,
     active,              // which planets feature in this playthrough
     location: start,
     res,
+    pol,                // political meters: popularity / legitimacy / heat / slush
+    orgs,               // founded organizations: orgId -> { tier }
     upgrades: Object.fromEntries(UPGRADES.map(u => [u.id, 0])),
     techs,
     missions: {},
@@ -803,6 +893,114 @@ function doPolitics() {
   log(`Lobbied on ${p.name}: +${inf} influence, +${repGain} ${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name} rep.`, "good");
   toast(`+${inf} 🏛️ influence`, "good");
   afterAction();
+}
+
+/* ---------- Political organizations & power meters ---------- */
+function canPolitick() { return !!S.techs.diplomacy; }   // Galactic Charter gates organizations
+function orgDef(id) { return ORGS.find(o => o.id === id); }
+function orgUpkeepTotal() {
+  return Object.entries(S.orgs || {}).reduce((s, [id, o]) => s + orgDef(id).upkeep * o.tier, 0);
+}
+function orgUpgradeCost(def, tier) { return Math.round(def.foundCost * Math.pow(def.costMul, tier)); }
+function clampPol() {
+  const P = S.pol;
+  P.popularity = Math.max(0, Math.min(100, P.popularity));
+  P.legitimacy = Math.max(-100, Math.min(100, P.legitimacy));
+  P.heat = Math.max(0, Math.min(100, P.heat));
+  P.slush = Math.max(0, Math.round(P.slush));
+}
+function applyPolDelta(d) {
+  if (!d) return;
+  const P = S.pol;
+  if (d.popularity) P.popularity += d.popularity;
+  if (d.legitimacy) P.legitimacy += d.legitimacy;
+  if (d.heat)       P.heat += d.heat;
+  if (d.slush)      P.slush += d.slush;
+  if (d.influence)  S.res.influence = (S.res.influence || 0) + d.influence;
+  if (d.credits)    S.res.credits += d.credits;
+  if (d.unrest)     Object.values(S.colonies || {}).forEach(c => { c.unrest = Math.max(0, (c.unrest || 0) + d.unrest); });
+  clampPol();
+}
+function foundOrg(id) {
+  if (!canPolitick()) return toast("Research Galactic Charter first.", "bad");
+  const def = orgDef(id);
+  if (!def || (S.orgs && S.orgs[id])) return;
+  if (S.res.credits < def.foundCost) return toast("Not enough credits to found this.", "bad");
+  S.res.credits -= def.foundCost; S.orgs[id] = { tier: 1 };
+  log(`Founded ${def.ico} <span class="c">${def.name}</span> (upkeep ${fmt(def.upkeep)}/cycle).`, "event");
+  toast(`${def.name} founded!`, "event");
+  afterAction();
+}
+function upgradeOrg(id) {
+  const def = orgDef(id), o = S.orgs[id];
+  if (!o || o.tier >= def.tiers) return;
+  const cost = orgUpgradeCost(def, o.tier);
+  if (S.res.credits < cost) return toast("Not enough credits.", "bad");
+  S.res.credits -= cost; o.tier++;
+  log(`Upgraded ${def.ico} ${def.name} to Tier ${o.tier}.`, "good");
+  toast(`${def.name} → Tier ${o.tier}`, "good");
+  afterAction();
+}
+function payAbilityCost(cost) {
+  cost = cost || {};
+  if (cost.credits && S.res.credits < cost.credits)       return `Need ${fmt(cost.credits)} credits.`;
+  if (cost.influence && (S.res.influence || 0) < cost.influence) return `Need ${cost.influence} influence.`;
+  if (cost.slush && S.pol.slush < cost.slush)             return `Need ${fmt(cost.slush)} slush.`;
+  if (cost.credits)   S.res.credits -= cost.credits;
+  if (cost.influence) S.res.influence -= cost.influence;
+  if (cost.slush)     S.pol.slush -= cost.slush;
+  return null;
+}
+function runOrgAbility(orgId, abId) {
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  const def = orgDef(orgId), o = S.orgs[orgId];
+  if (!o) return;
+  const ab = def.abilities.find(a => a.id === abId);
+  if (!ab) return;
+  const err = payAbilityCost(ab.cost);
+  if (err) return toast(err, "bad");
+  ab.effect(o);
+  useAction();
+  log(`${def.ico} ${def.name}: ${ab.name}.`, def.tone === "dark" ? "event" : "good");
+  afterAction();
+}
+function processOrgs() {
+  if (!S.pol) return;
+  const P = S.pol;
+  // passive yields from every organization
+  Object.entries(S.orgs || {}).forEach(([id, o]) => applyPolDelta(orgDef(id).passive(o)));
+  // upkeep — if you can't make payroll, the priciest org downsizes (a scandal)
+  const due = orgUpkeepTotal();
+  if (due > 0) {
+    if (S.res.credits >= due) S.res.credits -= due;
+    else {
+      const ids = Object.keys(S.orgs).sort((a, b) =>
+        orgDef(b).upkeep * S.orgs[b].tier - orgDef(a).upkeep * S.orgs[a].tier);
+      const victim = ids[0];
+      if (victim) {
+        const d = orgDef(victim);
+        S.orgs[victim].tier--;
+        const collapsed = S.orgs[victim].tier <= 0;
+        if (collapsed) delete S.orgs[victim];
+        applyPolDelta({ heat: 5, popularity: -5 });
+        log(`⚠️ Couldn't make payroll — ${d.ico} ${d.name} ${collapsed ? "collapsed" : "downsized"}. Whispers spread.`, "bad");
+      }
+    }
+  }
+  // natural drift: trust follows legitimacy, attention fades
+  P.popularity += Math.round(P.legitimacy / 40);
+  P.popularity -= 1;
+  clampPol();
+  // heat that boiled over this cycle breaks as a scandal; otherwise it cools
+  if (P.heat >= 100) {
+    applyPolDelta({ popularity: -15, legitimacy: -10, heat: -45 });
+    log(`🚨 A scandal breaks! Public trust and your standing take a hit.`, "bad");
+    toast("Scandal breaks!", "bad");
+  } else {
+    if (P.heat >= 65) log(`🕵️ Investigators are sniffing around your affairs (Heat ${Math.round(P.heat)}).`, "bad");
+    P.heat = Math.max(0, P.heat - 3);
+    clampPol();
+  }
 }
 
 function afterAction() { checkWin(); saveGame(); renderAll(); }
@@ -1515,7 +1713,7 @@ function applyDecreeIncome() {
 }
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
-  rollPrices(); applyDecreeIncome(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); processOrgs(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -1823,6 +2021,63 @@ function renderResearch() {
 }
 
 /* ----- Politics ----- */
+function polMeter(label, ico, val, max, col, note) {
+  const pct = Math.max(0, Math.min(100, (val / max) * 100));
+  return `<div class="ship-stat"><span class="k">${ico} ${label}</span><span class="v">${note != null ? note : Math.round(val)}</span></div>
+    <div class="bar"><span style="width:${pct}%;background:${col}"></span></div>`;
+}
+function abilityCostStr(c) {
+  c = c || {}; const parts = [];
+  if (c.credits)   parts.push(`${fmt(c.credits)} 💰`);
+  if (c.influence) parts.push(`${c.influence} 🏛️`);
+  if (c.slush)     parts.push(`${fmt(c.slush)} 💼`);
+  return parts.length ? parts.join(" + ") : "free";
+}
+function renderPower() {
+  if (!canPolitick()) {
+    return `<div class="section-title">🏛️ Power & Organizations</div>
+      <div class="cards"><div class="card"><h4>🏛️ Organizations locked</h4>
+        <div class="desc">Research <b>📜 Galactic Charter</b> (Research tab) to found political organizations and wield public power — parties, media, foundations, security and more.</div></div></div>`;
+  }
+  const P = S.pol;
+  const legLabel = P.legitimacy >= 40 ? "Statesman" : P.legitimacy <= -40 ? "Notorious"
+                 : P.legitimacy > 0 ? "Respected" : P.legitimacy < 0 ? "Shady" : "Neutral";
+  const heatCol = P.heat >= 65 ? "var(--bad)" : P.heat >= 35 ? "var(--warn)" : "var(--good)";
+  const meters = `<div class="card"><h4>📊 Standing</h4>
+    ${polMeter("Popularity", "📣", P.popularity, 100, "var(--accent)")}
+    ${polMeter("Legitimacy", "⚖️", P.legitimacy + 100, 200, P.legitimacy >= 0 ? "var(--good)" : "var(--bad)", `${legLabel} (${P.legitimacy > 0 ? "+" : ""}${Math.round(P.legitimacy)})`)}
+    ${polMeter("Heat", "🔥", P.heat, 100, heatCol)}
+    <div class="ship-stat"><span class="k">🏛️ Influence</span><span class="v">${fmt(S.res.influence)}</span></div>
+    <div class="ship-stat"><span class="k">💼 Slush fund</span><span class="v">${fmt(P.slush)}</span></div>
+    <div class="ship-stat"><span class="k">🧾 Org upkeep</span><span class="v">${fmt(orgUpkeepTotal())}/cyc</span></div>
+  </div>`;
+  const al = actionsLeft();
+  const cards = ORGS.map(def => {
+    const o = S.orgs[def.id];
+    const tonePill = `<span class="pill ${POL_TONE_CLS[def.tone]}">${def.tone}</span>`;
+    if (!o) {
+      const can = S.res.credits >= def.foundCost;
+      return `<div class="card"><h4>${def.ico} ${def.name} ${tonePill}</h4>
+        <div class="desc">${def.blurb}</div>
+        <div class="meta"><span class="hint">Found</span><span class="cost">${fmt(def.foundCost)} 💰 · upkeep ${fmt(def.upkeep)}/cyc</span></div>
+        <button class="btn btn-primary" ${can ? "" : "disabled"} onclick="foundOrg('${def.id}')">Found</button></div>`;
+    }
+    const dots = Array.from({ length: def.tiers }, (_, i) => `<span class="dot ${i < o.tier ? "on" : ""}"></span>`).join("");
+    const maxed = o.tier >= def.tiers, up = orgUpgradeCost(def, o.tier);
+    const abil = def.abilities.map(a =>
+      `<button class="btn btn-sm" ${al > 0 ? "" : "disabled"} title="${a.desc}" onclick="runOrgAbility('${def.id}','${a.id}')">${a.ico} ${a.name} · ${abilityCostStr(a.cost)}</button>`
+    ).join(" ");
+    return `<div class="card owned"><h4>${def.ico} ${def.name} <span class="tier-dots">${dots}</span> ${tonePill}</h4>
+      <div class="hint">${def.blurb}</div>
+      <div class="hint">Upkeep ${fmt(def.upkeep * o.tier)}/cyc · abilities cost 1 action</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0">${abil}</div>
+      ${maxed ? `<div class="pill good">◉ Max tier</div>`
+        : `<button class="btn btn-good" ${S.res.credits >= up ? "" : "disabled"} onclick="upgradeOrg('${def.id}')">Upgrade → T${o.tier + 1} (${fmt(up)} 💰)</button>`}
+    </div>`;
+  }).join("");
+  return `<div class="section-title">🏛️ Power & Organizations</div>
+    <div class="cards">${meters}${cards}</div>`;
+}
 function renderPolitics() {
   const el = document.getElementById("panel-politics");
   const p = currentPlanet();
@@ -1882,7 +2137,7 @@ function renderPolitics() {
   }
 
   el.innerHTML = `<h2>Politics, Factions & Trade Law</h2>
-    <div class="subtitle">Status: <b>${status}</b>. Build influence and faction reputation, run missions, and (as Governor) issue trade decrees. You have <b>${fmt(S.res.influence)} 🏛️</b>.</div>
+    <div class="subtitle">Status: <b>${status}</b>. Build a political machine: found organizations, sway the public, raise funds (clean and dirty), and run missions. You have <b>${fmt(S.res.influence)} 🏛️</b> influence.</div>
     <div class="cards">
       <div class="card"><h4>🏛️ Lobby & Network</h4>
         <div class="desc">Earn influence and reputation with <b>${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}</b> (controls ${p.name}).</div>
@@ -1891,6 +2146,7 @@ function renderPolitics() {
       </div>
       <div class="card"><h4>🤝 Faction Standing</h4>${reps}</div>
     </div>
+    ${renderPower()}
     ${decrees}
     <div class="section-title">📋 Contracts (time-bounded)</div>
     <div class="cards">${contractCards}</div>
@@ -2146,18 +2402,22 @@ function loadGame() {
   return false;
 }
 function newGame(mode) {
-  const colony = mode === "colony";
+  const colony = mode === "colony", politics = mode === "politics";
   const msg = colony
     ? "Start in Colonization mode? You'll skip the trading phase and begin on a frontier world with the Colonial Charter, the capital and the materials to found your first colony right away. Current progress will be lost."
+    : politics
+    ? "Start in Politics mode? You'll skip the trading grind and begin as a fledgling politician — with the Galactic Charter, a campaign chest, some influence and your own party. Current progress will be lost."
     : "Start a new game? Current progress will be lost.";
   if (typeof confirm === "function" && !confirm(msg)) return;
-  S = freshState({ colonyStart: colony }); rollPrices();
+  S = freshState({ colonyStart: colony, politicsStart: politics }); rollPrices();
   if (colony) {
     log(`🌍 Colonization charter granted. You arrive at <span class="c">${currentPlanet().name}</span> with capital and supplies — found your first colony.`, "event");
+  } else if (politics) {
+    log(`🏛️ You enter public life at <span class="c">${currentPlanet().name}</span> — a charter, a war chest and a party of your own. Build your machine.`, "event");
   } else {
     log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`);
   }
-  saveGame(); renderAll(); setTab(colony ? "colonies" : "galaxy");
+  saveGame(); renderAll(); setTab(colony ? "colonies" : politics ? "politics" : "galaxy");
 }
 function init() {
   if (!loadGame()) { S = freshState(); rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); }
@@ -2167,6 +2427,8 @@ function init() {
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; });
   if (!S.discovered) S.discovered = {};
   if (!S.contracts) { S.contracts = []; S.contractSeq = S.contractSeq || 0; }
+  if (!S.pol) S.pol = { popularity: 0, legitimacy: 0, heat: 0, slush: 0 };  // backfill politics meters
+  if (!S.orgs) S.orgs = {};
   syncObjectives();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
@@ -2177,6 +2439,9 @@ function init() {
   const nc = document.createElement("button");
   nc.className = "btn btn-sm"; nc.style.marginLeft = "6px"; nc.textContent = "🌍 Colonize"; nc.title = "New game — skip trading, start ready to colonize";
   nc.addEventListener("click", () => newGame("colony")); brand.appendChild(nc);
+  const np = document.createElement("button");
+  np.className = "btn btn-sm"; np.style.marginLeft = "6px"; np.textContent = "🏛️ Politics"; np.title = "New game — skip trading, start as a politician";
+  np.addEventListener("click", () => newGame("politics")); brand.appendChild(np);
   renderAll(); setTab("galaxy");
 }
 window.addEventListener("DOMContentLoaded", init);
@@ -2186,4 +2451,5 @@ Object.assign(window, {
   research, researchTech, doPolitics, doMission, buyUpgrade, setDecree,
   buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract,
   colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, explore, newGame,
+  foundOrg, upgradeOrg, runOrgAbility,
 });

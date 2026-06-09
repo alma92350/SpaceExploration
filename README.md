@@ -199,6 +199,31 @@ charted from the start; the rest are yours to find.
   (passive income each cycle) and a **Sell Tariff** (+15% to your sell price on
   a chosen commodity).
 
+### 🏛️ Power & Organizations — the politician's machine
+
+Research the **Galactic Charter** to start building a political machine. Found
+**organizations** that run automatically every cycle, draw a credit **upkeep**,
+and unlock active abilities — fund them or they downsize in a scandal. Choose
+your colours along a **bright / grey / dark** spectrum:
+
+- **People's Movement** 📣 — a party that grows public support and stages rallies.
+- **Lobbying Firm** 🤝 — turns money into influence, cycle after cycle.
+- **Media Network** 📺 — polish your image (Spin) or **smear** rivals for cheap popularity.
+- **Charitable Foundation** 🕊️ — builds legitimacy and calms colonies — and **launders** dirty money.
+- **Intelligence Cell** 🕵️ — counter-surveillance that keeps the heat off.
+- **Private Security** 🛡️ — guards your worlds, intimidates opponents, and **shakes down** the economy for slush.
+
+Four **power meters** track who you're becoming:
+
+- **Popularity** — public support; wins hearts, calms unrest.
+- **Legitimacy ⟷ Notoriety** — statesman or crook; trust slowly follows it.
+- **Heat** — suspicion from dirty deeds; let it boil over and a **scandal breaks**.
+- **Slush fund** — dirty credits you must **launder** before spending cleanly.
+
+Clean power is slow and poor; dirty power is fast and fragile — navigate the grey.
+Jump straight in with the **🏛️ Politics** new-game button (charter, war chest,
+influence and a starter party).
+
 ## 🛠️ Fifteen ship upgrades (3 tiers each)
 
 Cargo Hold · Fuel Tanks · Ion Engine · Mining Laser · Bio-Harvester ·
