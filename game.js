@@ -639,6 +639,7 @@ function freshState(opts = {}) {
     jail: 0,            // cycles remaining in detention
     pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0 },  // outlaw career
     prey: null,         // current raid encounter: { type, name, ico, cargo, credits, strength, faction, wantedGain }
+    interdiction: null, // active navy confrontation: { kind, planet, strength, bribe }
     office,             // public office rank (0..4); perks.senator/governor derive from it
     officePath,         // how the current office was won: elected / appointed / seized
     term,               // cycles left in the current term (0 = none / life tenure)
@@ -965,6 +966,15 @@ function clampPirate() {
 function raidPower() {
   return 6 + S.upgrades.cannons * 9 + S.pirate.dread * 0.15 + (S.techs.weapontech ? 6 : 0);
 }
+/* how hard the law is hunting you, by Wanted level */
+function notoriety() {
+  const w = S.pirate ? S.pirate.wanted : 0;
+  if (w >= 80) return { tier: 4, label: "Most Wanted", col: "var(--bad)" };
+  if (w >= 55) return { tier: 3, label: "Notorious",   col: "var(--bad)" };
+  if (w >= 30) return { tier: 2, label: "Wanted",      col: "var(--warn)" };
+  if (w >= 10) return { tier: 1, label: "Petty Crook", col: "var(--warn)" };
+  return { tier: 0, label: "Unknown", col: "var(--good)" };
+}
 function dmgReduction() { return Math.min(0.6, S.upgrades.shield * 0.18); }
 /* prey archetypes — cutthroat buffet: bulk haulers, fat liners, hard patrols */
 const PREY = {
@@ -997,9 +1007,16 @@ function genPrey() {
 }
 function prowl() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  if (S.interdiction) return toast("There's a navy cutter on your tail — deal with it first.", "bad");
   if (S.prey) return toast("You're already shadowing a target.", "bad");
   if (S.res.fuel < PROWL_FUEL) return toast(`Need ${PROWL_FUEL} fuel to prowl the lanes.`, "bad");
   S.res.fuel -= PROWL_FUEL; useAction();
+  const p = currentPlanet();
+  // hunting in lawful space while notorious can flush out a patrol instead of prey
+  if (S.pirate.wanted >= 30 && Math.random() < (S.pirate.wanted / 100) * p.enforce * 0.7) {
+    startInterdiction(p, "patrol");
+    return afterAction();
+  }
   if (Math.random() < 0.15) {
     log("🔭 You prowled the lanes but found no prey worth the powder.", "");
     toast("No prey found.", "");
@@ -1133,6 +1150,99 @@ function processWanted() {
     }
   }
   clampPirate();
+}
+
+/* ------------------------------------------------------------
+   THE LAW STRIKES BACK — navy interdiction, arrest, counterplay
+   ------------------------------------------------------------ */
+// strength of the cutter that comes for you: stiffer in lawful space, stiffer the more wanted you are
+function navyStrength(p) {
+  return Math.round((14 + p.enforce * 30) * (0.8 + S.pirate.wanted / 100) * (0.9 + Math.random() * 0.3));
+}
+// what a payoff costs — scales with notoriety and how civilised the world is
+function navyBribeCost(p) {
+  return Math.round((600 + S.pirate.wanted * 45) * (0.6 + p.enforce));
+}
+function startInterdiction(p, kind) {
+  S.interdiction = { kind, planet: p.id, strength: navyStrength(p), bribe: navyBribeCost(p) };
+  const verb = kind === "dock" ? `${p.name} port authority flags your transponder` : "your prowl runs into a navy patrol sweep";
+  log(`🚨 ${verb} — a navy cutter moves to interdict! (Bribe, fight, or surrender.)`, "bad");
+  toast("Navy interdiction!", "bad");
+  if (typeof announce === "function")
+    announce("🚨 Navy Interdiction", `${p.name} authorities have you in their sights. Bribe, fight your way clear, or surrender — but you're locked down until it's settled.`, false);
+  if (typeof setTab === "function") setTab("raid");
+}
+// called on arrival at a port: notorious captains can't just stroll into lawful space
+function maybeInterdict(dest) {
+  if (!S.pirate || S.interdiction || S.jail > 0) return;
+  if (S.pirate.wanted < 25) return;                       // below "Wanted" the ports don't bother
+  if (Math.random() < (S.pirate.wanted / 100) * dest.enforce * 1.15) startInterdiction(dest, "dock");
+}
+function navyBribe() {
+  const it = S.interdiction; if (!it) return;
+  const p = PLANETS.find(x => x.id === it.planet) || currentPlanet();
+  if (p.enforce > 0.75) return toast("These officers don't take bribes — fight or surrender.", "bad");
+  if (S.res.credits < it.bribe) return toast(`A payoff costs ${fmt(it.bribe)} cr.`, "bad");
+  S.res.credits -= it.bribe;
+  const cut = 8 + Math.round(S.pirate.wanted * 0.12);
+  S.pirate.wanted = Math.max(0, S.pirate.wanted - cut);
+  addRep("core", -3);
+  S.interdiction = null; clampPirate();
+  log(`💵 You greased the right palms (${fmt(it.bribe)} cr) and the patrol looks the other way. (Wanted −${cut})`, "good");
+  toast("Bribe accepted.", "good");
+  afterAction();
+}
+function navyFight() {
+  const it = S.interdiction; if (!it) return;
+  const power = raidPower() + Math.random() * 12;
+  const def = it.strength + Math.random() * 12;
+  if (power > def) {
+    const dmg = takeHullDamage(it.strength * 0.6 * (0.5 + Math.random() * 0.5));
+    S.pirate.dread += 10; S.pirate.wanted = Math.min(100, S.pirate.wanted + 6);
+    addRep("core", -8); addRep("frontier", 5);
+    S.interdiction = null; clampPirate();
+    log(`⚔️ You shot your way clear of the navy! Hull −${dmg}. The legend grows. (Dread +10, Wanted +6)`, "good");
+    toast("Escaped the navy!", "good");
+    afterAction();
+  } else {
+    navyArrest("Your hull was shot out and you were boarded", true);
+  }
+}
+function navySurrender() {
+  if (!S.interdiction) return;
+  navyArrest("You stood down and surrendered", false);
+}
+function navyArrest(reason, crippled) {
+  const seized = [];
+  CARGO_IDS.forEach(c => { if (S.res[c] > 0) { seized.push(`${S.res[c]} ${COM[c].ico}`); S.res[c] = 0; } });
+  const fine = Math.min(S.res.credits, 1000 + Math.round(S.pirate.wanted * 30));
+  S.res.credits -= fine;
+  if (crippled) S.pirate.hull = Math.min(S.pirate.hull, 35);
+  S.jail = (S.pirate.wanted >= 70) ? 2 : 1;
+  S.pirate.wanted = Math.round(S.pirate.wanted * 0.35);
+  S.pirate.dread = Math.max(0, S.pirate.dread - 10);
+  S.interdiction = null; clampPirate();
+  log(`⛓️ ${reason}. The navy seized ${seized.join(" ") || "no cargo"}, fined you ${fmt(fine)} cr, and jailed you for ${S.jail} cycle(s) — but your warrants are largely wiped.`, "bad");
+  toast("Arrested!", "bad");
+  if (typeof announce === "function")
+    announce("⛓️ Arrested", `${reason}. Cargo seized and fined, jailed for ${S.jail} cycle(s) — your slate is mostly clean again.`, true);
+  afterAction();
+}
+// active counterplay: buy off your warrants where officials are corruptible
+function settleWarrants() {
+  if (S.interdiction) return toast("Deal with the patrol on your tail first.", "bad");
+  if (actionsLeft() <= 0) return toast("No actions left.", "bad");
+  const p = currentPlanet(), P = S.pirate;
+  if (P.wanted <= 0) return toast("Your record is already clean.", "bad");
+  if (p.enforce > 0.6) return toast("Officials here are incorruptible — take it to lawless space.", "bad");
+  const cut = Math.min(P.wanted, 15 + Math.round(P.wanted * 0.25));
+  const cost = Math.round(cut * (60 + p.enforce * 120));
+  if (S.res.credits < cost) return toast(`Buying off these warrants costs ${fmt(cost)} cr.`, "bad");
+  S.res.credits -= cost; P.wanted = Math.max(0, P.wanted - cut);
+  addRep("syndicate", 1); clampPirate(); useAction();
+  log(`📝 You laundered your record through ${p.name}'s corruptible officials for ${fmt(cost)} cr. (Wanted −${cut})`, "good");
+  toast(`Warrants settled (−${cut} Wanted).`, "good");
+  afterAction();
 }
 
 /* ============================================================
@@ -1843,6 +1953,7 @@ function fuelCost(destId) {
 function travel(destId) {
   if (destId === S.location) return;
   if (S.jail > 0) return toast("You're imprisoned — you can't travel.", "bad");
+  if (S.interdiction) return toast("The navy has your ship locked down — settle the confrontation first.", "bad");
   const dest = PLANETS.find(p => p.id === destId);
   if (!dest || !isVisible(dest)) return toast("That world isn't on your charts.", "bad");
   const cost = fuelCost(destId);
@@ -1851,6 +1962,7 @@ function travel(destId) {
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
   toast(`Arrived at ${dest.name}`, "event");
   scanOnArrival(dest);
+  maybeInterdict(dest);
   endTurn(true);
 }
 
@@ -3048,7 +3160,10 @@ function renderRaid() {
   const P = S.pirate, p = currentPlanet(), al = actionsLeft();
   const wantedCol = P.wanted >= 60 ? "var(--bad)" : P.wanted >= 30 ? "var(--warn)" : "var(--good)";
   const hullCol = P.hull >= 60 ? "var(--good)" : P.hull >= 30 ? "var(--warn)" : "var(--bad)";
-  const status = `<div class="card"><h4>🏴‍☠️ Outlaw Status</h4>
+  const noto = notoriety();
+  const corruptible = p.enforce <= 0.6;
+  const settleCost = P.wanted > 0 ? Math.round(Math.min(P.wanted, 15 + Math.round(P.wanted * 0.25)) * (60 + p.enforce * 120)) : 0;
+  const status = `<div class="card"><h4>🏴‍☠️ Outlaw Status <span class="pill" style="border-color:${noto.col};color:${noto.col}">${noto.label}</span></h4>
     ${polMeter("Wanted", "🎯", P.wanted, 100, wantedCol)}
     ${polMeter("Dread", "💀", P.dread, 100, "var(--accent-2)")}
     ${polMeter("Hull", "🛡️", P.hull, 100, hullCol)}
@@ -3056,9 +3171,30 @@ function renderRaid() {
     <div class="ship-stat"><span class="k">Total plundered</span><span class="v">${fmt(P.plundered)} cr</span></div>
     <div class="ship-stat"><span class="k">Raid power</span><span class="v">${Math.round(raidPower())}</span></div>
     ${P.hull < HULL_MAX ? `<button class="btn btn-good" style="margin-top:8px" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * 30))} 💰)</button>` : `<div class="pill good" style="margin-top:8px">◉ Hull pristine</div>`}
+    ${P.wanted > 0 && !S.interdiction ? (corruptible
+      ? `<button class="btn btn-sm" style="margin-top:6px" ${al > 0 && S.res.credits >= settleCost ? "" : "disabled"} title="Bribe corruptible officials to wipe warrants" onclick="settleWarrants()">📝 Settle warrants (${fmt(settleCost)} 💰)</button>`
+      : `<div class="hint" style="margin-top:6px">Officials here are incorruptible — settle warrants in lawless space.</div>`) : ""}
   </div>`;
   let action;
-  if (S.prey) {
+  if (S.interdiction) {
+    const it = S.interdiction, ip = PLANETS.find(x => x.id === it.planet) || p;
+    const rp = raidPower();
+    const odds = rp >= it.strength * 1.2 ? "favorable" : rp >= it.strength * 0.8 ? "even" : "grim";
+    const oddsCol = odds === "favorable" ? "var(--good)" : odds === "even" ? "var(--warn)" : "var(--bad)";
+    const canBribe = ip.enforce <= 0.75;
+    action = `<div class="card" style="border-color:var(--bad)">
+      <h4>🚨 Navy Interdiction <span class="pill bad">${ip.name}</span></h4>
+      <div class="hint">${it.kind === "dock" ? "A cutter locked onto your transponder as you docked." : "A patrol sweep caught you red-handed on the lanes."} Cutter strength ~${it.strength}.</div>
+      <div class="meta"><span class="hint">Fight odds</span><span class="cost" style="color:${oddsCol}">${odds} — power ${Math.round(rp)} vs ~${it.strength}</span></div>
+      <div class="row" style="margin-top:6px">
+        ${canBribe
+          ? `<button class="btn btn-primary" ${S.res.credits >= it.bribe ? "" : "disabled"} title="Pay them off — costs credits, trims Wanted" onclick="navyBribe()">💵 Bribe (${fmt(it.bribe)} 💰)</button>`
+          : `<button class="btn" disabled title="These officers can't be bought">💵 Incorruptible</button>`}
+        <button class="btn btn-bad" title="Shoot your way clear — lose and you're boarded & arrested" onclick="navyFight()">⚔️ Fight</button>
+        <button class="btn btn-sm" title="Stand down: cargo seized, fined and jailed, but warrants mostly cleared" onclick="navySurrender()">🏳️ Surrender</button>
+      </div>
+    </div>`;
+  } else if (S.prey) {
     const prey = S.prey;
     const cargoStr = Object.keys(prey.cargo).map(c => `${prey.cargo[c]} ${COM[c].ico} ${COM[c].name}`).join(", ") || "scant cargo";
     const rp = raidPower();
@@ -3086,7 +3222,7 @@ function renderRaid() {
     </div>`;
   }
   el.innerHTML = `<h2>🏴‍☠️ Raiding</h2>
-    <div class="subtitle">Prey on the lanes for plunder. Build <b>Dread</b> and captains surrender without a fight; mind your <b>Wanted</b> level — the notorious draw bounty hunters (and soon the navy).</div>
+    <div class="subtitle">Prey on the lanes for plunder. Build <b>Dread</b> and captains surrender without a fight; mind your <b>Wanted</b> level — the notorious draw bounty hunters <i>and the navy</i>, who interdict you in lawful ports and on patrolled lanes. Settle warrants in lawless space to cool the heat.</div>
     <div class="cards">${status}${action}</div>`;
 }
 function renderShipPanel() {
@@ -3374,6 +3510,7 @@ function init() {
   if (S.legacyTitle === undefined) S.legacyTitle = null;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0 };
   if (S.prey === undefined) S.prey = null;
+  if (S.interdiction === undefined) S.interdiction = null;
   UPGRADES.forEach(u => { if (S.upgrades[u.id] == null) S.upgrades[u.id] = 0; });  // backfill new upgrades (cannons)
   syncObjectives();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
@@ -3402,4 +3539,5 @@ Object.assign(window, {
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
   runForElection, seekAppointment, stageCoup, lobbyLaw,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, repairShip,
+  navyBribe, navyFight, navySurrender, settleWarrants,
 });
