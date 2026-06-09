@@ -316,15 +316,31 @@ const MISSIONS = [
     cost: { influence: 22, tech: 25 },
     reward: { credits: 3000, influence: 10, rep: { syndicate: 20 } },
     desc: "Convene the sector's scientists. Prestige, profit and Syndicate favour." },
-  { id: "senate",   name: "Win a Senate Seat",     tier: 3, reqTech: "diplomacy",
-    cost: { influence: 60, credits: 4000 }, needRep: { core: 30 },
-    reward: { influence: 40, perk: "senator" },
-    desc: "Claim a seat on the Galactic Senate (needs Core standing). Unlocks the Governorship." },
-  { id: "governor", name: "Become Sector Governor",tier: 3, reqTech: "diplomacy", reqPerk: "senator",
-    cost: { influence: 140, credits: 15000 },
-    reward: { perk: "governor" },
-    desc: "Rule the sector — and unlock trade Decrees. A cornerstone of your legacy." },
+  // (Senate seat & Governorship are no longer one-off missions — rise through the
+  //  Office & Elections system in the Politics tab: by ballot, backroom, or force.)
 ];
+
+/* ---------- Public office: the ladder of power ----------
+   A career of offices (Councillor → Senator → Governor → First Consul) won three
+   ways — Election (popularity), Appointment (influence + a faction patron) or a
+   Coup (private security + nerve). Terms expire; keep your support up or be
+   removed. S.office is the canonical rank; perks.senator/governor are synced from
+   it so the rest of the game keeps working. Reaching Consul completes a political
+   legacy (Statesman / Demagogue / Kingpin / Consul, by how you ruled).
+*/
+const OFFICES = [
+  null,                                                          // 0 = private citizen
+  { level: 1, id: "councillor", name: "Councillor",      ico: "🪧", term: 12 },
+  { level: 2, id: "senator",    name: "Senator",         ico: "🎖️", term: 14 },
+  { level: 3, id: "governor",   name: "Sector Governor", ico: "👑", term: 16 },
+  { level: 4, id: "consul",     name: "First Consul",    ico: "⭐", term: 0 },   // life tenure
+];
+const ELECT_POP   = { 1: 25, 2: 40, 3: 55, 4: 70 };              // popularity to run
+const APPOINT_INF = { 1: 40, 2: 70, 3: 110, 4: 160 };            // influence to be appointed
+const APPOINT_REP = { 1: 25, 2: 30, 3: 45, 4: 60 };             // patron faction rep needed
+const COUP_PMC    = { 1: 1, 2: 2, 3: 3, 4: 4 };                 // Private Security tier needed
+function officeName(lvl) { return (lvl >= 1 && OFFICES[lvl]) ? OFFICES[lvl].name : "Private Citizen"; }
+function currentOffice() { return OFFICES[S.office || 0]; }
 
 /* ---------- Political organizations (the politician career) ----------
    You found organizations that run automatically every cycle (passive yields),
@@ -571,6 +587,7 @@ function freshState(opts = {}) {
   const techs = {};
   const pol = { popularity: 10, legitimacy: 0, heat: 0, slush: 0 };
   const orgs = {};
+  let office = 0, officePath = null, term = 0;
   let start = pickStart(active);
   if (opts.colonyStart) {
     // Skip the trading phase: grant the charter line, seed capital + materials,
@@ -588,6 +605,7 @@ function freshState(opts = {}) {
     res.credits = 6000; res.influence = 30;
     pol.popularity = 25;
     orgs.party = { tier: 1 };
+    office = 1; officePath = "elected"; term = OFFICES[1].term;   // start as a Councillor
   }
   return {
     turn: 1,
@@ -600,6 +618,10 @@ function freshState(opts = {}) {
     floor: null,        // bill currently before the Senate: { billId, sway }
     invest: null,       // active corruption investigation: { lead, evidence, defense, cycles }
     jail: 0,            // cycles remaining in detention
+    office,             // public office rank (0..4); perks.senator/governor derive from it
+    officePath,         // how the current office was won: elected / appointed / seized
+    term,               // cycles left in the current term (0 = none / life tenure)
+    legacyTitle: null,  // set when a political legacy (Consul) is completed
     upgrades: Object.fromEntries(UPGRADES.map(u => [u.id, 0])),
     techs,
     missions: {},
@@ -1273,6 +1295,7 @@ function holdTrial(voluntary) {
     if (typeof announce === "function") announce("⛓️ Imprisoned", "You are jailed for 2 cycles. Your machine runs on without you.", true);
   } else {
     // disgrace & exile — the political career is wiped (you remain a trader)
+    S.office = 0; S.officePath = null; S.term = 0;
     S.perks.senator = false; S.perks.governor = false;
     S.orgs = {}; S.policies = {}; S.floor = null; S.decrees = { monopoly: null, tariff: null };
     S.pol = { popularity: 5, legitimacy: -55, heat: 0, slush: 0 }; S.res.influence = 0; S.jail = 2;
@@ -1282,9 +1305,11 @@ function holdTrial(voluntary) {
   }
 }
 function stripOffice() {
-  if (S.perks.governor) { S.perks.governor = false; S.decrees = { monopoly: null, tariff: null }; return "Governor"; }
-  if (S.perks.senator)  { S.perks.senator = false; return "Senator"; }
-  return "";
+  if ((S.office || 0) < 1) return "";
+  const lost = OFFICES[S.office].name;
+  S.office--; syncOfficePerks();
+  S.term = (S.office >= 1 && OFFICES[S.office]) ? OFFICES[S.office].term : 0;
+  return lost;
 }
 /* ----- countermeasures (each costs 1 action) ----- */
 function investAct() { return S.invest && actionsLeft() > 0; }
@@ -1348,6 +1373,128 @@ function investScapegoat() {
 function faceTrial() {
   if (!investAct()) return toast(S.invest ? "No actions left." : "No active case.", "bad");
   useAction(); holdTrial(true); afterAction();
+}
+
+/* ---------- Public office: elections, appointments, coups & terms ---------- */
+function syncOfficePerks() {
+  S.perks.senator = (S.office >= 2);
+  S.perks.governor = (S.office >= 3);
+  if (S.office < 3) S.decrees = { monopoly: null, tariff: null };
+}
+function takeOffice(level, path) {
+  S.office = level; S.officePath = path;
+  S.term = (OFFICES[level] && OFFICES[level].term) || 0;
+  syncOfficePerks();
+  if (level >= 4) politicalLegacy(path);
+}
+function repAverage() { return Object.keys(FACTIONS).reduce((s, f) => s + (S.rep[f] || 0), 0) / Object.keys(FACTIONS).length; }
+function officeGuard(lvl) {
+  if (!canPolitick()) { toast("Research Galactic Charter first.", "bad"); return false; }
+  if (!OFFICES[lvl]) { toast("You already hold the highest office.", "bad"); return false; }
+  if (actionsLeft() <= 0) { toast("No actions left — end the cycle.", "bad"); return false; }
+  return true;
+}
+function runForElection() {
+  const lvl = (S.office || 0) + 1;
+  if (!officeGuard(lvl)) return;
+  const off = OFFICES[lvl], needPop = ELECT_POP[lvl], chest = 2000 * lvl;
+  if (S.pol.popularity < needPop) return toast(`Need ${needPop} popularity to run.`, "bad");
+  if (S.res.credits < chest) return toast(`Need ${fmt(chest)} credits for the campaign.`, "bad");
+  S.res.credits -= chest; useAction();
+  const score = S.pol.popularity + S.pol.legitimacy * 0.3 + repAverage() * 0.2 + Math.random() * 20;
+  const opponent = 42 + 12 * lvl + Math.random() * 20;
+  if (score > opponent) {
+    takeOffice(lvl, "elected");
+    applyPolDelta({ legitimacy: 6, popularity: -4 });
+    Object.keys(FACTIONS).forEach(f => addRep(f, 1));
+    log(`🗳️ You WON the election for <span class="c">${off.name}</span>! (${Math.round(score)}–${Math.round(opponent)})`, "good");
+    toast(`Elected ${off.name}!`, "good");
+    if (typeof fireworks === "function") fireworks(2000, false);
+  } else {
+    applyPolDelta({ popularity: -5, heat: 2 });
+    log(`🗳️ You lost the election for ${off.name} (${Math.round(score)}–${Math.round(opponent)}); your campaign chest is spent.`, "bad");
+    toast("Election lost.", "bad");
+  }
+  afterAction();
+}
+function seekAppointment() {
+  const lvl = (S.office || 0) + 1;
+  if (!officeGuard(lvl)) return;
+  const off = OFFICES[lvl], needInf = APPOINT_INF[lvl], needRep = APPOINT_REP[lvl], cost = 3000 * lvl;
+  const patron = Object.keys(FACTIONS).filter(f => (S.rep[f] || 0) >= needRep).sort((a, b) => (S.rep[b] || 0) - (S.rep[a] || 0))[0];
+  if ((S.res.influence || 0) < needInf) return toast(`Need ${needInf} influence.`, "bad");
+  if (!patron) return toast(`Need a faction ally at ${needRep}+ reputation to back you.`, "bad");
+  if (S.res.credits < cost) return toast(`Need ${fmt(cost)} credits.`, "bad");
+  S.res.influence -= needInf; S.res.credits -= cost; useAction();
+  takeOffice(lvl, "appointed");
+  addRep(patron, 4);
+  Object.keys(FACTIONS).forEach(f => { if (f !== patron) addRep(f, -3); });
+  applyPolDelta({ heat: 4 });
+  log(`🤝 ${FACTIONS[patron].ico} ${FACTIONS[patron].name} installed you as <span class="c">${off.name}</span>.`, "event");
+  toast(`Appointed ${off.name}.`, "event");
+  afterAction();
+}
+function stageCoup() {
+  const lvl = (S.office || 0) + 1;
+  if (!officeGuard(lvl)) return;
+  const off = OFFICES[lvl], needPmc = COUP_PMC[lvl];
+  const pmcTier = (S.orgs.pmc && S.orgs.pmc.tier) || 0, costInf = 20 * lvl, costSlush = 1000 * lvl;
+  if (pmcTier < needPmc) return toast(`Need Private Security tier ${needPmc} to seize power.`, "bad");
+  if ((S.res.influence || 0) < costInf) return toast(`Need ${costInf} influence.`, "bad");
+  if (S.pol.slush < costSlush) return toast(`Need ${fmt(costSlush)} slush to fund the plot.`, "bad");
+  S.res.influence -= costInf; S.pol.slush -= costSlush; useAction();
+  const chance = Math.min(0.9, 0.35 + pmcTier * 0.12 - lvl * 0.05);
+  if (Math.random() < chance) {
+    takeOffice(lvl, "seized");
+    applyPolDelta({ legitimacy: -25, popularity: -15, heat: 30 });
+    Object.keys(FACTIONS).forEach(f => addRep(f, -8));
+    log(`⚔️ Your forces SEIZE power — you are <span class="c">${off.name}</span> by force! The factions seethe and investigators take note.`, "bad");
+    toast(`Seized ${off.name}!`, "event");
+  } else {
+    applyPolDelta({ legitimacy: -10, heat: 40 });
+    Object.keys(FACTIONS).forEach(f => addRep(f, -6));
+    if (S.orgs.pmc) { S.orgs.pmc.tier--; if (S.orgs.pmc.tier <= 0) delete S.orgs.pmc; }
+    log(`⚔️ The coup FAILED! Your security is shattered, the factions turn on you, and the heat is blistering.`, "bad");
+    toast("Coup failed!", "bad");
+  }
+  afterAction();
+}
+function processOffice() {
+  if (!S.office || S.office >= 4) return;     // no office, or Consul (life tenure)
+  if (S.term > 0) { S.term--; if (S.term > 0) return; } else return;
+  const lvl = S.office, off = OFFICES[lvl];
+  let keep;
+  if (S.officePath === "seized") {
+    keep = ((S.orgs.pmc && S.orgs.pmc.tier) || 0) >= COUP_PMC[lvl];   // hold only while armed
+  } else {
+    keep = (S.pol.popularity + S.pol.legitimacy * 0.3 + repAverage() * 0.2) >= (ELECT_POP[lvl] - 8);
+  }
+  if (keep) {
+    S.term = off.term;
+    log(`🗳️ Your mandate as ${off.name} is renewed for another term.`, "good");
+  } else {
+    S.office = lvl - 1; syncOfficePerks();
+    S.term = (S.office >= 1 && OFFICES[S.office]) ? OFFICES[S.office].term : 0;
+    applyPolDelta({ popularity: -4 });
+    log(`🗳️ Your term as ${off.name} ended and you were not retained — you fall back to ${officeName(S.office)}.`, "bad");
+    toast(`Lost office: ${off.name}.`, "bad");
+  }
+}
+function politicalLegacy(path) {
+  if (S.legacyTitle) return;
+  const P = S.pol;
+  let title, blurb;
+  if (path === "seized") { title = "The Consul"; blurb = "You seized supreme power by force and rule the sector by decree."; }
+  else if (path === "elected" && P.popularity >= 70) { title = "The Demagogue"; blurb = "A landslide of public adoration carried you to absolute power."; }
+  else if (P.legitimacy >= 40) { title = "The Statesman"; blurb = "You reached the summit with clean hands and a sterling name."; }
+  else if (P.slush > 0 || P.legitimacy < 0) { title = "The Kingpin"; blurb = "You bought and blackmailed your way to the top; the sector is yours in all but name."; }
+  else { title = "First Consul"; blurb = "You have ascended to supreme authority over the sector."; }
+  S.legacyTitle = title;
+  log(`🏛️ POLITICAL LEGACY — <span class="c">${title}</span>: ${blurb}`, "good");
+  if (typeof announce === "function") announce(`⭐ ${title}`, `${blurb} Your political legacy is complete!`, true);
+  if (typeof fireworks === "function") fireworks(8000, true);
+  if (!S.won) S.won = true;
+  toast(`⭐ ${title} — political legacy complete!`, "good");
 }
 
 function afterAction() { checkWin(); saveGame(); renderAll(); }
@@ -2064,7 +2211,7 @@ function applyDecreeIncome() {
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processOrgs(); processInvestigation(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processOrgs(); processInvestigation(); processOffice(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -2455,6 +2602,40 @@ function renderInvestigation() {
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px">${cms.join("")}</div>
   </div>`;
 }
+function renderOffice() {
+  if (!canPolitick()) return "";
+  const lvl = S.office || 0, cur = OFFICES[lvl], next = OFFICES[lvl + 1];
+  const curName = cur ? `${cur.ico} ${cur.name}` : "🧑 Private Citizen";
+  const termTxt = lvl <= 0 ? "" : lvl >= 4 ? "life tenure" : `${S.term} cyc term`;
+  if (!next) {
+    const leg = S.legacyTitle ? `<div class="pill good">Legacy: ${S.legacyTitle}</div>` : "";
+    return `<div class="section-title">🏛️ Office</div><div class="cards"><div class="card owned">
+      <h4>${curName}</h4><div class="desc">You hold supreme power over the sector.</div>${leg}</div></div>`;
+  }
+  const al = actionsLeft(), tgt = lvl + 1;
+  const head = `<div class="card"><h4>${curName} ${termTxt ? `<span class="pill">${termTxt}</span>` : ""}${S.officePath && lvl > 0 ? ` <span class="hint">${S.officePath}</span>` : ""}</h4>
+    <div class="hint">Rise by ballot, by backroom, or by force. Terms expire — keep your support up or be removed.</div></div>`;
+  const ePop = ELECT_POP[tgt], eChest = 2000 * tgt;
+  const eOk = S.pol.popularity >= ePop && S.res.credits >= eChest && al > 0;
+  const eCard = `<div class="card"><h4>🗳️ Run for ${next.name}</h4>
+    <div class="desc">Win at the ballot box — your popularity and money against the field. Clean: builds legitimacy.</div>
+    <div class="hint">Need ${ePop}+ 📣 popularity · ${fmt(eChest)} 💰 chest</div>
+    <button class="btn btn-primary" ${eOk ? "" : "disabled"} onclick="runForElection()">Campaign (1 action)</button></div>`;
+  const aInf = APPOINT_INF[tgt], aRep = APPOINT_REP[tgt], aCost = 3000 * tgt;
+  const patron = Object.keys(FACTIONS).filter(f => (S.rep[f] || 0) >= aRep).sort((a, b) => (S.rep[b] || 0) - (S.rep[a] || 0))[0];
+  const aOk = (S.res.influence || 0) >= aInf && patron && S.res.credits >= aCost && al > 0;
+  const aCard = `<div class="card"><h4>🤝 Seek Appointment</h4>
+    <div class="desc">Let an allied faction install you. Backroom power, no public mandate.</div>
+    <div class="hint">Need ${aInf} 🏛️ · a faction ally at ${aRep}+ rep ${patron ? `(✅ ${FACTIONS[patron].name})` : "(none yet)"} · ${fmt(aCost)} 💰</div>
+    <button class="btn btn-primary" ${aOk ? "" : "disabled"} onclick="seekAppointment()">Lobby for Post (1 action)</button></div>`;
+  const cPmc = COUP_PMC[tgt], pmcTier = (S.orgs.pmc && S.orgs.pmc.tier) || 0, cInf = 20 * tgt, cSlush = 1000 * tgt;
+  const cOk = pmcTier >= cPmc && (S.res.influence || 0) >= cInf && S.pol.slush >= cSlush && al > 0;
+  const cCard = `<div class="card"><h4>⚔️ Stage a Coup</h4>
+    <div class="desc">Take power by force. Tanks legitimacy, enrages the factions, spikes Heat — and it can fail.</div>
+    <div class="hint">Need 🛡️ Security tier ${cPmc} (have ${pmcTier}) · ${cInf} 🏛️ · ${fmt(cSlush)} 💼 slush</div>
+    <button class="btn btn-bad" ${cOk ? "" : "disabled"} onclick="stageCoup()">Seize Power (1 action)</button></div>`;
+  return `<div class="section-title">🏛️ Office — next: ${next.ico} ${next.name}</div><div class="cards">${head}${eCard}${aCard}${cCard}</div>`;
+}
 const VOTE_PILL = { yes: `<span class="pill good">YES</span>`, no: `<span class="pill bad">NO</span>`, abstain: `<span class="pill">abstain</span>` };
 function renderSenate() {
   if (!canLegislate()) {
@@ -2516,7 +2697,7 @@ function renderPolitics() {
   const el = document.getElementById("panel-politics");
   const p = currentPlanet();
   const al = actionsLeft();
-  const status = S.perks.governor ? "Sector Governor 👑" : S.perks.senator ? "Senator 🎖️" : "Free Trader";
+  const status = (S.office && currentOffice()) ? `${currentOffice().ico} ${currentOffice().name}` : "Free Trader";
   const reps = Object.keys(FACTIONS).map(repBar).join("");
 
   // Time-bounded random contracts
@@ -2581,6 +2762,7 @@ function renderPolitics() {
       <div class="card"><h4>🤝 Faction Standing</h4>${reps}</div>
     </div>
     ${(() => { const ic = renderInvestigation(); return ic ? `<div class="cards">${ic}</div>` : ""; })()}
+    ${renderOffice()}
     ${renderPower()}
     ${renderSenate()}
     ${decrees}
@@ -2867,6 +3049,12 @@ function init() {
   if (!S.orgs) S.orgs = {};
   if (!S.policies) S.policies = {};
   if (S.floor === undefined) S.floor = null;
+  if (S.invest === undefined) S.invest = null;
+  if (S.jail == null) S.jail = 0;
+  if (S.office == null) S.office = S.perks.governor ? 3 : S.perks.senator ? 2 : 0;  // migrate from old perks
+  if (S.term == null) S.term = 0;
+  if (S.officePath === undefined) S.officePath = null;
+  if (S.legacyTitle === undefined) S.legacyTitle = null;
   syncObjectives();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
@@ -2892,4 +3080,5 @@ Object.assign(window, {
   foundOrg, upgradeOrg, runOrgAbility,
   proposeBill, lobbyFaction, bribeFaction, callVote, repealPolicy,
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
+  runForElection, seekAppointment, stageCoup,
 });

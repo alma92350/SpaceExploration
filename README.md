@@ -273,6 +273,28 @@ and **imprisonment** (you lose cycles in detention while your machine runs on),
 all the way to **disgrace & exile** that wipes your political career to the
 ground. Crime can pay — until it doesn't.
 
+### 🗳️ Office & Elections — three routes to power
+
+Climb a ladder of public office — **Councillor → Senator → Sector Governor →
+First Consul** — and claim each rung **three different ways**:
+
+- **🗳️ Election** — win at the ballot box on your **popularity** (and a campaign
+  chest). The clean, populist route; victory builds legitimacy.
+- **🤝 Appointment** — get an **allied faction** to install you with **influence**
+  and money. Backroom power, no public mandate, and rivals resent the deal.
+- **⚔️ Coup** — seize power by force with your **Private Security** and slush. It
+  craters your legitimacy, enrages every faction, spikes Heat — and it can fail
+  catastrophically.
+
+**Terms expire.** Hold an elected or appointed office only while your support
+holds up (popularity keeps decaying, so keep campaigning); hold a seized office
+only while you keep the muscle. Fall short at term's end and you're demoted.
+
+Reach the summit and you complete a **political legacy** whose title reflects how
+you ruled — **The Statesman** (clean and respected), **The Demagogue** (a
+popularity landslide), **The Kingpin** (bought and blackmailed), or **The
+Consul** (taken by force). Different game, every time.
+
 ## 🛠️ Fifteen ship upgrades (3 tiers each)
 
 Cargo Hold · Fuel Tanks · Ion Engine · Mining Laser · Bio-Harvester ·
