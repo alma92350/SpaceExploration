@@ -952,12 +952,16 @@ function reserveFrac(pid, c) { const r = reserveOf(pid, c); return r.max > 0 ? r
 function depletionMult(pid, c) { return 0.25 + 0.75 * reserveFrac(pid, c); }   // yield falloff, floored at 25%
 function drawReserve(pid, c, amount) { const r = reserveOf(pid, c); r.cur = Math.max(0, r.cur - amount); }
 function processReserves() {
+  // Reserves only fall from PLAYER extraction (hand-mining + your colonies' extractors);
+  // nothing drains them in the background. Every deposit also recovers slowly, so a world
+  // is only depleted while you out-extract its natural recovery — over-exploitation, not fate.
   PLANETS.forEach(p => {
     if (!p.deposits) return;
     Object.keys(p.deposits).forEach(c => {
-      if (!RENEWABLE_RES[c]) return;                // only renewables regrow
       const r = reserveOf(p.id, c);
-      if (r.cur < r.max) r.cur = Math.min(r.max, r.cur + Math.ceil(r.max * 0.04));
+      if (r.cur >= r.max) return;
+      const rate = RENEWABLE_RES[c] ? 0.04 : 0.015;   // food/ice/gas rebound fast; ores/isotopes recover slowly
+      r.cur = Math.min(r.max, r.cur + Math.ceil(r.max * rate));
     });
   });
 }
