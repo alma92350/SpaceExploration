@@ -976,7 +976,7 @@ function costString(cost) {
    (never zero, no dead-ends), nudging you toward fresh worlds. Renewables
    (food, ice, gas) slowly regrow; ores/crystals/isotopes/relics do not.
    ============================================================ */
-const RESERVE_PER_DEP = 1000;                       // reserve stock per 1.0 of deposit richness
+const RESERVE_PER_DEP = 2500;                       // reserve stock per 1.0 of deposit richness
 const RENEWABLE_RES = { biomass: true, spice: true, ice: true, gas: true };
 function reserveOf(pid, c) {
   if (!S.reserves) S.reserves = {};
@@ -1002,7 +1002,7 @@ function processReserves() {
     Object.keys(p.deposits).forEach(c => {
       const r = reserveOf(p.id, c);
       if (r.cur >= r.max) return;
-      const rate = RENEWABLE_RES[c] ? 0.04 : 0.015;   // food/ice/gas rebound fast; ores/isotopes recover slowly
+      const rate = RENEWABLE_RES[c] ? 0.04 : 0.008;   // food/ice/gas rebound fast; ores/isotopes recover very slowly
       r.cur = Math.min(r.max, r.cur + Math.ceil(r.max * rate));
     });
   });
@@ -1033,7 +1033,7 @@ function processPollution() {
   });
   // climate: a slow, smoothed echo of sector-wide pollution — clamped, decaying, never runaway
   const mean = PLANETS.reduce((s, p) => s + pollutionOf(p.id), 0) / PLANETS.length;
-  let cl = (S.climate || 0) + (mean * 1.6 - (S.climate || 0)) * 0.08;
+  let cl = (S.climate || 0) + (mean * 4 - (S.climate || 0)) * 0.08;   // a few fouled worlds = real sector stress
   if (S.techs.terraform) cl -= 0.4;                                        // terraforming actively heals the sector
   if (policyActive("greenpact")) cl -= 0.2;
   S.climate = Math.max(0, Math.min(100, cl));
