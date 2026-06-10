@@ -579,9 +579,28 @@ function colonyBuildingList(planet) {
     { id: "foundry", name: "Foundry",         ico: "🛠️", tiers: 6, baseCost: 3200, costMul: 1.7, req: "metallurgy",
       recipe: { in: { metals: 2, energy: 2 }, out: "alloys", outQty: 1, rate: 2, stage: 3 },
       desc: "Forges Metals into Alloys (consumes Energy)." },
+    { id: "fabricator", name: "Fabricator",   ico: "🖥️", tiers: 6, baseCost: 3400, costMul: 1.7, req: "electronics",
+      recipe: { in: { crystals: 1, metals: 1, energy: 2 }, out: "electronics", outQty: 1, rate: 2, stage: 3 },
+      desc: "Etches Crystals + Metals into Electronics (consumes Energy)." },
+    // ---- Stage 4: finished goods. The components above feed these high-value lines. ----
     { id: "factory", name: "Assembly Plant",  ico: "🏭", tiers: 6, baseCost: 3000, costMul: 1.7,
       industry: 1, recipe: { in: { alloys: 1, chemicals: 1, energy: 1 }, out: "goods", outQty: 1, rate: 2, stage: 4 },
       desc: "+1 industry per tier. Assembles Alloys + Chemicals + Energy into Consumer Goods." },
+    { id: "machine_works", name: "Machine Works", ico: "⚙️", tiers: 6, baseCost: 3600, costMul: 1.7,
+      recipe: { in: { alloys: 1, electronics: 1, energy: 1 }, out: "machinery", outQty: 1, rate: 2, stage: 4 },
+      desc: "Builds Machinery from Alloys + Electronics — a high-value export." },
+    { id: "luxury_atelier", name: "Luxury Atelier", ico: "💠", tiers: 6, baseCost: 3600, costMul: 1.7,
+      recipe: { in: { spice: 2, electronics: 1, energy: 1 }, out: "luxury", outQty: 1, rate: 2, stage: 4 },
+      desc: "Crafts Luxury Goods from Spice + Electronics — sells dear and keeps colonists content." },
+    { id: "pharma_lab", name: "Pharma Lab",   ico: "💊", tiers: 6, baseCost: 3400, costMul: 1.7, req: "biotech",
+      recipe: { in: { spice: 1, chemicals: 1, energy: 1 }, out: "medicine", outQty: 1, rate: 2, stage: 4 },
+      desc: "Synthesises Medicine from Spice + Chemicals — keeps a colony healthy and happy." },
+    { id: "arms_factory", name: "Arms Factory", ico: "🔫", tiers: 5, baseCost: 4000, costMul: 1.75, req: "weapontech",
+      recipe: { in: { alloys: 1, electronics: 1, radioactives: 1 }, out: "weapons", outQty: 1, rate: 2, stage: 4 },
+      desc: "Forges Weapons from Alloys + Electronics + Radioactives — lucrative, but watch the law." },
+    { id: "antimatter_forge", name: "Antimatter Forge", ico: "🌀", tiers: 4, baseCost: 5200, costMul: 1.8, req: "antimatter",
+      recipe: { in: { relics: 2, electronics: 1, energy: 3 }, out: "antimatter", outQty: 1, rate: 1, stage: 5 },
+      desc: "Binds Relics + Electronics into Antimatter — the apex of colonial industry." },
     { id: "lab",     name: "Research Campus",  ico: "🔬", tiers: 6, baseCost: 3000, costMul: 1.7,
       tech: 1, desc: "+1 tech per tier, and sends tech points to your research each cycle." },
     { id: "spaceport", name: "Spaceport",      ico: "🛰️", tiers: 4, baseCost: 4000, costMul: 1.8,
@@ -598,7 +617,9 @@ function colonyBuildingList(planet) {
 }
 function colonyBuildingMats(def, nextTier) {
   const mats = { metals: 10 + nextTier * 7 };
-  if (["factory", "lab", "spaceport", "garrison", "reactor", "foundry"].includes(def.id) || ADVANCED_MODULES.includes(def.id))
+  if (["factory", "lab", "spaceport", "garrison", "reactor", "foundry", "fabricator",
+       "machine_works", "luxury_atelier", "pharma_lab", "arms_factory", "antimatter_forge"].includes(def.id)
+      || ADVANCED_MODULES.includes(def.id))
     mats.electronics = 2 + nextTier * 2;
   return mats;
 }
@@ -2630,7 +2651,8 @@ function processColonies() {
       const r = b.recipe;
       let batches = t * r.rate;                                            // throughput scales with tier
       Object.entries(r.in).forEach(([c, q]) => { batches = Math.min(batches, Math.floor((col.storage[c] || 0) / q)); });
-      batches = Math.min(batches, Math.floor((cap - colonyStorageUsed(col)) / r.outQty)); // room for output
+      const net = r.outQty - Object.values(r.in).reduce((s, q) => s + q, 0); // only net growth needs free space
+      if (net > 0) batches = Math.min(batches, Math.floor((cap - colonyStorageUsed(col)) / net));
       if (batches <= 0) return;
       Object.entries(r.in).forEach(([c, q]) => { col.storage[c] -= batches * q; });
       store(r.out, batches * r.outQty);
