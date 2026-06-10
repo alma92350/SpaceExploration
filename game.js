@@ -4335,11 +4335,69 @@ function showUpdateBanner(st) {
     + `<button class="btn btn-sm" onclick="document.getElementById('update-banner').remove()">Later</button>`
     + `</span>`;
 }
+const REPO_URL = "https://github.com/alma92350/SpaceExploration";
+function helpHTML() {
+  return `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <h2 style="margin:0">❓ How to Play — Stellar Frontier</h2>
+      <button class="btn btn-sm" style="margin-left:auto" onclick="toggleHelp()">✕ Close</button>
+    </div>
+    <p style="opacity:.85">Carve your legacy across a contested star sector — as a <b>Trader</b>, <b>Explorer</b>, <b>Colonial Founder</b>, <b>Politician</b> or <b>Pirate</b>. Your career is whatever you make of it; you can switch and mix freely.</p>
+
+    <h4>The basics</h4>
+    <ul style="line-height:1.6;margin:0 0 6px 18px;padding:0">
+      <li>Each cycle you have a handful of <b>actions</b>; most things (travel, mine, lobby, raid) cost one. Hit <b>End Cycle</b> to advance time — prices drift, colonies grow, crises tick.</li>
+      <li><b>Travel</b> between worlds costs fuel and advances a cycle. Buy low, sell high; large trades move the market.</li>
+      <li>Resources are <b>finite</b>: over-mining a world depletes it and raises prices. Industry breeds <b>pollution</b> and <b>climate stress</b> — so spreading to fresh worlds pays off.</li>
+      <li>Win by completing your <b>Legacy goals</b> (see the 🎯 Missions tab) or by rising to a career capstone (Consul, Pirate Lord…).</li>
+    </ul>
+
+    <h4>The tabs</h4>
+    <ul style="line-height:1.55;margin:0 0 6px 18px;padding:0">
+      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises.</li>
+      <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises.</li>
+      <li>🏭 <b>Industry</b> — refine raw materials into finished goods.</li>
+      <li>🔬 <b>Research</b> — unlock technologies.</li>
+      <li>🎯 <b>Missions</b> — time-bound contracts, long-term career missions, and your legacy goals.</li>
+      <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law.</li>
+      <li>🏗️ <b>Bases</b> — automated off-world production.</li>
+      <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
+      <li>🏴‍☠️ <b>Raid</b> — prowl & plunder; manage Wanted/Dread; havens and letters of marque.</li>
+      <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
+    </ul>
+
+    <h4>Header buttons</h4>
+    <p style="margin:0 0 6px 0">⟲ <b>New</b> / 🌍 <b>Colonize</b> start fresh runs · 📖 <b>Log</b> downloads your captain's log (a dossier you can hand to an AI to write your biography or a novel).</p>
+
+    <h4>Links</h4>
+    <p style="margin:0">
+      <a href="${REPO_URL}" target="_blank" rel="noopener" style="color:var(--accent,#38bdf8)">📦 GitHub repository</a> ·
+      <a href="${REPO_URL}/issues" target="_blank" rel="noopener" style="color:var(--accent,#38bdf8)">🐞 Report a bug / request a feature</a> ·
+      <a href="${REPO_URL}#readme" target="_blank" rel="noopener" style="color:var(--accent,#38bdf8)">📖 README</a>
+    </p>
+    <p style="opacity:.6;font-size:12px;margin-top:10px">Stellar Frontier v${typeof APP_VERSION!=="undefined"?APP_VERSION:""} · made with Claude. Tip: press <b>Esc</b> to close.</p>
+  `;
+}
+function toggleHelp() {
+  if (typeof document === "undefined" || !document.body) return;
+  const existing = document.getElementById("help-overlay");
+  if (existing) { existing.remove(); return; }
+  const el = document.createElement("div");
+  el.id = "help-overlay";
+  el.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.80);display:flex;"
+    + "align-items:center;justify-content:center;padding:20px";
+  el.innerHTML = `<div style="max-width:680px;max-height:85vh;overflow:auto;background:#0f172a;`
+    + `border:1px solid var(--accent,#38bdf8);border-radius:12px;padding:22px 24px;color:#e2e8f0;`
+    + `box-shadow:0 20px 60px rgba(0,0,0,.6)" onclick="event.stopPropagation()">${helpHTML()}</div>`;
+  el.addEventListener("click", () => el.remove());            // click backdrop to dismiss
+  document.body.appendChild(el);
+}
 function startVersionWatch() {
   if (typeof window === "undefined") return;
   checkVersion();                                          // once on load
   setInterval(checkVersion, 5 * 60 * 1000);                // every 5 minutes
   window.addEventListener("focus", checkVersion);          // and whenever the player returns
+  window.addEventListener("keydown", e => { if (e.key === "Escape") { const h = document.getElementById("help-overlay"); if (h) h.remove(); } });
 }
 const SAVE_KEY = "stellar-frontier-save-v2";
 /* ---- Captain's Log: export a narrative dossier for an LLM ---- */
@@ -4533,6 +4591,9 @@ function init() {
   const nj = document.createElement("button");
   nj.className = "btn btn-sm"; nj.style.marginLeft = "6px"; nj.textContent = "📖 Log"; nj.title = "Download your captain's log — a narrative dossier you can hand to an AI to write your biography or a novel";
   nj.addEventListener("click", () => downloadJournal()); brand.appendChild(nj);
+  const nh = document.createElement("button");
+  nh.className = "btn btn-sm"; nh.style.marginLeft = "6px"; nh.textContent = "❓ Help"; nh.title = "How to play, and links to the project";
+  nh.addEventListener("click", () => toggleHelp()); brand.appendChild(nh);
   // (No header button for a politics start — careers switch freely in-game; the
   //  Politics tab offers an "Enter Public Life" kickstart instead.)
   renderAll(); setTab("galaxy");
@@ -4554,5 +4615,5 @@ Object.assign(window, {
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
-  acceptCommission, pirateLegacy, checkVersion,
+  acceptCommission, pirateLegacy, checkVersion, toggleHelp,
 });
