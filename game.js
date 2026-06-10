@@ -558,23 +558,23 @@ function colonyBuildingList(planet) {
       produces: "biomass", desc: "Grows food (biomass) every cycle to feed the population." },
     // ---- Power: every industry runs on Energy. Pick a source that fits the world's deposits. ----
     { id: "solar",   name: "Solar Array",     ico: "🔆", tiers: 6, baseCost: 2200, costMul: 1.6,
-      recipe: { in: {}, out: "energy", outQty: 6, rate: 1, stage: 1 },
+      recipe: { in: {}, out: "energy", outQty: 8, rate: 1, stage: 1 },
       desc: "Generates Energy from sunlight every cycle — no fuel, buildable anywhere." },
     { id: "biomass_gen", name: "Biomass Generator", ico: "🌿", tiers: 6, baseCost: 2000, costMul: 1.6,
-      recipe: { in: { biomass: 2 }, out: "energy", outQty: 2, rate: 3, stage: 1 },
+      recipe: { in: { biomass: 2 }, out: "energy", outQty: 3, rate: 3, stage: 1 },
       desc: "Burns biomass into Energy — renewable power for farming worlds." },
     { id: "gas_turbine", name: "Gas Turbine", ico: "🎈", tiers: 6, baseCost: 2600, costMul: 1.65,
-      recipe: { in: { gas: 1 }, out: "energy", outQty: 3, rate: 3, stage: 1 },
+      recipe: { in: { gas: 1 }, out: "energy", outQty: 4, rate: 3, stage: 1 },
       desc: "High-output Energy from Helium-3 — for gas-rich worlds." },
     { id: "reactor", name: "Fission Reactor", ico: "☢️", tiers: 5, baseCost: 4200, costMul: 1.7, req: "reactors",
-      recipe: { in: { radioactives: 1 }, out: "energy", outQty: 5, rate: 2, stage: 1 },
+      recipe: { in: { radioactives: 1 }, out: "energy", outQty: 8, rate: 2, stage: 1 },
       desc: "Vast Energy from radioactives — the heart of an industrial colony. Small meltdown risk." },
     // ---- Refining & manufacturing chain: ore → metals → alloys → goods ----
     { id: "smelter", name: "Smelter",         ico: "🔥", tiers: 6, baseCost: 2600, costMul: 1.6,
-      recipe: { in: { ore: 2, energy: 2 }, out: "metals", outQty: 2, rate: 2, stage: 2 },
-      desc: "Refines Ore into Metals (consumes Energy)." },
+      recipe: { in: { ore: 2, energy: 2 }, out: "metals", outQty: 2, rate: 3, stage: 2 },
+      desc: "Refines Ore into Metals (consumes Energy). One smelter feeds a matched Foundry + Fabricator." },
     { id: "chem_plant", name: "Chemical Plant", ico: "⚗️", tiers: 6, baseCost: 2600, costMul: 1.6,
-      recipe: { in: { biomass: 2, energy: 1 }, out: "chemicals", outQty: 2, rate: 2, stage: 2 },
+      recipe: { in: { biomass: 2, energy: 1 }, out: "chemicals", outQty: 2, rate: 3, stage: 2 },
       desc: "Processes biomass into Chemicals (consumes Energy)." },
     { id: "foundry", name: "Foundry",         ico: "🛠️", tiers: 6, baseCost: 3200, costMul: 1.7, req: "metallurgy",
       recipe: { in: { metals: 2, energy: 2 }, out: "alloys", outQty: 1, rate: 2, stage: 3 },
@@ -2641,7 +2641,8 @@ function processColonies() {
       if (b.recipe) return;                                               // industry chain handled in 1b
       if (b.produces) {
         const out = b.id === "farm" ? t * 8 : Math.round(t * 5 * (planet.deposits[b.produces] || 1));
-        store(b.produces, out);
+        const ceiling = Math.floor(cap * 0.15);                           // sources self-limit so by-products can't clog the chain out of storage
+        store(b.produces, Math.min(out, Math.max(0, ceiling - (col.storage[b.produces] || 0))));
       }
     });
     // 1b) industry chain in dependency order (power → refining → components → assembly),
@@ -2663,6 +2664,9 @@ function processColonies() {
         log(`☢️ A containment scare at <span class="c">${planet.name}</span>'s reactor vented power and rattled the colony.`, "bad");
       }
     });
+    // surplus Energy is vented to the grid, never hoarded — keeps storage clear for materials
+    const ENERGY_BUFFER = 120;
+    if ((col.storage.energy || 0) > ENERGY_BUFFER) col.storage.energy = ENERGY_BUFFER;
 
     // 2) population eats food (biomass)
     const need = col.pop;
@@ -2695,15 +2699,15 @@ function processColonies() {
     const sp = spaceportTier(col);
     if (sp > 0) {
       const reserve = { goods: col.pop, luxury: Math.ceil(col.pop / 3), medicine: Math.ceil(col.pop / 3) };
-      const exportable = CARGO_IDS
-        .filter(c => ["Component", "Finished", "Luxury", "Strategic"].includes(COM[c].tier) || c === "medicine")
+      const exportable = CARGO_IDS                                  // only finished products — intermediates stay for the chain
+        .filter(c => ["Finished", "Luxury", "Strategic"].includes(COM[c].tier) || c === "medicine")
         .sort((a, b) => COM[b].base - COM[a].base);                 // ship the dearest goods first
-      let throughput = sp * 4, revenue = 0;
+      let throughput = sp * 6, revenue = 0;
       for (const c of exportable) {
         if (throughput <= 0) break;
         const avail = (col.storage[c] || 0) - (reserve[c] || 0);
         const q = Math.min(Math.max(0, avail), throughput);
-        if (q > 0) { col.storage[c] -= q; revenue += Math.round(sellPrice(pid, c) * 0.8 * q); throughput -= q; }
+        if (q > 0) { col.storage[c] -= q; revenue += Math.round(sellPrice(pid, c) * 0.85 * q); throughput -= q; }
       }
       if (revenue > 0) {
         S.res.credits += revenue; col._exp = (col._exp || 0) + revenue;
