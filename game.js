@@ -733,7 +733,11 @@ function planetPriceMul(p, comId) {
   let m = 1;
   const c = COM[comId];
   const producesRaw = p.deposits && p.deposits[comId];
-  if (producesRaw) m *= 0.55;                          // local raw → cheap
+  if (producesRaw) {
+    m *= 0.55;                                          // local raw → cheap…
+    if (typeof S !== "undefined" && S && S.reserves)    // …until the deposit runs dry
+      m *= 1 + (1 - reserveFrac(p.id, comId)) * 0.8;    // stripped world: 0.55 → ~0.99 (scarcity premium)
+  }
   if (c.tier === "Raw" && !producesRaw) m *= 1.25;      // imported raw → dear
   if (["Component", "Finished", "Luxury", "Strategic"].includes(c.tier))
     m *= 1 - (effIndustry(p) - 5) * 0.05;               // industrial worlds make goods cheaper
