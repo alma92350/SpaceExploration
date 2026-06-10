@@ -556,8 +556,32 @@ function colonyBuildingList(planet) {
       desc: "Housing. Raises this colony's maximum population.", housing: t => t * 12 },
     { id: "farm",    name: "Agri-Dome",       ico: "🌾", tiers: 6, baseCost: 1800, costMul: 1.6,
       produces: "biomass", desc: "Grows food (biomass) every cycle to feed the population." },
-    { id: "factory", name: "Factory",         ico: "🏭", tiers: 6, baseCost: 3000, costMul: 1.7,
-      industry: 1, desc: "+1 industry per tier, and auto-builds goods from stored alloys + energy." },
+    // ---- Power: every industry runs on Energy. Pick a source that fits the world's deposits. ----
+    { id: "solar",   name: "Solar Array",     ico: "🔆", tiers: 6, baseCost: 2200, costMul: 1.6,
+      recipe: { in: {}, out: "energy", outQty: 6, rate: 1, stage: 1 },
+      desc: "Generates Energy from sunlight every cycle — no fuel, buildable anywhere." },
+    { id: "biomass_gen", name: "Biomass Generator", ico: "🌿", tiers: 6, baseCost: 2000, costMul: 1.6,
+      recipe: { in: { biomass: 2 }, out: "energy", outQty: 2, rate: 3, stage: 1 },
+      desc: "Burns biomass into Energy — renewable power for farming worlds." },
+    { id: "gas_turbine", name: "Gas Turbine", ico: "🎈", tiers: 6, baseCost: 2600, costMul: 1.65,
+      recipe: { in: { gas: 1 }, out: "energy", outQty: 3, rate: 3, stage: 1 },
+      desc: "High-output Energy from Helium-3 — for gas-rich worlds." },
+    { id: "reactor", name: "Fission Reactor", ico: "☢️", tiers: 5, baseCost: 4200, costMul: 1.7, req: "reactors",
+      recipe: { in: { radioactives: 1 }, out: "energy", outQty: 5, rate: 2, stage: 1 },
+      desc: "Vast Energy from radioactives — the heart of an industrial colony. Small meltdown risk." },
+    // ---- Refining & manufacturing chain: ore → metals → alloys → goods ----
+    { id: "smelter", name: "Smelter",         ico: "🔥", tiers: 6, baseCost: 2600, costMul: 1.6,
+      recipe: { in: { ore: 2, energy: 2 }, out: "metals", outQty: 2, rate: 2, stage: 2 },
+      desc: "Refines Ore into Metals (consumes Energy)." },
+    { id: "chem_plant", name: "Chemical Plant", ico: "⚗️", tiers: 6, baseCost: 2600, costMul: 1.6,
+      recipe: { in: { biomass: 2, energy: 1 }, out: "chemicals", outQty: 2, rate: 2, stage: 2 },
+      desc: "Processes biomass into Chemicals (consumes Energy)." },
+    { id: "foundry", name: "Foundry",         ico: "🛠️", tiers: 6, baseCost: 3200, costMul: 1.7, req: "metallurgy",
+      recipe: { in: { metals: 2, energy: 2 }, out: "alloys", outQty: 1, rate: 2, stage: 3 },
+      desc: "Forges Metals into Alloys (consumes Energy)." },
+    { id: "factory", name: "Assembly Plant",  ico: "🏭", tiers: 6, baseCost: 3000, costMul: 1.7,
+      industry: 1, recipe: { in: { alloys: 1, chemicals: 1, energy: 1 }, out: "goods", outQty: 1, rate: 2, stage: 4 },
+      desc: "+1 industry per tier. Assembles Alloys + Chemicals + Energy into Consumer Goods." },
     { id: "lab",     name: "Research Campus",  ico: "🔬", tiers: 6, baseCost: 3000, costMul: 1.7,
       tech: 1, desc: "+1 tech per tier, and sends tech points to your research each cycle." },
     { id: "spaceport", name: "Spaceport",      ico: "🛰️", tiers: 4, baseCost: 4000, costMul: 1.8,
@@ -574,9 +598,14 @@ function colonyBuildingList(planet) {
 }
 function colonyBuildingMats(def, nextTier) {
   const mats = { metals: 10 + nextTier * 7 };
-  if (["factory", "lab", "spaceport", "garrison"].includes(def.id) || ADVANCED_MODULES.includes(def.id))
+  if (["factory", "lab", "spaceport", "garrison", "reactor", "foundry"].includes(def.id) || ADVANCED_MODULES.includes(def.id))
     mats.electronics = 2 + nextTier * 2;
   return mats;
+}
+/* compact "2🪨+2⚡ → 2⛓️ ×2/tier" line for an industry building's recipe */
+function colonyRecipeStr(r) {
+  const ins = Object.keys(r.in).length ? Object.entries(r.in).map(([c, q]) => `${q}${COM[c].ico}`).join("+") : "—";
+  return `${ins} → ${r.outQty}${COM[r.out].ico} ×${r.rate}/tier`;
 }
 /* effective industry/tech: planet base + colony development */
 function effIndustry(p) {
@@ -2535,6 +2564,7 @@ function buildColonyBuilding(buildingId) {
   const planet = currentPlanet();
   const def = colonyBuildingList(planet).find(b => b.id === buildingId);
   if (!def) return;
+  if (def.req && !S.techs[def.req]) return toast(`Requires the ${(TECHS.find(t => t.id === def.req) || {}).name || def.req} technology.`, "bad");
   const tier = col.buildings[buildingId] || 0;
   if (tier >= def.tiers) return;
   const cost = Math.round(def.baseCost * Math.pow(def.costMul, tier));
@@ -2583,19 +2613,32 @@ function processColonies() {
     const cap = colonyStorageCap(col, planet);
     const store = (c, q) => { const add = Math.min(q, cap - colonyStorageUsed(col)); if (add > 0) col.storage[c] = (col.storage[c] || 0) + add; };
 
-    // 1) buildings produce
+    // 1a) raw producers (farm, extractors) + passive research run first
     colonyBuildingList(planet).forEach(b => {
       const t = col.buildings[b.id] || 0; if (t <= 0) return;
       if (b.id === "lab") { S.res.tech += t * 3; return; }                 // passive research
-      if (b.id === "factory") {                                           // auto-assemble goods
-        let batches = Math.min(t * 2, col.storage.alloys || 0, col.storage.energy || 0);
-        batches = Math.min(batches, cap - colonyStorageUsed(col));
-        if (batches > 0) { col.storage.alloys -= batches; col.storage.energy -= batches; store("goods", batches); }
-        return;
-      }
+      if (b.recipe) return;                                               // industry chain handled in 1b
       if (b.produces) {
         const out = b.id === "farm" ? t * 8 : Math.round(t * 5 * (planet.deposits[b.produces] || 1));
         store(b.produces, out);
+      }
+    });
+    // 1b) industry chain in dependency order (power → refining → components → assembly),
+    //     so a full ore→metals→alloys→goods line can cascade within a single cycle
+    colonyBuildingList(planet).filter(b => b.recipe).sort((a, b) => a.recipe.stage - b.recipe.stage).forEach(b => {
+      const t = col.buildings[b.id] || 0; if (t <= 0) return;
+      const r = b.recipe;
+      let batches = t * r.rate;                                            // throughput scales with tier
+      Object.entries(r.in).forEach(([c, q]) => { batches = Math.min(batches, Math.floor((col.storage[c] || 0) / q)); });
+      batches = Math.min(batches, Math.floor((cap - colonyStorageUsed(col)) / r.outQty)); // room for output
+      if (batches <= 0) return;
+      Object.entries(r.in).forEach(([c, q]) => { col.storage[c] -= batches * q; });
+      store(r.out, batches * r.outQty);
+      // fission flavor: a hard-run reactor can suffer a containment scare
+      if (b.id === "reactor" && Math.random() < 0.012 * t) {
+        col.storage.energy = Math.floor((col.storage.energy || 0) * 0.4);
+        col.happiness = Math.max(0, col.happiness - 10);
+        log(`☢️ A containment scare at <span class="c">${planet.name}</span>'s reactor vented power and rattled the colony.`, "bad");
       }
     });
 
@@ -3708,12 +3751,15 @@ function renderColonies() {
       const tier = col.buildings[b.id] || 0, maxed = tier >= b.tiers;
       const cost = Math.round(b.baseCost * Math.pow(b.costMul, tier));
       const mats = colonyBuildingMats(b, tier + 1);
-      const ok = S.res.credits >= cost && canAfford(mats);
+      const locked = b.req && !S.techs[b.req];
+      const ok = !locked && S.res.credits >= cost && canAfford(mats);
       const dots = Array.from({ length: b.tiers }, (_, i) => `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
       return `<div class="card ${tier > 0 ? (maxed ? "maxed" : "owned") : ""}">
         <h4>${b.ico} ${b.name} <span class="tier-dots">${dots}</span></h4>
         <div class="desc">${b.desc}</div>
+        ${b.recipe ? `<div class="hint">⚙️ ${colonyRecipeStr(b.recipe)}</div>` : ""}
         ${maxed ? '<div class="pill good">◉ Fully built</div>'
+          : locked ? `<div class="pill bad">🔒 needs ${(TECHS.find(t => t.id === b.req) || {}).name || b.req}</div>`
           : `<div class="meta"><span class="hint">Tier ${tier + 1}</span><span class="cost">${fmt(cost)} 💰 + ${matsString(mats)}</span></div>
              <button class="btn btn-primary" ${ok ? "" : "disabled"} onclick="buildColonyBuilding('${b.id}')">${tier > 0 ? "Upgrade" : "Build"}</button>`}
       </div>`;
