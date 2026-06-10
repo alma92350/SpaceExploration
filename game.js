@@ -488,6 +488,96 @@ function priceShock(pid, c, factor) {
   if (S.prices && S.prices[pid] && S.prices[pid][c] != null)
     S.prices[pid][c] = Math.max(2, Math.round(S.prices[pid][c] * factor));
 }
+
+/* ============================================================
+   PLANETARY CRISES
+   Temporary disasters strike a world, disrupt its ecosystem/economy and spike
+   the prices of what it suddenly needs. Triggered both at random (weighted by
+   a world's nature) and by the player's own footprint (pollution, climate,
+   over-exploitation). Prices spike through the normal target+clamp+mean-
+   reversion machinery, so they swell during the crisis and fade as it passes.
+   (Phase 1: the engine. Aid/exploit responses come next.)
+   ============================================================ */
+const CRISES = {
+  quake:      { ico: "🌍", name: "Earthquake",          spike: { machinery: 1.6, goods: 1.4, medicine: 1.5 }, pollute: 2 },
+  volcano:    { ico: "🌋", name: "Volcanic Eruption",   spike: { metals: 1.5, machinery: 1.5, medicine: 1.4 }, pollute: 8 },
+  plague:     { ico: "🦠", name: "Plague Outbreak",     spike: { medicine: 2.0, biomass: 1.3 },               pollute: 0 },
+  industrial: { ico: "⚡", name: "Industrial Disaster", spike: { goods: 1.5, energy: 1.5, medicine: 1.4 },     pollute: 12 },
+  unrest:     { ico: "✊", name: "Civil Unrest",         spike: { goods: 1.5, luxury: 1.6, weapons: 1.5 },      pollute: 0 },
+  famine:     { ico: "🌾", name: "Famine",              spike: { biomass: 1.8, medicine: 1.3 },                pollute: 0 },
+  collapse:   { ico: "⛏️", name: "Mine Collapse",       spike: { ore: 1.5, metals: 1.6, crystals: 1.5 },       pollute: 3 },
+};
+const CRISIS_DUR = [3, 6], CRISIS_MAX_ACTIVE = 2;
+function crisisMul(pid, c) {
+  const cr = S.crises && S.crises[pid];
+  return cr ? (CRISES[cr.type].spike[c] || 1) : 1;
+}
+// how prone a world is to each crisis, from its nature + current state
+function crisisWeights(p) {
+  const w = { quake: 1, plague: 1 };
+  const tag = (p.tag || "").toLowerCase();
+  const dep = p.deposits || {};
+  if (tag.includes("volcan") || dep.radioactives) w.volcano = 2;
+  if (dep.ore || dep.crystals) {
+    const c = dep.ore ? "ore" : "crystals";
+    w.collapse = 2 + (1 - reserveFrac(p.id, c)) * 4;          // over-mined → more collapses
+  }
+  if (dep.biomass || tag.includes("agri") || tag.includes("garden")) w.famine = 2;
+  if (effIndustry(p) >= 6 || pollutionOf(p.id) >= 25) w.industrial = 2 + pollutionOf(p.id) / 25; // dirty/industrial → disasters
+  if (p.enforce <= 0.3) w.unrest = 2;
+  const col = S.colonies[p.id];
+  if (col && col.happiness < 45) w.unrest = (w.unrest || 1) + 3;  // unhappy colony → riots
+  w.famine = (w.famine || 1) + (S.climate || 0) / 30;            // climate stress → famine anywhere
+  return w;
+}
+function weightedKey(w) {
+  const tot = Object.values(w).reduce((s, x) => s + x, 0);
+  let r = Math.random() * tot;
+  for (const k of Object.keys(w)) { r -= w[k]; if (r <= 0) return k; }
+  return Object.keys(w)[0];
+}
+function startCrisis(p, forceType) {
+  if (!S.crises) S.crises = {};
+  if (S.crises[p.id]) return;
+  const type = forceType || weightedKey(crisisWeights(p));
+  const def = CRISES[type];
+  S.crises[p.id] = { type, cyclesLeft: rint(CRISIS_DUR[0], CRISIS_DUR[1]) };
+  const goods = Object.keys(def.spike).map(c => COM[c].ico).join("");
+  log(`${def.ico} <span class="c">${def.name}</span> strikes ${p.name}! ${goods} prices spike as the world reels.`, "bad");
+  toast(`${def.ico} ${def.name} on ${p.name}!`, "bad");
+}
+function maybeStartCrisis() {
+  if (Object.keys(S.crises).length >= CRISIS_MAX_ACTIVE) return;
+  const meanPoll = PLANETS.reduce((s, p) => s + pollutionOf(p.id), 0) / PLANETS.length;
+  const chance = 0.08 + (S.climate || 0) / 600 + meanPoll / 600;   // your footprint raises the odds
+  if (Math.random() > chance) return;
+  const cands = PLANETS.filter(p => isActive(p) && !S.crises[p.id]);
+  if (!cands.length) return;
+  const w = cands.map(p => 1 + pollutionOf(p.id) / 20 + effIndustry(p) / 4 + (p.enforce <= 0.3 ? 1 : 0)
+    + (p.deposits && (p.deposits.ore || p.deposits.crystals) ? (1 - reserveFrac(p.id, p.deposits.ore ? "ore" : "crystals")) * 2 : 0));
+  const tot = w.reduce((s, x) => s + x, 0);
+  let r = Math.random() * tot, idx = 0;
+  for (; idx < cands.length; idx++) { r -= w[idx]; if (r <= 0) break; }
+  startCrisis(cands[Math.min(idx, cands.length - 1)]);
+}
+function processCrises() {
+  if (!S.crises) S.crises = {};
+  Object.keys(S.crises).forEach(pid => {
+    const cr = S.crises[pid], def = CRISES[cr.type], p = PLANETS.find(x => x.id === pid);
+    if (def.pollute) addPollution(pid, def.pollute);
+    const col = S.colonies[pid];
+    if (col) {
+      col.happiness = Math.max(0, col.happiness - (cr.type === "unrest" ? 6 : 3));
+      if (cr.type === "unrest") col.unrest = (col.unrest || 0) + 1;
+    }
+    if (--cr.cyclesLeft <= 0) {
+      delete S.crises[pid];
+      log(`${def.ico} <span class="c">${p.name}</span> is recovering from the ${def.name.toLowerCase()}; prices ease.`, "good");
+    }
+  });
+  maybeStartCrisis();
+}
+
 const LAW_DURATION = 6;   // cycles a lobbied local trade law lasts
 
 /* ---------- Player bases ----------
@@ -715,6 +805,7 @@ function freshState(opts = {}) {
     actionsUsed: 0,
     prices: {},
     reserves: {},               // per-planet, per-commodity deposit reserves { cur, max }
+    crises: {},                 // active planetary crises: pid -> { type, cyclesLeft }
     pollution: {},              // per-planet industrial pollution 0–100
     climate: 0,                 // sector-wide climate stress 0–100 (smoothed mean pollution)
     visited: { [start]: true },
@@ -773,7 +864,7 @@ function rollPrices() {
   const targets = {};
   PLANETS.forEach(p => {
     targets[p.id] = {};
-    COM_IDS.forEach(c => { targets[p.id][c] = COM[c].base * planetPriceMul(p, c); });
+    COM_IDS.forEach(c => { targets[p.id][c] = Math.min(COM[c].base * planetPriceMul(p, c) * crisisMul(p.id, c), COM[c].base * 2.8); });
   });
   // pass 2: markets are regional — blend toward a distance-weighted neighborhood mean,
   // so scarcity on one world bleeds into its neighbors. Averaging is contractive: it
@@ -980,6 +1071,7 @@ const RESERVE_PER_DEP = 2500;                       // reserve stock per 1.0 of 
 const RENEWABLE_RES = { biomass: true, spice: true, ice: true, gas: true };
 function reserveOf(pid, c) {
   if (!S.reserves) S.reserves = {};
+  if (!S.crises) S.crises = {};
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.reserves[pid]) S.reserves[pid] = {};
@@ -3047,7 +3139,7 @@ function applyDecreeIncome() {
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  processCrises(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -3173,6 +3265,8 @@ function renderGalaxy() {
     const pol = pollutionOf(p.id);
     const polPill = pol >= 60 ? '<span class="pill bad" title="Heavy industrial pollution">☁️ fouled</span>'
       : pol >= 25 ? '<span class="pill" title="Rising industrial pollution">☁️ smoggy</span>' : '';
+    const _cr = S.crises && S.crises[p.id];
+    const crisisPill = _cr ? `<span class="pill bad" title="${CRISES[_cr.type].name} — prices spiking, ${_cr.cyclesLeft} cyc left">${CRISES[_cr.type].ico} ${CRISES[_cr.type].name}</span>` : '';
     const tag = p.colonizable
       ? `<span class="pill good">${S.colonies[p.id] ? "your colony 🌍" : "colonizable"}</span>`
       : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
@@ -3184,7 +3278,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}
+        ${enf}${polPill}${crisisPill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${here ? `<div class="pill good">◉ You are here</div>`
@@ -3201,10 +3295,12 @@ function renderGalaxy() {
     <h4>🛰️ Deep-Space Survey <span class="pill bad">locked</span></h4>
     <div class="desc">Uncharted worlds lie beyond the dark. Research <b>Colonial Charter</b> (in the Research tab) to build the sensors and authority to chart and settle them.</div>
   </div>`;
+  const nCrises = S.crises ? Object.keys(S.crises).length : 0;
+  const crisisBadge = nCrises ? `<span class="pill bad" title="Worlds in crisis — relief needed, prices spiking">🆘 ${nCrises} in crisis</span>` : "";
   const cl = Math.round(S.climate || 0);
   const climateBadge = cl >= 40 ? `<span class="pill bad" title="Sector-wide climate stress from industrial pollution">🌡️ climate stress ${cl}</span>`
     : cl >= 12 ? `<span class="pill" title="Sector-wide climate stress from industrial pollution">🌡️ climate ${cl}</span>` : "";
-  el.innerHTML = `<h2>Galactic Map ${climateBadge}</h2>
+  el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}</h2>
     <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Travelling costs fuel and advances a cycle.</div>
     <div class="planet-grid">${cards}</div>
     <div class="section-title">🔭 Exploration</div>
@@ -3261,8 +3357,14 @@ function renderMarket() {
       ${held.length ? `<button class="btn btn-bad" style="margin-top:10px" onclick="fenceAllPlunder()">🕴️ Fence entire hold</button>` : ""}
     </div>`;
   }
-  el.innerHTML = `<h2>${p.name} Market</h2>
+  const _mcr = S.crises && S.crises[p.id];
+  const crisisBanner = _mcr ? `<div class="card" style="border-color:var(--bad)">
+      <h4>${CRISES[_mcr.type].ico} ${CRISES[_mcr.type].name} — ${p.name} in crisis (${_mcr.cyclesLeft} cyc)</h4>
+      <div class="hint">The disruption is driving up demand for ${Object.keys(CRISES[_mcr.type].spike).map(c => COM[c].ico + " " + COM[c].name).join(", ")}. Sell into the shortage for profit — or bring relief (coming soon).</div>
+    </div>` : "";
+  el.innerHTML = `<h2>${p.name} Market ${_mcr ? `<span class="pill bad">${CRISES[_mcr.type].ico} crisis</span>` : ""}</h2>
     <div class="subtitle">${p.tag}. ${showTrend ? "Galactic Exchange reveals trends &amp; deepens liquidity." : "Research the Galactic Exchange to reveal price trends."} Large trades move the price — dumping a lot crashes it, bulk buying spikes it; markets recover over cycles. Items marked <span class="pill bad">illegal</span> risk a customs bust here.${hasBlackMarket(p) ? ' A <span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)">black market</span> operates here.' : ''}</div>
+    ${crisisBanner}
     <table><thead><tr><th>Commodity</th><th class="num">Buy</th><th class="num">Sell</th><th class="num">Hold</th><th>Trend</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     ${blackMarket}
     <div class="row" style="margin-top:14px"><span class="hint">Cargo ${cargoUsed()}/${cargoCap()} · Fuel ${S.res.fuel}/${fuelCap()} · Credits ${fmt(S.res.credits)}</span></div>`;
@@ -4108,6 +4210,7 @@ function init() {
   if (S.officePath === undefined) S.officePath = null;
   if (S.legacyTitle === undefined) S.legacyTitle = null;
   if (!S.reserves) S.reserves = {};
+  if (!S.crises) S.crises = {};
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
