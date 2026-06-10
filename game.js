@@ -3184,8 +3184,6 @@ function renderGalaxy() {
     <h4>🛰️ Deep-Space Survey <span class="pill bad">locked</span></h4>
     <div class="desc">Uncharted worlds lie beyond the dark. Research <b>Colonial Charter</b> (in the Research tab) to build the sensors and authority to chart and settle them.</div>
   </div>`;
-  const wp = winProgress();
-  const goals = Object.values(wp).map(g => `<div class="ship-stat"><span class="k">${g.have ? "✅" : "⬜"} ${g.label}</span></div>`).join("");
   const cl = Math.round(S.climate || 0);
   const climateBadge = cl >= 40 ? `<span class="pill bad" title="Sector-wide climate stress from industrial pollution">🌡️ climate stress ${cl}</span>`
     : cl >= 12 ? `<span class="pill" title="Sector-wide climate stress from industrial pollution">🌡️ climate ${cl}</span>` : "";
@@ -3194,8 +3192,7 @@ function renderGalaxy() {
     <div class="planet-grid">${cards}</div>
     <div class="section-title">🔭 Exploration</div>
     <div class="cards">${survey}</div>
-    <div class="section-title">🏆 Your Legacy (win conditions)</div>
-    <div class="cards"><div class="card">${goals}<div class="hint">Net worth: ${fmt(netWorth())} cr</div></div></div>`;
+    <div class="hint" style="margin-top:14px">🏆 Your long-term legacy goals and all contracts now live in the <b>🎯 Missions</b> tab.</div>`;
 }
 
 /* ----- Market ----- */
@@ -3576,40 +3573,6 @@ function renderPolitics() {
   const status = (S.office && currentOffice()) ? `${currentOffice().ico} ${currentOffice().name}` : "Free Trader";
   const reps = Object.keys(FACTIONS).map(repBar).join("");
 
-  // Time-bounded random contracts
-  const contractCards = S.contracts.length ? S.contracts
-    .slice().sort((a, b) => a.deadline - b.deadline).map(c => {
-      const dest = PLANETS.find(p2 => p2.id === c.planetId);
-      const left = c.deadline - S.turn;
-      const here = S.location === c.planetId;
-      const have = (S.res[c.commodity] || 0) >= c.qty;
-      const urgent = left <= 2;
-      return `<div class="card ${urgent ? "" : ""}" ${urgent ? 'style="border-color:var(--warn)"' : ""}>
-        <h4>${FACTIONS[c.faction].ico} ${c.kind === "smuggle" ? "Smuggling Job" : "Supply Contract"}
-          <span class="pill ${urgent ? "bad" : ""}">${left} cyc left</span></h4>
-        <div class="desc">Deliver <b>${c.qty} ${COM[c.commodity].ico} ${COM[c.commodity].name}</b> to <b>${dest.name}</b> for the ${FACTIONS[c.faction].name}.</div>
-        <div class="hint">Reward: ${costString(c.reward)}</div>
-        <div class="hint">${here ? (have ? "Ready to deliver." : `You hold ${fmt(S.res[c.commodity] || 0)}/${c.qty}.`) : `Travel to ${dest.name}.`}</div>
-        <button class="btn btn-primary" ${here && have ? "" : "disabled"} onclick="fulfilContract('${c.id}')">Fulfil</button>
-      </div>`;
-    }).join("") : '<div class="hint">No active contracts. New ones are posted by the factions as cycles pass.</div>';
-
-  const missionCards = MISSIONS.map(m => {
-    const done = S.missions[m.id], avail = missionAvailable(m), can = avail && missionCanDo(m);
-    const cls = done ? "card owned" : avail ? "card" : "card locked";
-    const needTxt = m.need ? `Deliver: ${m.need.qty} ${COM[m.need.commodity].ico} ${COM[m.need.commodity].name}. ` : "";
-    const repTxt = m.needRep ? `Needs rep: ${Object.entries(m.needRep).map(([f, n]) => `${FACTIONS[f].ico}≥${n}`).join(", ")}. ` : "";
-    const lock = !avail && !done ? (m.reqPerk && !S.perks[m.reqPerk] ? `Requires: ${m.reqPerk}` : m.reqTech && !S.techs[m.reqTech] ? `Requires tech: ${TECHS.find(x => x.id === m.reqTech).name}` : "") : "";
-    return `<div class="${cls}">
-      <h4>${m.name} <span class="badge">T${m.tier}</span> ${m.faction ? FACTIONS[m.faction].ico : ""} ${done ? '<span class="pill good">done</span>' : ""}</h4>
-      <div class="desc">${m.desc}</div>
-      <div class="hint">${needTxt}${repTxt}Cost: ${costString(m.cost)}</div>
-      <div class="hint">Reward: ${costString(m.reward)}</div>
-      ${lock ? `<div class="hint" style="color:var(--bad)">${lock}</div>` : ""}
-      ${done ? "" : `<button class="btn btn-primary" ${can ? "" : "disabled"} onclick="doMission('${m.id}')">Undertake</button>`}
-    </div>`;
-  }).join("");
-
   // Governor decrees
   let decrees = "";
   if (S.perks.governor) {
@@ -3628,7 +3591,7 @@ function renderPolitics() {
   }
 
   el.innerHTML = `<h2>Politics, Factions & Trade Law</h2>
-    <div class="subtitle">Status: <b>${status}</b>. Build a political machine: found organizations, sway the public, raise funds (clean and dirty), and run missions. You have <b>${fmt(S.res.influence)} 🏛️</b> influence.</div>
+    <div class="subtitle">Status: <b>${status}</b>. Build a political machine: found organizations, sway the public, write law, and raise funds (clean and dirty). Contracts &amp; missions now live in the 🎯 Missions tab. You have <b>${fmt(S.res.influence)} 🏛️</b> influence.</div>
     <div class="cards">
       <div class="card"><h4>🏛️ Lobby & Network</h4>
         <div class="desc">Earn influence and reputation with <b>${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}</b> (controls ${p.name}).</div>
@@ -3642,11 +3605,61 @@ function renderPolitics() {
     ${renderPower()}
     ${renderLocalLaws()}
     ${renderSenate()}
-    ${decrees}
-    <div class="section-title">📋 Contracts (time-bounded)</div>
+    ${decrees}`;
+}
+
+/* ----- Missions (long-term goals + time-bound contracts) ----- */
+function renderMissions() {
+  const el = document.getElementById("panel-missions");
+  if (!el) return;
+
+  // Long-term: the legacy goals that win the game
+  const wp = winProgress();
+  const goals = Object.values(wp).map(g => `<div class="ship-stat"><span class="k">${g.have ? "✅" : "⬜"} ${g.label}</span></div>`).join("");
+
+  // Long-term: career missions (requirement-gated, no clock)
+  const missionCards = MISSIONS.map(m => {
+    const done = S.missions[m.id], avail = missionAvailable(m), can = avail && missionCanDo(m);
+    const cls = done ? "card owned" : avail ? "card" : "card locked";
+    const needTxt = m.need ? `Deliver: ${m.need.qty} ${COM[m.need.commodity].ico} ${COM[m.need.commodity].name}. ` : "";
+    const repTxt = m.needRep ? `Needs rep: ${Object.entries(m.needRep).map(([f, n]) => `${FACTIONS[f].ico}≥${n}`).join(", ")}. ` : "";
+    const lock = !avail && !done ? (m.reqPerk && !S.perks[m.reqPerk] ? `Requires: ${m.reqPerk}` : m.reqTech && !S.techs[m.reqTech] ? `Requires tech: ${TECHS.find(x => x.id === m.reqTech).name}` : "") : "";
+    return `<div class="${cls}">
+      <h4>${m.name} <span class="badge">T${m.tier}</span> ${m.faction ? FACTIONS[m.faction].ico : ""} ${done ? '<span class="pill good">done</span>' : ""}</h4>
+      <div class="desc">${m.desc}</div>
+      <div class="hint">${needTxt}${repTxt}Cost: ${costString(m.cost)}</div>
+      <div class="hint">Reward: ${costString(m.reward)}</div>
+      ${lock ? `<div class="hint" style="color:var(--bad)">${lock}</div>` : ""}
+      ${done ? "" : `<button class="btn btn-primary" ${can ? "" : "disabled"} onclick="doMission('${m.id}')">Undertake</button>`}
+    </div>`;
+  }).join("");
+
+  // Time-bound: faction contracts with a deadline
+  const contractCards = S.contracts.length ? S.contracts
+    .slice().sort((a, b) => a.deadline - b.deadline).map(c => {
+      const dest = PLANETS.find(p2 => p2.id === c.planetId);
+      const left = c.deadline - S.turn;
+      const here = S.location === c.planetId;
+      const have = (S.res[c.commodity] || 0) >= c.qty;
+      const urgent = left <= 2;
+      return `<div class="card" ${urgent ? 'style="border-color:var(--warn)"' : ""}>
+        <h4>${FACTIONS[c.faction].ico} ${c.kind === "smuggle" ? "Smuggling Job" : "Supply Contract"}
+          <span class="pill ${urgent ? "bad" : ""}">${left} cyc left</span></h4>
+        <div class="desc">Deliver <b>${c.qty} ${COM[c.commodity].ico} ${COM[c.commodity].name}</b> to <b>${dest.name}</b> for the ${FACTIONS[c.faction].name}.</div>
+        <div class="hint">Reward: ${costString(c.reward)}</div>
+        <div class="hint">${here ? (have ? "Ready to deliver." : `You hold ${fmt(S.res[c.commodity] || 0)}/${c.qty}.`) : `Travel to ${dest.name}.`}</div>
+        <button class="btn btn-primary" ${here && have ? "" : "disabled"} onclick="fulfilContract('${c.id}')">Fulfil</button>
+      </div>`;
+    }).join("") : '<div class="hint">No active contracts. New ones are posted by the factions as cycles pass.</div>';
+
+  el.innerHTML = `<h2>🎯 Missions</h2>
+    <div class="subtitle">Everything with an objective in one place: <b>time-bound contracts</b> race the clock, <b>career missions</b> unlock as you grow, and your <b>legacy goals</b> are the long game that wins it all.</div>
+    <div class="section-title">📋 Contracts (time-bound)</div>
     <div class="cards">${contractCards}</div>
-    <div class="section-title">Career Missions</div>
-    <div class="cards">${missionCards}</div>`;
+    <div class="section-title">🧭 Career Missions (long-term)</div>
+    <div class="cards">${missionCards}</div>
+    <div class="section-title">🏆 Your Legacy (win conditions)</div>
+    <div class="cards"><div class="card">${goals}<div class="hint">Net worth: ${fmt(netWorth())} cr</div></div></div>`;
 }
 
 /* ----- Ship ----- */
@@ -4016,7 +4029,7 @@ function renderColonies() {
 function renderAll() {
   if (typeof document === "undefined") return;
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
-  renderIndustry(); renderResearch(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderShipPanel(); renderLog();
+  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderShipPanel(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
 }
 
