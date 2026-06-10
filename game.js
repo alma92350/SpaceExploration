@@ -4287,6 +4287,60 @@ function setTab(name) {
   document.querySelectorAll(".panel").forEach(p => p.classList.add("hidden"));
   document.getElementById("panel-" + name).classList.remove("hidden");
 }
+/* ============================================================
+   VERSION CHECK — poll the server for a newer build and tell the player
+   whether refreshing will keep their saved game (credits, colonies, …).
+   On each release, bump APP_VERSION here AND version.json to match. Bump
+   SAVE_VERSION (and the SAVE_KEY suffix) ONLY when a release breaks old saves.
+   ============================================================ */
+const APP_VERSION = "1.0.0";
+const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
+// pure + testable: compare the running build to the server manifest
+function versionStatus(local, server) {
+  if (!server || !server.version) return { update: false };
+  return {
+    update: server.version !== local.version,
+    version: server.version,
+    notes: server.notes || "",
+    keepsProgress: !server.saveVersion || server.saveVersion === local.saveVersion,
+  };
+}
+function checkVersion() {
+  if (typeof fetch !== "function") return;
+  fetch("version.json?ts=" + Date.now(), { cache: "no-store" })
+    .then(r => r.ok ? r.json() : null)
+    .then(data => {
+      const st = versionStatus({ version: APP_VERSION, saveVersion: SAVE_VERSION }, data);
+      if (st.update) showUpdateBanner(st);
+    })
+    .catch(() => {});
+}
+function showUpdateBanner(st) {
+  if (typeof document === "undefined" || !document.body) return;
+  let el = document.getElementById("update-banner");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "update-banner";
+    el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:9999;padding:10px 14px;"
+      + "background:#1e293b;color:#e2e8f0;border-top:2px solid var(--accent,#38bdf8);"
+      + "font-size:13px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 -4px 20px rgba(0,0,0,.4)";
+    document.body.appendChild(el);
+  }
+  const keep = st.keepsProgress
+    ? "✅ Your saved game — credits, colonies, reputation and all — will carry over."
+    : "⚠️ This update changes the save format, so your current run may not carry over. Download your 📖 Log first to keep the story.";
+  el.innerHTML = `<span>🔄 <b>A new version (${st.version}) is available.</b> ${st.notes ? st.notes + " " : ""}${keep}</span>`
+    + `<span style="margin-left:auto;display:flex;gap:6px">`
+    + `<button class="btn btn-sm btn-primary" onclick="location.reload()">Refresh now</button>`
+    + `<button class="btn btn-sm" onclick="document.getElementById('update-banner').remove()">Later</button>`
+    + `</span>`;
+}
+function startVersionWatch() {
+  if (typeof window === "undefined") return;
+  checkVersion();                                          // once on load
+  setInterval(checkVersion, 5 * 60 * 1000);                // every 5 minutes
+  window.addEventListener("focus", checkVersion);          // and whenever the player returns
+}
 const SAVE_KEY = "stellar-frontier-save-v2";
 /* ---- Captain's Log: export a narrative dossier for an LLM ---- */
 function playerArchetype() {
@@ -4482,6 +4536,7 @@ function init() {
   // (No header button for a politics start — careers switch freely in-game; the
   //  Politics tab offers an "Enter Public Life" kickstart instead.)
   renderAll(); setTab("galaxy");
+  startVersionWatch();
 }
 window.addEventListener("DOMContentLoaded", init);
 
@@ -4499,5 +4554,5 @@ Object.assign(window, {
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
-  acceptCommission, pirateLegacy,
+  acceptCommission, pirateLegacy, checkVersion,
 });
