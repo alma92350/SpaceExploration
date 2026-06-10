@@ -545,6 +545,86 @@ function startCrisis(p, forceType) {
   const goods = Object.keys(def.spike).map(c => COM[c].ico).join("");
   log(`${def.ico} <span class="c">${def.name}</span> strikes ${p.name}! ${goods} prices spike as the world reels.`, "bad");
   toast(`${def.ico} ${def.name} on ${p.name}!`, "bad");
+  // the stricken world posts a relief appeal — a contract with heart
+  const need = Object.keys(def.spike).sort((a, b) => def.spike[b] - def.spike[a])[0];
+  const qty = rint(12, 25);
+  S.contracts.push({
+    id: "relief" + S.turn + p.id, kind: "relief", faction: p.faction, commodity: need, qty,
+    planetId: p.id, deadline: S.turn + S.crises[p.id].cyclesLeft + 2,
+    reward: { credits: Math.round(qty * COM[need].base * 0.7), influence: 8, rep: { [p.faction]: 12 } },
+  });
+  log(`🆘 ${p.name} appeals for relief: ${qty} ${COM[need].ico} ${COM[need].name} (see 🎯 Missions).`, "event");
+}
+
+/* ------------------------------------------------------------
+   CRISIS RESPONSES — the hero's path (and, later, the vulture's)
+   ------------------------------------------------------------ */
+// Donate a needed good to a stricken world: no payment — you're paid in
+// gratitude (faction rep, influence, popularity/legitimacy) and the crisis
+// shortens if the relief is substantial.
+function donateRelief(c, qty) {
+  const p = currentPlanet(), cr = S.crises[p.id];
+  if (!cr) return toast("No crisis here to relieve.", "bad");
+  if (actionsLeft() <= 0) return toast("No actions left.", "bad");
+  const def = CRISES[cr.type], needMul = def.spike[c];
+  if (!needMul) return toast(`${p.name} doesn't need ${COM[c].name} right now.`, "bad");
+  qty = Math.min(Math.floor(qty), S.res[c] || 0);
+  if (qty <= 0) return toast(`You have no ${COM[c].name} to give.`, "bad");
+  S.res[c] -= qty;
+  const score = qty * (needMul - 1) * 2;                       // scarcer needs earn more gratitude
+  const rep = Math.min(20, Math.max(2, Math.round(score * 0.5)));
+  const inf = Math.min(15, Math.max(1, Math.round(score * 0.3)));
+  addRep(p.faction, rep);
+  S.res.influence = (S.res.influence || 0) + inf;
+  applyPolDelta({ popularity: Math.min(8, Math.round(score * 0.2)), legitimacy: Math.min(5, Math.round(score * 0.15)) });
+  if (qty >= 12 && cr.cyclesLeft > 1) { cr.cyclesLeft--; log(`Your relief shipment visibly speeds ${p.name}'s recovery.`, "good"); }
+  const col = S.colonies[p.id];
+  if (col) col.happiness = Math.min(100, col.happiness + 4);
+  useAction();
+  log(`🩹 You donated ${qty} ${COM[c].ico} ${COM[c].name} to ${p.name}'s ${def.name.toLowerCase()} relief — the people won't forget. (+${rep} ${FACTIONS[p.faction].ico} rep, +${inf} 🏛️)`, "good");
+  toast(`Relief delivered — +${rep} rep, +${inf} 🏛️`, "good");
+  afterAction();
+}
+function donateReliefQty(c) { donateRelief(c, +document.getElementById("relief-" + c).value || 10); }
+// The vulture's path: sell a needed good at an extortionate premium. Fat
+// margins on top of crisis prices — paid for in reputation, legitimacy, heat.
+function gougeSell(c, qty) {
+  const p = currentPlanet(), cr = S.crises[p.id];
+  if (!cr) return toast("No crisis here to exploit.", "bad");
+  const def = CRISES[cr.type];
+  if (!def.spike[c]) return toast(`${p.name} isn't desperate for ${COM[c].name}.`, "bad");
+  qty = Math.min(Math.floor(qty), S.res[c] || 0);
+  if (qty <= 0) return toast(`You have no ${COM[c].name} to gouge with.`, "bad");
+  const revenue = Math.round(sellPrice(p.id, c) * 1.35 * qty);   // a vulture's premium on crisis prices
+  S.res[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue;
+  const repHit = Math.min(12, 2 + Math.round(qty * 0.15));
+  addRep(p.faction, -repHit);
+  applyPolDelta({ legitimacy: -2, heat: 3 });
+  log(`🦅 You gouged ${p.name}'s desperate for ${qty} ${COM[c].ico} ${COM[c].name} — ${fmt(revenue)} cr, and they'll remember the price. (−${repHit} ${FACTIONS[p.faction].ico} rep, +heat)`, "bad");
+  toast(`Gouged +${fmt(revenue)} cr (−${repHit} rep)`, "bad");
+  afterAction();
+}
+function gougeSellQty(c) { gougeSell(c, +document.getElementById("relief-" + c).value || 10); }
+// Loot the chaos: scavenge valuables out of the disorder. Quick credits and
+// salvage, at the cost of standing — and the law notices.
+function lootCrisis() {
+  const p = currentPlanet(), cr = S.crises[p.id];
+  if (!cr) return toast("No crisis here to loot.", "bad");
+  if (actionsLeft() <= 0) return toast("No actions left.", "bad");
+  const def = CRISES[cr.type];
+  const credits = rint(250, 700);
+  const good = pick(Object.keys(def.spike));
+  const q = Math.min(rint(4, 10), cargoFree());
+  S.res.credits += credits;
+  if (q > 0) S.res[good] = (S.res[good] || 0) + q;
+  addRep(p.faction, -7); addRep("frontier", 2);
+  S.pirate.wanted = Math.min(100, S.pirate.wanted + 6); clampPirate();
+  const col = S.colonies[p.id];
+  if (col) col.happiness = Math.max(0, col.happiness - 3);
+  useAction();
+  log(`🦅 You looted the chaos on ${p.name} — ${fmt(credits)} cr${q > 0 ? ` and ${q} ${COM[good].ico} ${COM[good].name}` : ""} pulled from the wreckage. (−7 rep, +6 Wanted)`, "bad");
+  toast(`Looted +${fmt(credits)} cr (+6 Wanted)`, "bad");
+  afterAction();
 }
 function maybeStartCrisis() {
   if (Object.keys(S.crises).length >= CRISIS_MAX_ACTIVE) return;
@@ -1257,7 +1337,8 @@ function genPrey() {
   const cargo = {};
   const picks = A.goods.slice().sort(() => Math.random() - 0.5).slice(0, rint(1, 2));
   picks.forEach(c => cargo[c] = rint(A.bulk[0], A.bulk[1]));
-  const strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5)); // lawful escorts tough but beatable
+  let strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5)); // lawful escorts tough but beatable
+  if (S.crises && S.crises[p.id]) strength = Math.round(strength * 0.85);                 // escorts thinned by the crisis
   return {
     type: key, name: A.name, ico: A.ico,
     faction: A.faction || p.faction,
@@ -1445,7 +1526,8 @@ function maybeInterdict(dest) {
   if (!S.pirate || S.interdiction || S.jail > 0) return;
   if (S.commission && dest.faction === S.commission.patron) return; // your patron's ports wave you through
   if (S.pirate.wanted < 25) return;                       // below "Wanted" the ports don't bother
-  if (Math.random() < (S.pirate.wanted / 100) * dest.enforce * 1.15) startInterdiction(dest, "dock");
+  const distracted = (S.crises && S.crises[dest.id]) ? 0.5 : 1;   // a world in crisis has bigger problems
+  if (Math.random() < (S.pirate.wanted / 100) * dest.enforce * 1.15 * distracted) startInterdiction(dest, "dock");
 }
 function navyBribe() {
   const it = S.interdiction; if (!it) return;
@@ -3358,10 +3440,24 @@ function renderMarket() {
     </div>`;
   }
   const _mcr = S.crises && S.crises[p.id];
-  const crisisBanner = _mcr ? `<div class="card" style="border-color:var(--bad)">
-      <h4>${CRISES[_mcr.type].ico} ${CRISES[_mcr.type].name} — ${p.name} in crisis (${_mcr.cyclesLeft} cyc)</h4>
-      <div class="hint">The disruption is driving up demand for ${Object.keys(CRISES[_mcr.type].spike).map(c => COM[c].ico + " " + COM[c].name).join(", ")}. Sell into the shortage for profit — or bring relief (coming soon).</div>
-    </div>` : "";
+  let crisisBanner = "";
+  if (_mcr) {
+    const cdef = CRISES[_mcr.type];
+    const needRows = Object.keys(cdef.spike).map(c => `<tr>
+        <td>${COM[c].ico} ${COM[c].name} <span class="pill bad">×${cdef.spike[c].toFixed(1)} demand</span></td>
+        <td class="num">${fmt(S.res[c] || 0)}</td>
+        <td><div class="trade-controls">
+          <input class="qty" id="relief-${c}" type="number" min="1" value="10" />
+          <button class="btn btn-sm btn-good" title="Give it away — earn gratitude: rep, influence, popularity. Big shipments speed recovery." onclick="donateReliefQty('${c}')">🩹 Donate</button>
+          <button class="btn btn-sm btn-bad" title="Sell at a vulture's premium (+35% on crisis prices) — costs rep, legitimacy, heat" onclick="gougeSellQty('${c}')">🦅 Gouge</button>
+        </div></td></tr>`).join("");
+    crisisBanner = `<div class="card" style="border-color:var(--bad)">
+      <h4>${cdef.ico} ${cdef.name} — ${p.name} in crisis <span class="pill bad">${_mcr.cyclesLeft} cyc left</span></h4>
+      <div class="hint">The world is desperate for the goods below. <b>Donate</b> to be the hero (reputation, influence, popularity — and the crisis shortens), <b>Gouge</b> to profiteer at a premium (and be remembered for it), or <b>Loot</b> the chaos outright.</div>
+      <table style="margin-top:8px"><thead><tr><th>Needed</th><th class="num">Hold</th><th></th></tr></thead><tbody>${needRows}</tbody></table>
+      <button class="btn btn-bad btn-sm" style="margin-top:8px" ${actionsLeft() > 0 ? "" : "disabled"} title="Scavenge valuables from the disorder — credits and goods, at the cost of standing and heat" onclick="lootCrisis()">🦅 Loot the chaos (1 action)</button>
+    </div>`;
+  }
   el.innerHTML = `<h2>${p.name} Market ${_mcr ? `<span class="pill bad">${CRISES[_mcr.type].ico} crisis</span>` : ""}</h2>
     <div class="subtitle">${p.tag}. ${showTrend ? "Galactic Exchange reveals trends &amp; deepens liquidity." : "Research the Galactic Exchange to reveal price trends."} Large trades move the price — dumping a lot crashes it, bulk buying spikes it; markets recover over cycles. Items marked <span class="pill bad">illegal</span> risk a customs bust here.${hasBlackMarket(p) ? ' A <span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)">black market</span> operates here.' : ''}</div>
     ${crisisBanner}
@@ -3768,7 +3864,7 @@ function renderMissions() {
       const have = (S.res[c.commodity] || 0) >= c.qty;
       const urgent = left <= 2;
       return `<div class="card" ${urgent ? 'style="border-color:var(--warn)"' : ""}>
-        <h4>${FACTIONS[c.faction].ico} ${c.kind === "smuggle" ? "Smuggling Job" : "Supply Contract"}
+        <h4>${FACTIONS[c.faction].ico} ${c.kind === "relief" ? "🆘 Relief Appeal" : c.kind === "smuggle" ? "Smuggling Job" : "Supply Contract"}
           <span class="pill ${urgent ? "bad" : ""}">${left} cyc left</span></h4>
         <div class="desc">Deliver <b>${c.qty} ${COM[c.commodity].ico} ${COM[c.commodity].name}</b> to <b>${dest.name}</b> for the ${FACTIONS[c.faction].name}.</div>
         <div class="hint">Reward: ${costString(c.reward)}</div>
@@ -4245,6 +4341,7 @@ Object.assign(window, {
   proposeBill, lobbyFaction, bribeFaction, callVote, repealPolicy,
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
+  donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, repairShip,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
