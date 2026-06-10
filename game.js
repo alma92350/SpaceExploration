@@ -738,18 +738,51 @@ function planetPriceMul(p, comId) {
     if (typeof S !== "undefined" && S && S.reserves)    // …until the deposit runs dry
       m *= 1 + (1 - reserveFrac(p.id, comId)) * 0.8;    // stripped world: 0.55 → ~0.99 (scarcity premium)
   }
-  if (c.tier === "Raw" && !producesRaw) m *= 1.25;      // imported raw → dear
+  if (c.tier === "Raw" && !producesRaw) {
+    m *= 1.25;                                          // imported raw → dear…
+    if (typeof S !== "undefined" && S && S.reserves)    // …and dearer when the region's suppliers run dry
+      m *= 1 + (1 - regionalSupply(p, comId)) * 0.6;
+  }
   if (["Component", "Finished", "Luxury", "Strategic"].includes(c.tier))
     m *= 1 - (effIndustry(p) - 5) * 0.05;               // industrial worlds make goods cheaper
   if (isIllegalAt(comId, p.id)) m *= 1.35;              // scarce/black-market premium
   return Math.max(0.4, Math.min(1.9, m));
 }
 
+/* distance-weighted reserve health of the worlds that PRODUCE a raw good —
+   an importing world's supply line. 1 = abundant nearby, 0 = region stripped. */
+function regionalSupply(p, comId) {
+  let wsum = 0, acc = 0;
+  PLANETS.forEach(q => {
+    if (q.id === p.id || !q.deposits || !q.deposits[comId]) return;
+    const w = (q.deposits[comId]) / (1 + (p.distances[q.id] || 99));   // rich, close suppliers matter most
+    wsum += w; acc += w * reserveFrac(q.id, comId);
+  });
+  return wsum > 0 ? acc / wsum : 1;
+}
+
 function rollPrices() {
+  // pass 1: each world's local price target (deposits, scarcity, industry, law)
+  const targets = {};
+  PLANETS.forEach(p => {
+    targets[p.id] = {};
+    COM_IDS.forEach(c => { targets[p.id][c] = COM[c].base * planetPriceMul(p, c); });
+  });
+  // pass 2: markets are regional — blend toward a distance-weighted neighborhood mean,
+  // so scarcity on one world bleeds into its neighbors. Averaging is contractive: it
+  // spreads shocks but can never amplify them (no runaway prices).
+  const DIFFUSION = 0.15;
   PLANETS.forEach(p => {
     S.prices[p.id] = S.prices[p.id] || {};
     COM_IDS.forEach(c => {
-      const target = COM[c].base * planetPriceMul(p, c);
+      let wsum = 0, acc = 0;
+      PLANETS.forEach(q => {
+        if (q.id === p.id) return;
+        const w = 1 / (1 + (p.distances[q.id] || 99));
+        wsum += w; acc += w * targets[q.id][c];
+      });
+      const regional = wsum > 0 ? acc / wsum : targets[p.id][c];
+      const target = targets[p.id][c] * (1 - DIFFUSION) + regional * DIFFUSION;
       const stab = S.techs.markets ? 0.12 : 0.28;
       const cur = S.prices[p.id][c];
       let price = cur == null
