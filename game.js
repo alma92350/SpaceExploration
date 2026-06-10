@@ -709,6 +709,7 @@ function freshState(opts = {}) {
     contractSeq: 0,
     actionsUsed: 0,
     prices: {},
+    reserves: {},               // per-planet, per-commodity deposit reserves { cur, max }
     visited: { [start]: true },
     log: [],
     stats: { jumps: 0, trades: 0, profit: 0, busts: 0 },
@@ -924,6 +925,39 @@ function costString(cost) {
 /* ============================================================
    EXTRACTION  (mine / forage / capture / exploit) — location bound
    ============================================================ */
+/* ============================================================
+   RESOURCE RESERVES & DEPLETION
+   Every planet deposit holds a finite reserve. Extraction draws it down and
+   yield falls with it — an over-mined world asymptotes to a ~25% trickle
+   (never zero, no dead-ends), nudging you toward fresh worlds. Renewables
+   (food, ice, gas) slowly regrow; ores/crystals/isotopes/relics do not.
+   ============================================================ */
+const RESERVE_PER_DEP = 1000;                       // reserve stock per 1.0 of deposit richness
+const RENEWABLE_RES = { biomass: true, spice: true, ice: true, gas: true };
+function reserveOf(pid, c) {
+  if (!S.reserves) S.reserves = {};
+  if (!S.reserves[pid]) S.reserves[pid] = {};
+  if (!S.reserves[pid][c]) {
+    const p = PLANETS.find(x => x.id === pid);
+    const max = Math.round(RESERVE_PER_DEP * ((p && p.deposits && p.deposits[c]) || 0));
+    S.reserves[pid][c] = { cur: max, max };
+  }
+  return S.reserves[pid][c];
+}
+function reserveFrac(pid, c) { const r = reserveOf(pid, c); return r.max > 0 ? r.cur / r.max : 1; }
+function depletionMult(pid, c) { return 0.25 + 0.75 * reserveFrac(pid, c); }   // yield falloff, floored at 25%
+function drawReserve(pid, c, amount) { const r = reserveOf(pid, c); r.cur = Math.max(0, r.cur - amount); }
+function processReserves() {
+  PLANETS.forEach(p => {
+    if (!p.deposits) return;
+    Object.keys(p.deposits).forEach(c => {
+      if (!RENEWABLE_RES[c]) return;                // only renewables regrow
+      const r = reserveOf(p.id, c);
+      if (r.cur < r.max) r.cur = Math.min(r.max, r.cur + Math.ceil(r.max * 0.04));
+    });
+  });
+}
+
 function extractMods(comId) {
   // returns {moduleMult, techMult, requiredModuleOk, blockMsg}
   const verb = COM[comId].extract;
@@ -945,10 +979,10 @@ function extract(comId) {
   if (cargoFree() <= 0) return toast("Cargo hold full!", "bad");
   const { mod, tech, ok, blockMsg } = extractMods(comId);
   if (!ok) return toast(blockMsg, "bad");
-  let yld = Math.round(14 * dep * mod * tech);
+  let yld = Math.round(14 * dep * mod * tech * depletionMult(p.id, comId));
   yld = Math.min(yld, cargoFree());
   if (yld <= 0) return toast("No room in the hold.", "bad");
-  S.res[comId] += yld;
+  S.res[comId] += yld; drawReserve(p.id, comId, yld);
   useAction();
   const verbName = { mine: "Mined", forage: "Foraged", capture: "Captured", exploit: "Recovered" }[COM[comId].extract];
   log(`${verbName} <span class="c">${yld}</span> ${COM[comId].ico} ${COM[comId].name} on ${p.name}.`, "good");
@@ -2641,7 +2675,9 @@ function processColonies() {
       if (b.id === "lab") { S.res.tech += t * 3; return; }                 // passive research
       if (b.recipe) return;                                               // industry chain handled in 1b
       if (b.produces) {
-        const out = b.id === "farm" ? t * 8 : Math.round(t * 5 * (planet.deposits[b.produces] || 1));
+        let out;
+        if (b.id === "farm") out = t * 8;                                  // agriculture, not a finite deposit
+        else { out = Math.round(t * 5 * (planet.deposits[b.produces] || 1) * depletionMult(pid, b.produces)); drawReserve(pid, b.produces, out); }
         if (b.produces === COLONY_FOOD) foodMade += out;
         const ceiling = b.produces === COLONY_FOOD
           ? Math.max(Math.floor(cap * 0.4), col.pop * 3)                   // always room to stockpile food for the population
@@ -2895,7 +2931,7 @@ function applyDecreeIncome() {
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  rollPrices(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); processReserves(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -3143,12 +3179,16 @@ function renderIndustry() {
   let extractCards = "";
   Object.keys(p.deposits || {}).forEach(c => {
     const { mod, tech, ok, blockMsg } = extractMods(c);
-    const est = Math.round(14 * p.deposits[c] * mod * tech);
+    const frac = reserveFrac(p.id, c);
+    const est = Math.round(14 * p.deposits[c] * mod * tech * depletionMult(p.id, c));
     const verb = { mine: "Mine", forage: "Forage", capture: "Capture", exploit: "Recover" }[COM[c].extract];
     const illegal = COM[c].illegalAt ? ' <span class="pill bad">hot cargo</span>' : '';
+    const resCol = frac >= 0.6 ? "var(--good)" : frac >= 0.3 ? "var(--warn)" : "var(--bad)";
+    const renew = RENEWABLE_RES[c] ? ' <span class="hint">(renews)</span>' : '';
     extractCards += `<div class="card ${ok ? "" : "locked"}">
       <h4>${COM[c].ico} ${verb} ${COM[c].name}${illegal}</h4>
-      <div class="desc">${({mine:"Mining",forage:"Foraging",capture:"Gas capture",exploit:"Ruin salvage"})[COM[c].extract]} — yield scales with this world's deposit and your gear.</div>
+      <div class="desc">${({mine:"Mining",forage:"Foraging",capture:"Gas capture",exploit:"Ruin salvage"})[COM[c].extract]} — yield scales with this world's deposit, your gear, and remaining reserves.</div>
+      <div class="meta"><span class="hint">Reserves${renew}</span><span class="cost" style="color:${resCol}">${Math.round(frac * 100)}%</span></div>
       <div class="meta"><span class="hint">Est. output</span><span class="cost">≈ ${est} ${COM[c].ico}</span></div>
       ${ok ? `<button class="btn btn-primary" ${al>0 && cargoFree()>0 ? "" : "disabled"} onclick="extract('${c}')">Extract (1 action)</button>`
            : `<div class="hint" style="color:var(--bad)">${blockMsg}</div>`}
@@ -3924,6 +3964,7 @@ function init() {
   if (S.term == null) S.term = 0;
   if (S.officePath === undefined) S.officePath = null;
   if (S.legacyTitle === undefined) S.legacyTitle = null;
+  if (!S.reserves) S.reserves = {};
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
   if (S.pirate.commissionsDone == null) S.pirate.commissionsDone = 0;
   if (S.prey === undefined) S.prey = null;
