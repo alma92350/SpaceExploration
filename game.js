@@ -866,7 +866,7 @@ function freshState(opts = {}) {
     planetLaws: {},     // player per-planet trade laws: pid -> com -> { type, until }
     invest: null,       // active corruption investigation: { lead, evidence, defense, cycles }
     jail: 0,            // cycles remaining in detention
-    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 },  // outlaw career
+    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0, bountyKills: 0, bountyEarned: 0 },  // outlaw career
     prey: null,         // current raid encounter: { type, name, ico, cargo, credits, strength, faction, wantedGain }
     interdiction: null, // active navy confrontation: { kind, planet, strength, bribe }
     haven: null,        // pirate hideout: { planet, tier, stash } — lie low, stash loot, collect tribute
@@ -1177,6 +1177,7 @@ function reserveOf(pid, c) {
   if (!S.pirates) S.pirates = {};
   if (S.pirateCalm == null) S.pirateCalm = 0;
   if (S.encounter === undefined) S.encounter = null;
+  if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.reserves[pid]) S.reserves[pid] = {};
@@ -1388,6 +1389,8 @@ function huntPirates() {
 function pirateKillRewards(prey) {
   const p = currentPlanet();
   if (!S.pirates) S.pirates = {};
+  S.pirate.bountyKills = (S.pirate.bountyKills || 0) + 1;
+  S.pirate.bountyEarned = (S.pirate.bountyEarned || 0) + prey.bounty;
   S.res.credits += prey.bounty;
   S.res.influence = (S.res.influence || 0) + 2 + prey.level;
   addRep("core", 3 + prey.level); addRep(p.faction, 4 + prey.level);
@@ -1907,6 +1910,45 @@ function pirateLegacy() {
   if (typeof fireworks === "function") fireworks(8000, true);
   if (!S.won) S.won = true;
   toast(`⭐ ${title} — pirate legacy complete!`, "good");
+  afterAction();
+}
+
+/* ---- Bounty Hunter capstone — the lawful mirror of the Pirate Lord ---- */
+const MARSHAL_KILLS = 20, MARSHAL_EARNED = 40000, MARSHAL_REP = 50;
+function marshalCriteria() {
+  const P = S.pirate, actives = PLANETS.filter(isActive);
+  return [
+    { label: `Hunt down ${MARSHAL_KILLS} pirates`, ok: (P.bountyKills || 0) >= MARSHAL_KILLS },
+    { label: `Collect ${fmt(MARSHAL_EARNED)} cr in bounties`, ok: (P.bountyEarned || 0) >= MARSHAL_EARNED },
+    { label: `Win the law's trust — Core rep ${MARSHAL_REP}+`, ok: (S.rep.core || 0) >= MARSHAL_REP },
+    { label: `Pacify the sector — no world above activity 1`, ok: actives.every(p => pirateLevel(p.id) <= 1) },
+  ];
+}
+function marshalReady() {
+  return S.pirate && !S.legacyTitle && (S.pirate.bountyKills || 0) > 0 && marshalCriteria().every(c => c.ok);
+}
+function marshalLegacy() {
+  if (S.legacyTitle) return toast("Your legacy is already sealed.", "bad");
+  if (!marshalReady()) return toast("The sector isn't yet pacified under your banner.", "bad");
+  const P = S.pirate, coreRep = S.rep.core || 0;
+  let title, blurb;
+  if ((P.raids || 0) >= 10 || (P.dread || 0) >= 30 || (P.wanted || 0) >= 30) {
+    title = "The Bounty King";
+    blurb = "Hunter and hunted both, you turned the bounty trade into an empire — feared by raiders and paid by the law in equal measure.";
+  } else if (coreRep >= 70) {
+    title = "The Sector Marshal";
+    blurb = "You pacified the sector under the law's own banner; from the Core to the rim, your name became a synonym for order.";
+  } else {
+    title = "The Lawbringer";
+    blurb = "You broke every pirate stronghold on the frontier and made the lanes safe again — a legend in white.";
+  }
+  S.legacyTitle = title;
+  log(`⚖️ LAWBRINGER LEGACY — <span class="c">${title}</span>: ${blurb}`, "good");
+  jot(`LAWBRINGER LEGACY: ${title} — ${blurb}`, "legacy");
+  if (typeof announce === "function") announce(`⭐ ${title}`, `${blurb} Your bounty-hunter legacy is complete!`, true);
+  if (typeof fireworks === "function") fireworks(8000, true);
+  if (!S.won) S.won = true;
+  toast(`⭐ ${title} — bounty-hunter legacy complete!`, "good");
   afterAction();
 }
 function processCommission() {
@@ -4090,6 +4132,7 @@ function renderRaid() {
     ${polMeter("Dread", "💀", P.dread, 100, "var(--accent-2)")}
     ${polMeter("Hull", "🛡️", P.hull, 100, hullCol)}
     <div class="ship-stat" style="margin-top:6px"><span class="k">Raids pulled</span><span class="v">${fmt(P.raids)}</span></div>
+    ${(P.bountyKills || 0) > 0 ? `<div class="ship-stat"><span class="k">Pirates hunted</span><span class="v">${fmt(P.bountyKills)} · ${fmt(P.bountyEarned)} cr</span></div>` : ""}
     <div class="ship-stat"><span class="k">Total plundered</span><span class="v">${fmt(P.plundered)} cr</span></div>
     <div class="ship-stat"><span class="k">Raid power</span><span class="v">${Math.round(raidPower())}</span></div>
     ${P.hull < HULL_MAX ? `<button class="btn btn-good" style="margin-top:8px" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * (atHaven() ? 18 : 30)))} 💰${atHaven() ? ", haven rate" : ""})</button>` : `<div class="pill good" style="margin-top:8px">◉ Hull pristine</div>`}
@@ -4243,9 +4286,19 @@ function renderRaid() {
       ${ready ? `<button class="btn btn-primary" style="margin-top:8px" onclick="pirateLegacy()">👑 Claim your throne</button>` : ""}
     </div>`;
   }
+  let marshalCard = "";
+  if (!S.legacyTitle && (P.bountyKills || 0) > 0) {
+    const crit = marshalCriteria(), ready = crit.every(c => c.ok);
+    marshalCard = `<div class="card" style="border-color:${ready ? "var(--good)" : "var(--accent-2)"}">
+      <h4>⚖️ Path to Sector Marshal</h4>
+      <div class="hint">Clear the lanes of every raider to claim a lawful legacy — victory by the badge, not the black flag.</div>
+      <div style="font-size:13px;line-height:2;margin-top:4px">${crit.map(c => `${c.ok ? "✅" : "⬜"} ${c.label}`).join("<br>")}</div>
+      ${ready ? `<button class="btn btn-primary" style="margin-top:8px" onclick="marshalLegacy()">⚖️ Claim your badge</button>` : ""}
+    </div>`;
+  }
   el.innerHTML = `<h2>⚔️ Raider</h2>
     <div class="subtitle">Two trades, one gun: <b>prey on shipping</b> (build Dread, mind your Wanted — the navy interdicts the notorious; havens and letters of marque are an outlaw&#39;s tools) or <b>hunt pirates</b> for lawful bounties that scale with their rank — every kill calms the lanes, shielding your colonies and convoys. Travel through infested systems and the pirates may find <i>you</i>.</div>
-    <div class="cards">${status}${action}${commCard}${havenCard}${lordCard}</div>`;
+    <div class="cards">${status}${action}${commCard}${havenCard}${lordCard}${marshalCard}</div>`;
 }
 function renderShipPanel() {
   const el = document.getElementById("panel-ship");
@@ -4554,7 +4607,7 @@ function helpHTML() {
       <li>Each cycle you have a handful of <b>actions</b>; most things (travel, mine, lobby, raid) cost one. Hit <b>End Cycle</b> to advance time — prices drift, colonies grow, crises tick.</li>
       <li><b>Travel</b> between worlds costs fuel and advances a cycle. Buy low, sell high; large trades move the market.</li>
       <li>Resources are <b>finite</b>: over-mining a world depletes it and raises prices. Industry breeds <b>pollution</b> and <b>climate stress</b> — so spreading to fresh worlds pays off.</li>
-      <li>Win by completing your <b>Legacy goals</b> (see the 🎯 Missions tab) or by rising to a career capstone (Consul, Pirate Lord…).</li>
+      <li>Win by completing your <b>Legacy goals</b> (see the 🎯 Missions tab) or by rising to a career capstone (Consul, Pirate Lord, Sector Marshal…).</li>
     </ul>
 
     <h4>The tabs</h4>
@@ -4777,6 +4830,7 @@ function init() {
   if (!S.pirates) S.pirates = {};
   if (S.pirateCalm == null) S.pirateCalm = 0;
   if (S.encounter === undefined) S.encounter = null;
+  if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
@@ -4823,6 +4877,6 @@ Object.assign(window, {
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
-  acceptCommission, pirateLegacy, checkVersion, toggleHelp,
+  acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp,
   huntPirates, encounterPay, encounterFlee, encounterFight,
 });
