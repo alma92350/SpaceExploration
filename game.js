@@ -442,6 +442,9 @@ const BILLS = [
   { id: "anticorr", name: "Anti-Corruption Act", tone: "bright", proposeCost: 30,
     desc: "Independent oversight. Every shady act you commit now generates far more Heat.",
     stance: { core: 3, miners: 0, agri: 2, syndicate: -2, frontier: -2 } },
+  { id: "greenpact", name: "Green Accord", tone: "bright", proposeCost: 25,
+    desc: "Sector-wide emissions accord: industry pollutes half as much and fouled worlds heal faster.",
+    stance: { core: 2, miners: -3, agri: 3, syndicate: 0, frontier: 1 } },
   { id: "freetrade", name: "Free Trade Act", tone: "grey", proposeCost: 25,
     desc: "Open the lanes: tighter spreads sector-wide — buy cheaper, sell dearer everywhere.",
     stance: { core: 0, miners: -2, agri: 1, syndicate: 2, frontier: 3 } },
@@ -560,33 +563,33 @@ function colonyBuildingList(planet) {
     { id: "solar",   name: "Solar Array",     ico: "🔆", tiers: 6, baseCost: 2200, costMul: 1.6,
       recipe: { in: {}, out: "energy", outQty: 8, rate: 1, stage: 1 },
       desc: "Generates Energy from sunlight every cycle — no fuel, buildable anywhere." },
-    { id: "biomass_gen", name: "Biomass Generator", ico: "🌿", tiers: 6, baseCost: 2000, costMul: 1.6,
+    { id: "biomass_gen", name: "Biomass Generator", ico: "🌿", tiers: 6, baseCost: 2000, costMul: 1.6, pollute: 0.05,
       recipe: { in: { biomass: 2 }, out: "energy", outQty: 3, rate: 3, stage: 1 },
       desc: "Burns biomass into Energy — renewable power for farming worlds." },
-    { id: "gas_turbine", name: "Gas Turbine", ico: "🎈", tiers: 6, baseCost: 2600, costMul: 1.65,
+    { id: "gas_turbine", name: "Gas Turbine", ico: "🎈", tiers: 6, baseCost: 2600, costMul: 1.65, pollute: 0.15,
       recipe: { in: { gas: 1 }, out: "energy", outQty: 4, rate: 3, stage: 1 },
       desc: "High-output Energy from Helium-3 — for gas-rich worlds." },
-    { id: "reactor", name: "Fission Reactor", ico: "☢️", tiers: 5, baseCost: 4200, costMul: 1.7, req: "reactors",
+    { id: "reactor", name: "Fission Reactor", ico: "☢️", tiers: 5, baseCost: 4200, costMul: 1.7, req: "reactors", pollute: 0.5,
       recipe: { in: { radioactives: 1 }, out: "energy", outQty: 8, rate: 2, stage: 1 },
       desc: "Vast Energy from radioactives — the heart of an industrial colony. Small meltdown risk." },
     // ---- Refining & manufacturing chain: ore → metals → alloys → goods ----
-    { id: "smelter", name: "Smelter",         ico: "🔥", tiers: 6, baseCost: 2600, costMul: 1.6,
+    { id: "smelter", name: "Smelter",         ico: "🔥", tiers: 6, baseCost: 2600, costMul: 1.6, pollute: 0.3,
       recipe: { in: { ore: 2, energy: 2 }, out: "metals", outQty: 2, rate: 3, stage: 2 },
       desc: "Refines Ore into Metals (consumes Energy). One smelter feeds a matched Foundry + Fabricator." },
-    { id: "chem_plant", name: "Chemical Plant", ico: "⚗️", tiers: 6, baseCost: 2600, costMul: 1.6,
+    { id: "chem_plant", name: "Chemical Plant", ico: "⚗️", tiers: 6, baseCost: 2600, costMul: 1.6, pollute: 0.2,
       recipe: { in: { biomass: 2, energy: 1 }, out: "chemicals", outQty: 2, rate: 3, stage: 2 },
       desc: "Processes biomass into Chemicals (consumes Energy)." },
-    { id: "foundry", name: "Foundry",         ico: "🛠️", tiers: 6, baseCost: 3200, costMul: 1.7, req: "metallurgy",
+    { id: "foundry", name: "Foundry",         ico: "🛠️", tiers: 6, baseCost: 3200, costMul: 1.7, req: "metallurgy", pollute: 0.25,
       recipe: { in: { metals: 2, energy: 2 }, out: "alloys", outQty: 1, rate: 2, stage: 3 },
       desc: "Forges Metals into Alloys (consumes Energy)." },
-    { id: "fabricator", name: "Fabricator",   ico: "🖥️", tiers: 6, baseCost: 3400, costMul: 1.7, req: "electronics",
+    { id: "fabricator", name: "Fabricator",   ico: "🖥️", tiers: 6, baseCost: 3400, costMul: 1.7, req: "electronics", pollute: 0.15,
       recipe: { in: { crystals: 1, metals: 1, energy: 2 }, out: "electronics", outQty: 1, rate: 2, stage: 3 },
       desc: "Etches Crystals + Metals into Electronics (consumes Energy)." },
     // ---- Stage 4: finished goods. The components above feed these high-value lines. ----
-    { id: "factory", name: "Assembly Plant",  ico: "🏭", tiers: 6, baseCost: 3000, costMul: 1.7,
+    { id: "factory", name: "Assembly Plant",  ico: "🏭", tiers: 6, baseCost: 3000, costMul: 1.7, pollute: 0.15,
       industry: 1, recipe: { in: { alloys: 1, chemicals: 1, energy: 1 }, out: "goods", outQty: 1, rate: 2, stage: 4 },
       desc: "+1 industry per tier. Assembles Alloys + Chemicals + Energy into Consumer Goods." },
-    { id: "machine_works", name: "Machine Works", ico: "⚙️", tiers: 6, baseCost: 3600, costMul: 1.7,
+    { id: "machine_works", name: "Machine Works", ico: "⚙️", tiers: 6, baseCost: 3600, costMul: 1.7, pollute: 0.2,
       recipe: { in: { alloys: 1, electronics: 1, energy: 1 }, out: "machinery", outQty: 1, rate: 2, stage: 4 },
       desc: "Builds Machinery from Alloys + Electronics — a high-value export." },
     { id: "luxury_atelier", name: "Luxury Atelier", ico: "💠", tiers: 6, baseCost: 3600, costMul: 1.7,
@@ -595,12 +598,14 @@ function colonyBuildingList(planet) {
     { id: "pharma_lab", name: "Pharma Lab",   ico: "💊", tiers: 6, baseCost: 3400, costMul: 1.7, req: "biotech",
       recipe: { in: { spice: 1, chemicals: 1, energy: 1 }, out: "medicine", outQty: 1, rate: 2, stage: 4 },
       desc: "Synthesises Medicine from Spice + Chemicals — keeps a colony healthy and happy." },
-    { id: "arms_factory", name: "Arms Factory", ico: "🔫", tiers: 5, baseCost: 4000, costMul: 1.75, req: "weapontech",
+    { id: "arms_factory", name: "Arms Factory", ico: "🔫", tiers: 5, baseCost: 4000, costMul: 1.75, req: "weapontech", pollute: 0.5,
       recipe: { in: { alloys: 1, electronics: 1, radioactives: 1 }, out: "weapons", outQty: 1, rate: 2, stage: 4 },
       desc: "Forges Weapons from Alloys + Electronics + Radioactives — lucrative, but watch the law." },
-    { id: "antimatter_forge", name: "Antimatter Forge", ico: "🌀", tiers: 4, baseCost: 5200, costMul: 1.8, req: "antimatter",
+    { id: "antimatter_forge", name: "Antimatter Forge", ico: "🌀", tiers: 4, baseCost: 5200, costMul: 1.8, req: "antimatter", pollute: 0.6,
       recipe: { in: { relics: 2, electronics: 1, energy: 3 }, out: "antimatter", outQty: 1, rate: 1, stage: 5 },
       desc: "Binds Relics + Electronics into Antimatter — the apex of colonial industry." },
+    { id: "scrubber", name: "Atmo Scrubber",   ico: "🌬️", tiers: 5, baseCost: 2800, costMul: 1.65,
+      desc: "Scrubs industrial pollution from air and soil — keeps an industrial world livable." },
     { id: "lab",     name: "Research Campus",  ico: "🔬", tiers: 6, baseCost: 3000, costMul: 1.7,
       tech: 1, desc: "+1 tech per tier, and sends tech points to your research each cycle." },
     { id: "spaceport", name: "Spaceport",      ico: "🛰️", tiers: 4, baseCost: 4000, costMul: 1.8,
@@ -610,7 +615,7 @@ function colonyBuildingList(planet) {
   ];
   Object.keys(planet.deposits || {}).forEach(c => {
     const meta = BASE_EXTRACTORS[c] || { name: "Extractor: " + COM[c].name, ico: COM[c].ico };
-    list.push({ id: "ext_" + c, name: meta.name, ico: meta.ico, tiers: 6, baseCost: 2600, costMul: 1.6,
+    list.push({ id: "ext_" + c, name: meta.name, ico: meta.ico, tiers: 6, baseCost: 2600, costMul: 1.6, pollute: 0.25,
       produces: c, extractor: true, desc: `Auto-harvests ${COM[c].name} every cycle.` });
   });
   return list;
@@ -710,6 +715,8 @@ function freshState(opts = {}) {
     actionsUsed: 0,
     prices: {},
     reserves: {},               // per-planet, per-commodity deposit reserves { cur, max }
+    pollution: {},              // per-planet industrial pollution 0–100
+    climate: 0,                 // sector-wide climate stress 0–100 (smoothed mean pollution)
     visited: { [start]: true },
     log: [],
     stats: { jumps: 0, trades: 0, profit: 0, busts: 0 },
@@ -973,6 +980,8 @@ const RESERVE_PER_DEP = 1000;                       // reserve stock per 1.0 of 
 const RENEWABLE_RES = { biomass: true, spice: true, ice: true, gas: true };
 function reserveOf(pid, c) {
   if (!S.reserves) S.reserves = {};
+  if (!S.pollution) S.pollution = {};
+  if (S.climate == null) S.climate = 0;
   if (!S.reserves[pid]) S.reserves[pid] = {};
   if (!S.reserves[pid][c]) {
     const p = PLANETS.find(x => x.id === pid);
@@ -999,6 +1008,37 @@ function processReserves() {
   });
 }
 
+/* ============================================================
+   POLLUTION & CLIMATE
+   Industry and extraction foul the world they run on (0–100 per planet).
+   Pollution decays naturally when activity stops — like depletion, it is a
+   consequence of the player's footprint, not fate. The sector-wide mean
+   drives a slow CLIMATE index with global effects on agriculture.
+   ============================================================ */
+function pollutionOf(pid) { return (S.pollution && S.pollution[pid]) || 0; }
+function addPollution(pid, amt) {
+  if (!S.pollution) S.pollution = {};
+  if (typeof policyActive === "function" && policyActive("greenpact")) amt *= 0.5;  // emissions accord
+  S.pollution[pid] = Math.max(0, Math.min(100, (S.pollution[pid] || 0) + amt));
+}
+function pollutionYieldMult(pid) { return 1 - pollutionOf(pid) * 0.003; }   // up to −30% extraction on a fouled world
+function pollutionFarmMult(pid) {                                          // smog + climate both hurt crops (up to −40% / −25%)
+  return (1 - pollutionOf(pid) * 0.004) * (1 - (S.climate || 0) * 0.0025);
+}
+function processPollution() {
+  if (!S.pollution) S.pollution = {};
+  Object.keys(S.pollution).forEach(pid => {
+    S.pollution[pid] = Math.max(0, S.pollution[pid] - (policyActive("greenpact") ? 1.8 : 1)); // natural recovery when you ease off
+    if (S.pollution[pid] <= 0) delete S.pollution[pid];
+  });
+  // climate: a slow, smoothed echo of sector-wide pollution — clamped, decaying, never runaway
+  const mean = PLANETS.reduce((s, p) => s + pollutionOf(p.id), 0) / PLANETS.length;
+  let cl = (S.climate || 0) + (mean * 1.6 - (S.climate || 0)) * 0.08;
+  if (S.techs.terraform) cl -= 0.4;                                        // terraforming actively heals the sector
+  if (policyActive("greenpact")) cl -= 0.2;
+  S.climate = Math.max(0, Math.min(100, cl));
+}
+
 function extractMods(comId) {
   // returns {moduleMult, techMult, requiredModuleOk, blockMsg}
   const verb = COM[comId].extract;
@@ -1020,10 +1060,12 @@ function extract(comId) {
   if (cargoFree() <= 0) return toast("Cargo hold full!", "bad");
   const { mod, tech, ok, blockMsg } = extractMods(comId);
   if (!ok) return toast(blockMsg, "bad");
-  let yld = Math.round(14 * dep * mod * tech * depletionMult(p.id, comId));
+  let yld = Math.round(14 * dep * mod * tech * depletionMult(p.id, comId) * pollutionYieldMult(p.id));
   yld = Math.min(yld, cargoFree());
   if (yld <= 0) return toast("No room in the hold.", "bad");
   S.res[comId] += yld; drawReserve(p.id, comId, yld);
+  const verb2 = COM[comId].extract;
+  addPollution(p.id, COM[comId].hazard ? 1.2 : (verb2 === "mine" || verb2 === "exploit") ? 0.6 : 0.2);
   useAction();
   const verbName = { mine: "Mined", forage: "Foraged", capture: "Captured", exploit: "Recovered" }[COM[comId].extract];
   log(`${verbName} <span class="c">${yld}</span> ${COM[comId].ico} ${COM[comId].name} on ${p.name}.`, "good");
@@ -2714,11 +2756,16 @@ function processColonies() {
     colonyBuildingList(planet).forEach(b => {
       const t = col.buildings[b.id] || 0; if (t <= 0) return;
       if (b.id === "lab") { S.res.tech += t * 3; return; }                 // passive research
+      if (b.id === "scrubber") { if (S.pollution && S.pollution[pid]) S.pollution[pid] = Math.max(0, S.pollution[pid] - t * 1.2); return; }
       if (b.recipe) return;                                               // industry chain handled in 1b
       if (b.produces) {
         let out;
-        if (b.id === "farm") out = t * 8;                                  // agriculture, not a finite deposit
-        else { out = Math.round(t * 5 * (planet.deposits[b.produces] || 1) * depletionMult(pid, b.produces)); drawReserve(pid, b.produces, out); }
+        if (b.id === "farm") out = Math.round(t * 8 * pollutionFarmMult(pid));   // smog & climate wither crops
+        else {
+          out = Math.round(t * 5 * (planet.deposits[b.produces] || 1) * depletionMult(pid, b.produces) * pollutionYieldMult(pid));
+          drawReserve(pid, b.produces, out);
+          if (out > 0 && b.pollute) addPollution(pid, b.pollute * t);
+        }
         if (b.produces === COLONY_FOOD) foodMade += out;
         const ceiling = b.produces === COLONY_FOOD
           ? Math.max(Math.floor(cap * 0.4), col.pop * 3)                   // always room to stockpile food for the population
@@ -2739,6 +2786,7 @@ function processColonies() {
       Object.entries(r.in).forEach(([c, q]) => { col.storage[c] -= batches * q; });
       if (r.in[COLONY_FOOD]) foodMade -= batches * r.in[COLONY_FOOD];      // food burned by industry can't feed people
       store(r.out, batches * r.outQty);
+      if (b.pollute) addPollution(pid, b.pollute * t);                     // industry fouls the world it runs on
       // fission flavor: a hard-run reactor can suffer a containment scare
       if (b.id === "reactor" && Math.random() < 0.012 * t) {
         col.storage.energy = Math.floor((col.storage.energy || 0) * 0.4);
@@ -2764,6 +2812,7 @@ function processColonies() {
     if ((col.storage.luxury || 0) > 0) target += 6;
     if ((col.storage.medicine || 0) > 0) target += 6;          // healthcare keeps colonists well
     target -= col.tax * 0.8;
+    target -= pollutionOf(pid) * 0.12;                         // nobody loves living in smog
     target = Math.max(0, Math.min(100, target));
     col.happiness = Math.round(col.happiness + (target - col.happiness) * 0.34);
 
@@ -2806,6 +2855,15 @@ function processColonies() {
 
     // 6) random events (raids, disasters, booms)
     colonyEventRoll(pid, col, planet);
+
+    // 6b) heavy pollution breeds industrial incidents
+    const poll = pollutionOf(pid);
+    if (poll >= 50 && Math.random() < (poll - 40) / 250) {
+      col.happiness = Math.max(0, col.happiness - 8);
+      const spoiled = Math.floor((col.storage[COLONY_FOOD] || 0) * 0.3);
+      if (spoiled > 0) col.storage[COLONY_FOOD] -= spoiled;
+      log(`🏭 Industrial smog incident on <span class="c">${planet.name}</span> — crops spoiled and tempers frayed.`, "bad");
+    }
 
     // 7) unrest & secession — a garrison helps keep order
     col.unrest = col.unrest || 0;
@@ -2972,7 +3030,7 @@ function applyDecreeIncome() {
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  rollPrices(); processReserves(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -3095,6 +3153,9 @@ function renderGalaxy() {
       + (p.salvage ? " 🧲" : "") + (p.bounty ? " 🎯" : "");
     const enf = p.enforce > 0.7 ? '<span class="pill bad">strict law</span>'
       : p.enforce < 0.25 ? '<span class="pill good">lawless</span>' : '<span class="pill">patrolled</span>';
+    const pol = pollutionOf(p.id);
+    const polPill = pol >= 60 ? '<span class="pill bad" title="Heavy industrial pollution">☁️ fouled</span>'
+      : pol >= 25 ? '<span class="pill" title="Rising industrial pollution">☁️ smoggy</span>' : '';
     const tag = p.colonizable
       ? `<span class="pill good">${S.colonies[p.id] ? "your colony 🌍" : "colonizable"}</span>`
       : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
@@ -3106,7 +3167,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}
+        ${enf}${polPill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${here ? `<div class="pill good">◉ You are here</div>`
@@ -3125,8 +3186,11 @@ function renderGalaxy() {
   </div>`;
   const wp = winProgress();
   const goals = Object.values(wp).map(g => `<div class="ship-stat"><span class="k">${g.have ? "✅" : "⬜"} ${g.label}</span></div>`).join("");
-  el.innerHTML = `<h2>Galactic Map</h2>
-    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists. Frontier worlds marked <span class="pill good">colonizable</span> can be settled and developed. Travelling costs fuel and advances a cycle.</div>
+  const cl = Math.round(S.climate || 0);
+  const climateBadge = cl >= 40 ? `<span class="pill bad" title="Sector-wide climate stress from industrial pollution">🌡️ climate stress ${cl}</span>`
+    : cl >= 12 ? `<span class="pill" title="Sector-wide climate stress from industrial pollution">🌡️ climate ${cl}</span>` : "";
+  el.innerHTML = `<h2>Galactic Map ${climateBadge}</h2>
+    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Travelling costs fuel and advances a cycle.</div>
     <div class="planet-grid">${cards}</div>
     <div class="section-title">🔭 Exploration</div>
     <div class="cards">${survey}</div>
@@ -3221,7 +3285,7 @@ function renderIndustry() {
   Object.keys(p.deposits || {}).forEach(c => {
     const { mod, tech, ok, blockMsg } = extractMods(c);
     const frac = reserveFrac(p.id, c);
-    const est = Math.round(14 * p.deposits[c] * mod * tech * depletionMult(p.id, c));
+    const est = Math.round(14 * p.deposits[c] * mod * tech * depletionMult(p.id, c) * pollutionYieldMult(p.id));
     const verb = { mine: "Mine", forage: "Forage", capture: "Capture", exploit: "Recover" }[COM[c].extract];
     const illegal = COM[c].illegalAt ? ' <span class="pill bad">hot cargo</span>' : '';
     const resCol = frac >= 0.6 ? "var(--good)" : frac >= 0.3 ? "var(--warn)" : "var(--bad)";
@@ -3879,7 +3943,9 @@ function renderColonies() {
       <div class="ship-stat" style="margin-top:6px"><span class="k">😊 Happiness</span><span class="v">${col.happiness}%</span></div>
       <div class="bar"><span style="width:${col.happiness}%;background:${col.happiness>=60?'var(--good)':col.happiness>=35?'var(--warn)':'var(--bad)'}"></span></div>
       <div class="ship-stat" style="margin-top:6px"><span class="k">🌾 Food / cycle</span><span class="v" style="color:${fedHave>=fedNeed?'var(--good)':'var(--bad)'}">${fmt(fedHave)} stored · need ${fmt(fedNeed)}</span></div>
-      <div class="ship-stat"><span class="k">🏭 Industry</span><span class="v">${effIndustry(planet)}</span></div>
+      <div class="ship-stat"><span class="k">☁️ Pollution</span><span class="v" style="color:${pollutionOf(planet.id)>=60?'var(--bad)':pollutionOf(planet.id)>=25?'var(--warn)':'var(--good)'}">${Math.round(pollutionOf(planet.id))}</span></div>
+      <div class="bar"><span style="width:${pollutionOf(planet.id)}%;background:${pollutionOf(planet.id)>=60?'var(--bad)':pollutionOf(planet.id)>=25?'var(--warn)':'var(--good)'}"></span></div>
+      <div class="ship-stat" style="margin-top:6px"><span class="k">🏭 Industry</span><span class="v">${effIndustry(planet)}</span></div>
       <div class="ship-stat"><span class="k">🔬 Tech</span><span class="v">${effTech(planet)}</span></div>
       <div class="ship-stat"><span class="k">🛡️ Defense</span><span class="v">${colonyDefense(col) ? "Level " + colonyDefense(col) : '<span style="color:var(--bad)">undefended</span>'}</span></div>
       ${(col.unrest || 0) >= 2 ? `<div class="ship-stat"><span class="k">⚠️ Unrest</span><span class="v" style="color:var(--bad)">secession risk — improve happiness!</span></div>` : ""}
@@ -4006,6 +4072,8 @@ function init() {
   if (S.officePath === undefined) S.officePath = null;
   if (S.legacyTitle === undefined) S.legacyTitle = null;
   if (!S.reserves) S.reserves = {};
+  if (!S.pollution) S.pollution = {};
+  if (S.climate == null) S.climate = 0;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
   if (S.pirate.commissionsDone == null) S.pirate.commissionsDone = 0;
   if (S.prey === undefined) S.prey = null;
