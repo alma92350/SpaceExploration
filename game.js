@@ -890,6 +890,9 @@ function freshState(opts = {}) {
     prices: {},
     reserves: {},               // per-planet, per-commodity deposit reserves { cur, max }
     crises: {},                 // active planetary crises: pid -> { type, cyclesLeft }
+    pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
+    pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
+    encounter: null,            // travel ambush: { level, strength, toll }
     pollution: {},              // per-planet industrial pollution 0–100
     climate: 0,                 // sector-wide climate stress 0–100 (smoothed mean pollution)
     visited: { [start]: true },
@@ -1171,6 +1174,9 @@ function reserveOf(pid, c) {
   if (!S.reserves) S.reserves = {};
   if (!S.crises) S.crises = {};
   if (!S.journal) S.journal = [];
+  if (!S.pirates) S.pirates = {};
+  if (S.pirateCalm == null) S.pirateCalm = 0;
+  if (S.encounter === undefined) S.encounter = null;
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.reserves[pid]) S.reserves[pid] = {};
@@ -1290,27 +1296,6 @@ function salvage() {
   afterAction();
 }
 
-function bounty() {
-  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
-  const p = currentPlanet();
-  if (!p.bounty) return toast("No bounties available here.", "bad");
-  const risk = 0.25 * (1 - S.upgrades.shield * 0.2);
-  useAction();
-  if (Math.random() < risk) {
-    const dmg = Math.min(S.res.credits, 200 + Math.round(Math.random() * 400));
-    S.res.credits -= dmg;
-    log(`Bounty hunt went sour — repairs cost <span class="c">${fmt(dmg)}</span> credits.`, "bad");
-    toast(`Bounty failed (−${fmt(dmg)} cr)`, "bad");
-  } else {
-    const cr = 600 + Math.round(Math.random() * 900);
-    const inf = 4 + Math.round(Math.random() * 6);
-    S.res.credits += cr; S.res.influence += inf;
-    addRep("frontier", 6); addRep("core", 3);
-    log(`Collected a pirate bounty: <span class="c">${fmt(cr)}</span> credits, +${inf} influence.`, "good");
-    toast(`Bounty paid: +${fmt(cr)} cr`, "good");
-  }
-  afterAction();
-}
 
 /* ============================================================
    PIRACY — prowl the lanes, raid ships, plunder cargo
@@ -1345,6 +1330,148 @@ const PREY = {
   patrol:   { name: "Faction Patrol", ico: "🚔", faction: null,       base: 28, wanted: 14, credits: [300, 800],   goods: ["weapons", "fuel"],                 bulk: [4, 10] },
 };
 function rint(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+
+/* ------------------------------------------------------------
+   PIRATE HUNTING — the raider's lawful trade
+   Worlds carry a pirate-activity level (0–5). Hunting pirates through the
+   Raid UI pays a level-scaled bounty, earns goodwill instead of Wanted, and
+   suppresses pirate attacks (colony raids, convoy & travel ambushes) for a
+   while. Activity regrows in lawless space — pirates breed where law is thin.
+   ------------------------------------------------------------ */
+const PIRATE_RANKS = [null,
+  { name: "Rookie Corsair",  ico: "🏴", str: 16, bounty: 450 },
+  { name: "Marauder",        ico: "🏴", str: 26, bounty: 900 },
+  { name: "Veteran Raider",  ico: "☠️", str: 36, bounty: 1500 },
+  { name: "Dread Captain",   ico: "☠️", str: 47, bounty: 2400 },
+  { name: "Pirate Warlord",  ico: "👿", str: 58, bounty: 3600 },
+];
+function basePirateLevel(p) { return p.bounty ? 3 : p.enforce <= 0.3 ? 1 : 0; }
+function pirateLevel(pid) {
+  if (!S.pirates) S.pirates = {};
+  const p = PLANETS.find(x => x.id === pid);
+  if (S.pirates[pid] == null) S.pirates[pid] = basePirateLevel(p);
+  return S.pirates[pid];
+}
+function pirateCalm() { return (S.pirateCalm || 0) > S.turn; }
+function genPirate(level) {
+  const lv = Math.max(1, Math.min(5, level));
+  const R = PIRATE_RANKS[lv];
+  return {
+    type: "pirate", isPirate: true, level: lv,
+    name: R.name, ico: R.ico, faction: "frontier",
+    cargo: { weapons: rint(2, 4 + lv), fuel: rint(3, 8) },
+    credits: rint(100, 250) * lv,
+    strength: Math.round(R.str * (0.85 + Math.random() * 0.3)),
+    bounty: Math.round(R.bounty * (0.85 + Math.random() * 0.3)),
+    wantedGain: 0,
+  };
+}
+function huntPirates() {
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  if (S.interdiction) return toast("Deal with the navy first.", "bad");
+  if (S.encounter) return toast("You're already in a fight.", "bad");
+  if (S.prey) return toast("You're already shadowing a target.", "bad");
+  const p = currentPlanet(), lvl = pirateLevel(p.id);
+  if (lvl <= 0) return toast("No pirate activity to hunt here.", "bad");
+  if (S.res.fuel < PROWL_FUEL) return toast(`Need ${PROWL_FUEL} fuel to sweep the system.`, "bad");
+  S.res.fuel -= PROWL_FUEL; useAction();
+  if (Math.random() < 0.12) {
+    log("🎯 You swept the system but the pirates kept to their holes.", "");
+    toast("No pirates found.", "");
+    return afterAction();
+  }
+  S.prey = genPirate(Math.max(1, lvl + rint(-1, 1)));
+  log(`🎯 Pirate contact: a ${S.prey.ico} <span class="c">${S.prey.name}</span> — bounty ${fmt(S.prey.bounty)} cr on its head.`, "event");
+  toast(`Pirate sighted: ${S.prey.name}`, "event");
+  afterAction();
+}
+function pirateKillRewards(prey) {
+  const p = currentPlanet();
+  if (!S.pirates) S.pirates = {};
+  S.res.credits += prey.bounty;
+  S.res.influence = (S.res.influence || 0) + 2 + prey.level;
+  addRep("core", 3 + prey.level); addRep(p.faction, 4 + prey.level);
+  S.pirates[p.id] = Math.max(0, pirateLevel(p.id) - 1);
+  S.pirateCalm = Math.max(S.pirateCalm || 0, S.turn) + 4;       // the lanes breathe easier
+  jot(`Hunted down a ${prey.name} near ${p.name} — ${fmt(prey.bounty)} cr bounty collected; the lanes are safer for a while.`, "deed");
+}
+/* ------------------------------------------------------------
+   TRAVEL AMBUSH — pirates on the jump lanes
+   Arriving in piratey space can drop you into an encounter: pay their toll,
+   run for it (engines help), or turn and fight (cannons & shields decide).
+   Locks you down like an interdiction until resolved.
+   ------------------------------------------------------------ */
+function cargoValue() { return CARGO_IDS.reduce((s2, c) => s2 + (S.res[c] || 0) * COM[c].base, 0); }
+function maybeAmbush(dest) {
+  if (S.encounter || S.interdiction || S.jail > 0 || pirateCalm()) return;
+  const lvl = pirateLevel(dest.id);
+  if (lvl <= 0) return;
+  if (Math.random() < 0.05 + lvl * 0.045) {
+    const pirate = genPirate(Math.max(1, lvl + rint(-1, 0)));
+    pirate.toll = Math.round(300 * pirate.level + Math.min(2500, (S.res.credits + cargoValue()) * 0.04));
+    S.encounter = pirate;
+    log(`🏴‍☠️ Ambush! A ${pirate.ico} <span class="c">${pirate.name}</span> drops out of the dark off ${dest.name} and demands ${fmt(pirate.toll)} cr — or your cargo.`, "bad");
+    toast(`Pirate ambush: ${pirate.name}!`, "bad");
+    if (typeof announce === "function") announce("🏴‍☠️ Pirate Ambush", `A ${pirate.name} has you in its sights. Pay, run, or fight.`, false);
+    if (typeof setTab === "function") setTab("raid");
+  }
+}
+function encounterPay() {
+  const e = S.encounter; if (!e) return;
+  if (S.res.credits < e.toll) return toast(`They want ${fmt(e.toll)} cr — you don't have it. Run or fight.`, "bad");
+  S.res.credits -= e.toll; S.encounter = null;
+  log(`💰 You paid the ${e.name}'s toll of ${fmt(e.toll)} cr and were waved through. Galling, but bloodless.`, "");
+  toast(`Toll paid (−${fmt(e.toll)} cr).`, "bad");
+  afterAction();
+}
+function encounterFlee() {
+  const e = S.encounter; if (!e) return;
+  const odds = 0.45 + S.upgrades.engine * 0.15 - e.level * 0.05;
+  if (Math.random() < odds) {
+    S.encounter = null;
+    log(`🏃 You burned hard and lost the ${e.name} in the void. Clean getaway.`, "good");
+    toast("Escaped!", "good");
+  } else {
+    const dmg = takeHullDamage(e.strength * 0.4 * (0.6 + Math.random() * 0.5));
+    log(`🏃 The ${e.name} raked your hull as you ran — Hull −${dmg} — and it's still on you.`, "bad");
+    toast(`Flee failed! Hull −${dmg}`, "bad");
+  }
+  afterAction();
+}
+function encounterFight() {
+  const e = S.encounter; if (!e) return;
+  const power = raidPower() + Math.random() * 10;
+  const def = e.strength + Math.random() * 10;
+  if (power > def) {
+    const taken = plunder(e);
+    const dmg = takeHullDamage(e.strength * 0.5 * (0.4 + Math.random() * 0.5) + 2);
+    S.pirate.dread += 3; clampPirate();
+    pirateKillRewards(e);
+    S.encounter = null;
+    log(`⚔️ You turned on the ${e.ico} ${e.name} and blew it apart! Bounty ${fmt(e.bounty)} cr + salvage ${taken.join(" ") || "none"}. (Hull −${dmg}, no Wanted)`, "good");
+    toast(`Ambusher destroyed — bounty ${fmt(e.bounty)} cr!`, "good");
+  } else {
+    const dmg = takeHullDamage(e.strength * 0.8 * (0.6 + Math.random() * 0.6) + 5);
+    const loss = Math.min(S.res.credits, Math.round(e.toll * 0.8));
+    S.res.credits -= loss;
+    const stolen = [];
+    CARGO_IDS.forEach(c => { const take = Math.floor((S.res[c] || 0) * 0.2); if (take > 0) { S.res[c] -= take; stolen.push(`${take}${COM[c].ico}`); } });
+    S.encounter = null;
+    log(`💥 The ${e.name} beat you down — Hull −${dmg}, ${fmt(loss)} cr and ${stolen.join(" ") || "no cargo"} taken before they let you limp off.`, "bad");
+    toast("Boarded and robbed!", "bad");
+  }
+  afterAction();
+}
+
+function processPirates() {
+  if (!S.pirates) S.pirates = {};
+  if (S.turn % 5 !== 0) return;                                  // pirates regroup slowly
+  PLANETS.forEach(p => {
+    const base = basePirateLevel(p), cur = pirateLevel(p.id);
+    if (cur < base || (base > 0 && cur < 5 && Math.random() < 0.35))
+      S.pirates[p.id] = Math.min(5, cur + 1);                    // lawless space breeds raiders
+  });
+}
 function genPrey() {
   const p = currentPlanet(), law = p.enforce;       // lawful space → richer, better-escorted prey
   // weight prey by locale
@@ -1369,6 +1496,7 @@ function genPrey() {
 function prowl() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   if (S.interdiction) return toast("There's a navy cutter on your tail — deal with it first.", "bad");
+  if (S.encounter) return toast("A pirate has you in its sights — deal with it first.", "bad");
   if (S.prey) return toast("You're already shadowing a target.", "bad");
   if (S.res.fuel < PROWL_FUEL) return toast(`Need ${PROWL_FUEL} fuel to prowl the lanes.`, "bad");
   S.res.fuel -= PROWL_FUEL; useAction();
@@ -1427,6 +1555,22 @@ function resolveRaid(noQuarter) {
   const def = prey.strength + Math.random() * 10;
   const margin = power - def;
   S.pirate.raids++;
+  if (prey.isPirate) {
+    if (margin > 0) {
+      const taken = plunder(prey);
+      const dmg = takeHullDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5) + 3);
+      S.pirate.dread += 3; clampPirate();                       // even pirates fear the hunter
+      pirateKillRewards(prey);
+      log(`🎯 You brought down the ${prey.ico} ${prey.name}! Bounty ${fmt(prey.bounty)} cr + salvage ${taken.join(" ") || "none"} + ${fmt(prey.credits)} cr. (Hull −${dmg}, no Wanted — a lawful kill)`, "good");
+      toast(`Bounty collected: ${fmt(prey.bounty)} cr!`, "good");
+    } else {
+      const dmg = takeHullDamage(prey.strength * 0.8 * (0.6 + Math.random() * 0.6) + 6);
+      log(`☠️ The ${prey.ico} ${prey.name} outfought you — Hull −${dmg} and it slipped back into the dark.`, "bad");
+      toast("Pirate escaped!", "bad");
+    }
+    S.prey = null;
+    return afterAction();
+  }
   const betray = S.commission && prey.faction === S.commission.patron;
   if (margin > 0) {
     const taken = plunder(prey);
@@ -2562,6 +2706,7 @@ function travel(destId) {
   if (destId === S.location) return;
   if (S.jail > 0) return toast("You're imprisoned — you can't travel.", "bad");
   if (S.interdiction) return toast("The navy has your ship locked down — settle the confrontation first.", "bad");
+  if (S.encounter) return toast("A pirate has you in its sights — pay, run, or fight first.", "bad");
   const dest = PLANETS.find(p => p.id === destId);
   if (!dest || !isVisible(dest)) return toast("That world isn't on your charts.", "bad");
   const cost = fuelCost(destId);
@@ -2570,7 +2715,8 @@ function travel(destId) {
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
   toast(`Arrived at ${dest.name}`, "event");
   scanOnArrival(dest);
-  maybeInterdict(dest);
+  maybeAmbush(dest);
+  if (!S.encounter) maybeInterdict(dest);
   endTurn(true);
 }
 
@@ -2834,8 +2980,12 @@ function colonyEventRoll(pid, col, planet) {
   const name = planet.name, def = colonyDefense(col);
   const roll = Math.random();
 
-  // ---- Pirate raid (frontier worlds are exposed) ----
+  // ---- Pirate raid (frontier worlds are exposed; hunting pirates buys calm) ----
   if (roll < 0.07) {
+    if (pirateCalm()) {
+      log(`🛡️ Pirates kept clear of <span class="c">${name}</span> — your bounty hunting has them lying low.`, "good");
+      return false;
+    }
     if (def > 0 && Math.random() < def * 0.30) {
       col.happiness = Math.min(100, col.happiness + 4);
       log(`🛡️ ${name}'s garrison repelled a pirate raid.`, "good");
@@ -3121,6 +3271,21 @@ function setOrder(c) {
 
 /* runs each cycle before colonies consume — keeps ordered stock topped up */
 function processLogistics() {
+  // pirate convoy ambush: an active logistics network draws raiders unless the lanes are calm
+  if (!pirateCalm()) {
+    const nets0 = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c) && c.orders && Object.keys(c.orders).length);
+    if (nets0.length) {
+      const threat = PLANETS.reduce((s2, p) => s2 + pirateLevel(p.id), 0) / PLANETS.length;
+      if (Math.random() < 0.04 + threat * 0.03) {
+        const [vid, vcol] = nets0[Math.floor(Math.random() * nets0.length)];
+        const vp = PLANETS.find(p => p.id === vid);
+        const loss = Math.min(S.res.credits, 200 + Math.round(threat * 400));
+        S.res.credits -= loss;
+        Object.keys(vcol.storage).slice(0, 2).forEach(c => { vcol.storage[c] = Math.floor((vcol.storage[c] || 0) * 0.85); });
+        log(`🏴‍☠️ Pirates ambushed a supply convoy near <span class="c">${vp.name}</span> — ${fmt(loss)} cr and cargo lost. Hunt them down to calm the lanes.`, "bad");
+      }
+    }
+  }
   const nets = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c) && c.orders && Object.keys(c.orders).length);
   if (!nets.length) return;
   const used = {};
@@ -3244,7 +3409,7 @@ function applyDecreeIncome() {
 function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  processCrises(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -3545,11 +3710,13 @@ function renderIndustry() {
            : `<div class="hint" style="color:var(--bad)">Requires a Salvage Rig module.</div>`}
     </div>`;
   }
-  if (p.bounty) {
-    extractCards += `<div class="card">
-      <h4>🎯 Hunt Bounties</h4>
-      <div class="desc">Track pirates for credits, influence and faction goodwill. Some risk without a Deflector Shield.</div>
-      <button class="btn btn-primary" ${al>0 ? "" : "disabled"} onclick="bounty()">Hunt (1 action)</button>
+  const _pl = pirateLevel(p.id);
+  if (_pl > 0) {
+    const threat = _pl >= 4 ? "infested" : _pl >= 2 ? "high" : "low";
+    extractCards += `<div class="card" style="border-color:var(--warn)">
+      <h4>⚠️ Pirate Activity <span class="pill ${_pl >= 2 ? "bad" : ""}">${threat} (level ${_pl})</span></h4>
+      <div class="desc">Raiders prowl this system — they prey on convoys, colonies and travellers. Hunt them down from the <b>⚔️ Raider</b> tab: bounties scale with the pirate's rank, and every kill calms the lanes.</div>
+      <button class="btn btn-primary" onclick="setTab('raid')">Go hunting ⚔️</button>
     </div>`;
   }
 
@@ -3931,7 +4098,23 @@ function renderRaid() {
       : `<div class="hint" style="margin-top:6px">Officials here are incorruptible — settle warrants in lawless space.</div>`) : ""}
   </div>`;
   let action;
-  if (S.interdiction) {
+  if (S.encounter) {
+    const e = S.encounter;
+    const rp = raidPower();
+    const odds = rp >= e.strength * 1.2 ? "favorable" : rp >= e.strength * 0.8 ? "even" : "grim";
+    const oddsCol = odds === "favorable" ? "var(--good)" : odds === "even" ? "var(--warn)" : "var(--bad)";
+    const fleeOdds = Math.round(Math.max(5, Math.min(95, (0.45 + S.upgrades.engine * 0.15 - e.level * 0.05) * 100)));
+    action = `<div class="card" style="border-color:var(--bad)">
+      <h4>🏴‍☠️ Ambush: ${e.ico} ${e.name} <span class="pill bad">level ${e.level}</span></h4>
+      <div class="hint">It demands <b>${fmt(e.toll)} 💰</b> to let you pass. Strength ~${e.strength} · bounty on its head ${fmt(e.bounty)} cr.</div>
+      <div class="meta"><span class="hint">Fight odds</span><span class="cost" style="color:${oddsCol}">${odds} — power ${Math.round(rp)} vs ~${e.strength}</span></div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn btn-sm" ${S.res.credits >= e.toll ? "" : "disabled"} title="Pay the toll — bloodless, but galling" onclick="encounterPay()">💰 Pay ${fmt(e.toll)}</button>
+        <button class="btn btn-sm" title="Burn for it — failing costs hull" onclick="encounterFlee()">🏃 Flee (~${fleeOdds}%)</button>
+        <button class="btn btn-bad" title="Turn and fight — win the bounty, or be boarded and robbed" onclick="encounterFight()">⚔️ Fight</button>
+      </div>
+    </div>`;
+  } else if (S.interdiction) {
     const it = S.interdiction, ip = PLANETS.find(x => x.id === it.planet) || p;
     const rp = raidPower();
     const odds = rp >= it.strength * 1.2 ? "favorable" : rp >= it.strength * 0.8 ? "even" : "grim";
@@ -3947,6 +4130,20 @@ function renderRaid() {
           : `<button class="btn" disabled title="These officers can't be bought">💵 Incorruptible</button>`}
         <button class="btn btn-bad" title="Shoot your way clear — lose and you're boarded & arrested" onclick="navyFight()">⚔️ Fight</button>
         <button class="btn btn-sm" title="Stand down: cargo seized, fined and jailed, but warrants mostly cleared" onclick="navySurrender()">🏳️ Surrender</button>
+      </div>
+    </div>`;
+  } else if (S.prey && S.prey.isPirate) {
+    const prey = S.prey;
+    const rp2 = raidPower();
+    const odds2 = rp2 >= prey.strength * 1.2 ? "favorable" : rp2 >= prey.strength * 0.8 ? "even" : "risky";
+    const oddsCol2 = odds2 === "favorable" ? "var(--good)" : odds2 === "even" ? "var(--warn)" : "var(--bad)";
+    action = `<div class="card" style="border-color:var(--good)">
+      <h4>${prey.ico} ${prey.name} <span class="pill good">🎯 bounty ${fmt(prey.bounty)} 💰</span></h4>
+      <div class="hint">A wanted raider — bringing it down is a <b>lawful kill</b>: bounty, salvage, faction goodwill, no Wanted.</div>
+      <div class="meta"><span class="hint">Your odds</span><span class="cost" style="color:${oddsCol2}">${odds2} — power ${Math.round(rp2)} vs ~${prey.strength}</span></div>
+      <div class="row" style="margin-top:6px">
+        <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="raidAttack()">⚔️ Engage</button>
+        <button class="btn btn-sm" onclick="raidDisengage()">Let it go</button>
       </div>
     </div>`;
   } else if (S.prey) {
@@ -3974,6 +4171,14 @@ function renderRaid() {
       <div class="desc">Hunt for prey on the shipping lanes (${richness}). Lawful space carries richer cargo but heavier escorts and stiffer bounties; the lawless rim is leaner but safer. Costs ${PROWL_FUEL} ⛽ and one action.</div>
       ${armed ? "" : `<div class="hint" style="color:var(--warn)">Install 🔫 Weapon Systems (Ship tab) to raid with any real teeth.</div>`}
       <button class="btn btn-primary" ${al > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="prowl()">Prowl (1 action)</button>
+    </div>`;
+    const lvl = pirateLevel(p.id);
+    action += `<div class="card" ${lvl > 0 ? 'style="border-color:var(--good)"' : ""}>
+      <h4>🎯 Hunt Pirates ${lvl > 0 ? `<span class="pill ${lvl >= 2 ? "bad" : ""}">activity level ${lvl}</span>` : '<span class="pill good">lanes clear</span>'}</h4>
+      <div class="desc">${lvl > 0
+        ? `Raiders of about <b>${PIRATE_RANKS[Math.min(5, Math.max(1, lvl))].name}</b> rank work this system. Bounties scale with rank — and every kill suppresses pirate raids on your colonies and convoys for a while. A <b>lawful</b> trade: no Wanted.${pirateCalm() ? " <i>(Lanes currently calm.)</i>" : ""}`
+        : "No pirate activity here right now — check ⚠️ flagged systems on the lawless rim."} Costs ${PROWL_FUEL} ⛽ and one action.</div>
+      <button class="btn btn-primary" ${al > 0 && lvl > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="huntPirates()">Hunt (1 action)</button>
     </div>`;
   }
   // ---- Pirate haven ----
@@ -4038,8 +4243,8 @@ function renderRaid() {
       ${ready ? `<button class="btn btn-primary" style="margin-top:8px" onclick="pirateLegacy()">👑 Claim your throne</button>` : ""}
     </div>`;
   }
-  el.innerHTML = `<h2>🏴‍☠️ Raiding</h2>
-    <div class="subtitle">Prey on the lanes for plunder. Build <b>Dread</b> and captains surrender without a fight; mind your <b>Wanted</b> level — the notorious draw bounty hunters <i>and the navy</i>, who interdict you in lawful ports and on patrolled lanes. Settle warrants or carve out a <b>haven</b> to cool the heat — or take a <b>letter of marque</b> and raid a faction's rivals, legally. Become the legend of the rim: a <b>Pirate Lord</b>.</div>
+  el.innerHTML = `<h2>⚔️ Raider</h2>
+    <div class="subtitle">Two trades, one gun: <b>prey on shipping</b> (build Dread, mind your Wanted — the navy interdicts the notorious; havens and letters of marque are an outlaw&#39;s tools) or <b>hunt pirates</b> for lawful bounties that scale with their rank — every kill calms the lanes, shielding your colonies and convoys. Travel through infested systems and the pirates may find <i>you</i>.</div>
     <div class="cards">${status}${action}${commCard}${havenCard}${lordCard}</div>`;
 }
 function renderShipPanel() {
@@ -4362,7 +4567,7 @@ function helpHTML() {
       <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law.</li>
       <li>🏗️ <b>Bases</b> — automated off-world production.</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
-      <li>🏴‍☠️ <b>Raid</b> — prowl & plunder; manage Wanted/Dread; havens and letters of marque.</li>
+      <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
     </ul>
 
@@ -4569,6 +4774,9 @@ function init() {
   if (!S.reserves) S.reserves = {};
   if (!S.crises) S.crises = {};
   if (!S.journal) S.journal = [];
+  if (!S.pirates) S.pirates = {};
+  if (S.pirateCalm == null) S.pirateCalm = 0;
+  if (S.encounter === undefined) S.encounter = null;
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
@@ -4602,7 +4810,7 @@ function init() {
 window.addEventListener("DOMContentLoaded", init);
 
 Object.assign(window, {
-  travel, buyQty, sellQty, buyMax, sellAll, extract, salvage, bounty, produce,
+  travel, buyQty, sellQty, buyMax, sellAll, extract, salvage, produce,
   research, researchTech, doPolitics, doMission, buyUpgrade, setDecree,
   buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract,
   colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, explore, newGame,
@@ -4616,4 +4824,5 @@ Object.assign(window, {
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
   acceptCommission, pirateLegacy, checkVersion, toggleHelp,
+  huntPirates, encounterPay, encounterFlee, encounterFight,
 });
