@@ -2633,6 +2633,7 @@ function processColonies() {
     const planet = PLANETS.find(p => p.id === pid);
     const cap = colonyStorageCap(col, planet);
     const store = (c, q) => { const add = Math.min(q, cap - colonyStorageUsed(col)); if (add > 0) col.storage[c] = (col.storage[c] || 0) + add; };
+    let foodMade = 0;   // net food (biomass) produced this cycle — sets the colony's carrying capacity
 
     // 1a) raw producers (farm, extractors) + passive research run first
     colonyBuildingList(planet).forEach(b => {
@@ -2641,7 +2642,10 @@ function processColonies() {
       if (b.recipe) return;                                               // industry chain handled in 1b
       if (b.produces) {
         const out = b.id === "farm" ? t * 8 : Math.round(t * 5 * (planet.deposits[b.produces] || 1));
-        const ceiling = Math.floor(cap * 0.15);                           // sources self-limit so by-products can't clog the chain out of storage
+        if (b.produces === COLONY_FOOD) foodMade += out;
+        const ceiling = b.produces === COLONY_FOOD
+          ? Math.max(Math.floor(cap * 0.4), col.pop * 3)                   // always room to stockpile food for the population
+          : Math.floor(cap * 0.15);                                       // other sources self-limit so by-products can't clog the chain
         store(b.produces, Math.min(out, Math.max(0, ceiling - (col.storage[b.produces] || 0))));
       }
     });
@@ -2656,6 +2660,7 @@ function processColonies() {
       if (net > 0) batches = Math.min(batches, Math.floor((cap - colonyStorageUsed(col)) / net));
       if (batches <= 0) return;
       Object.entries(r.in).forEach(([c, q]) => { col.storage[c] -= batches * q; });
+      if (r.in[COLONY_FOOD]) foodMade -= batches * r.in[COLONY_FOOD];      // food burned by industry can't feed people
       store(r.out, batches * r.outQty);
       // fission flavor: a hard-run reactor can suffer a containment scare
       if (b.id === "reactor" && Math.random() < 0.012 * t) {
@@ -2685,10 +2690,17 @@ function processColonies() {
     target = Math.max(0, Math.min(100, target));
     col.happiness = Math.round(col.happiness + (target - col.happiness) * 0.34);
 
-    // 4) population grows or shrinks
+    // 4) population tracks its food supply gracefully — grow only into genuine local
+    //    food surplus (never overshoot), and emigrate rather than collapse when food falls short
     const housing = colonyHousing(col, planet);
-    if (fed && col.happiness >= 60 && col.pop < housing) col.pop += Math.max(1, Math.round(col.pop * 0.05));
-    else if (!fed || col.happiness < 32) col.pop = Math.max(1, col.pop - 1);
+    const carrying = Math.min(housing, foodMade);              // people the local harvest can sustain
+    if (fed && col.happiness >= 60 && col.pop < carrying) {
+      col.pop += Math.max(1, Math.round(col.pop * 0.05));      // room to grow: spare food AND housing
+    } else if (!fed) {
+      col.pop = Math.max(1, col.pop - Math.max(1, Math.round((need - eaten) * 0.3))); // shortfall → gentle emigration
+    } else if (col.happiness < 32) {
+      col.pop = Math.max(1, col.pop - 1);                      // misery slowly drives folk away
+    }
     col.pop = Math.min(col.pop, housing);
 
     // 5) tax income
