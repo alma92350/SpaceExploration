@@ -2676,6 +2676,7 @@ function processColonies() {
     target += fed ? 18 : -35;
     if ((col.storage.goods || 0) >= col.pop) target += 12;     // consumer goods keep folk happy
     if ((col.storage.luxury || 0) > 0) target += 6;
+    if ((col.storage.medicine || 0) > 0) target += 6;          // healthcare keeps colonists well
     target -= col.tax * 0.8;
     target = Math.max(0, Math.min(100, target));
     col.happiness = Math.round(col.happiness + (target - col.happiness) * 0.34);
@@ -2689,6 +2690,26 @@ function processColonies() {
     // 5) tax income
     const income = colonyTaxIncome(col);
     if (income > 0) S.res.credits += income;
+
+    // 5b) the spaceport exports surplus manufactured goods for credits (keeping happiness reserves)
+    const sp = spaceportTier(col);
+    if (sp > 0) {
+      const reserve = { goods: col.pop, luxury: Math.ceil(col.pop / 3), medicine: Math.ceil(col.pop / 3) };
+      const exportable = CARGO_IDS
+        .filter(c => ["Component", "Finished", "Luxury", "Strategic"].includes(COM[c].tier) || c === "medicine")
+        .sort((a, b) => COM[b].base - COM[a].base);                 // ship the dearest goods first
+      let throughput = sp * 4, revenue = 0;
+      for (const c of exportable) {
+        if (throughput <= 0) break;
+        const avail = (col.storage[c] || 0) - (reserve[c] || 0);
+        const q = Math.min(Math.max(0, avail), throughput);
+        if (q > 0) { col.storage[c] -= q; revenue += Math.round(sellPrice(pid, c) * 0.8 * q); throughput -= q; }
+      }
+      if (revenue > 0) {
+        S.res.credits += revenue; col._exp = (col._exp || 0) + revenue;
+        if (S.turn % 4 === 0) { log(`🛰️ <span class="c">${planet.name}</span>'s spaceport exported manufactured goods (+${fmt(col._exp)} cr).`, "good"); col._exp = 0; }
+      }
+    }
 
     // 6) random events (raids, disasters, booms)
     colonyEventRoll(pid, col, planet);
