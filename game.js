@@ -545,6 +545,7 @@ function startCrisis(p, forceType) {
   const goods = Object.keys(def.spike).map(c => COM[c].ico).join("");
   log(`${def.ico} <span class="c">${def.name}</span> strikes ${p.name}! ${goods} prices spike as the world reels.`, "bad");
   toast(`${def.ico} ${def.name} on ${p.name}!`, "bad");
+  jot(`${def.name} struck ${p.name}.`, "crisis");
   // the stricken world posts a relief appeal — a contract with heart
   const need = Object.keys(def.spike).sort((a, b) => def.spike[b] - def.spike[a])[0];
   const qty = rint(12, 25);
@@ -583,6 +584,7 @@ function donateRelief(c, qty) {
   useAction();
   log(`🩹 You donated ${qty} ${COM[c].ico} ${COM[c].name} to ${p.name}'s ${def.name.toLowerCase()} relief — the people won't forget. (+${rep} ${FACTIONS[p.faction].ico} rep, +${inf} 🏛️)`, "good");
   toast(`Relief delivered — +${rep} rep, +${inf} 🏛️`, "good");
+  jot(`Brought relief to ${p.name}: donated ${qty} ${COM[c].name} during the ${def.name.toLowerCase()} (+${rep} ${FACTIONS[p.faction].name} standing).`, "deed");
   afterAction();
 }
 function donateReliefQty(c) { donateRelief(c, +document.getElementById("relief-" + c).value || 10); }
@@ -602,6 +604,7 @@ function gougeSell(c, qty) {
   applyPolDelta({ legitimacy: -2, heat: 3 });
   log(`🦅 You gouged ${p.name}'s desperate for ${qty} ${COM[c].ico} ${COM[c].name} — ${fmt(revenue)} cr, and they'll remember the price. (−${repHit} ${FACTIONS[p.faction].ico} rep, +heat)`, "bad");
   toast(`Gouged +${fmt(revenue)} cr (−${repHit} rep)`, "bad");
+  jot(`Profiteered on ${p.name} during the ${def.name.toLowerCase()}: sold ${qty} ${COM[c].name} dear for ${fmt(revenue)} cr (−${repHit} ${FACTIONS[p.faction].name} standing).`, "deed");
   afterAction();
 }
 function gougeSellQty(c) { gougeSell(c, +document.getElementById("relief-" + c).value || 10); }
@@ -624,6 +627,7 @@ function lootCrisis() {
   useAction();
   log(`🦅 You looted the chaos on ${p.name} — ${fmt(credits)} cr${q > 0 ? ` and ${q} ${COM[good].ico} ${COM[good].name}` : ""} pulled from the wreckage. (−7 rep, +6 Wanted)`, "bad");
   toast(`Looted +${fmt(credits)} cr (+6 Wanted)`, "bad");
+  jot(`Looted the chaos on ${p.name} amid the ${def.name.toLowerCase()} for ${fmt(credits)} cr.`, "deed");
   afterAction();
 }
 function maybeStartCrisis() {
@@ -891,6 +895,7 @@ function freshState(opts = {}) {
     visited: { [start]: true },
     log: [],
     stats: { jumps: 0, trades: 0, profit: 0, busts: 0 },
+    journal: [],               // captain's log: persistent narrative chronicle
     achieved: {},
     won: false,
   };
@@ -1035,7 +1040,20 @@ function applyMarketMove(pid, c, slip, isSell) {
 function log(msg, type = "") {
   S.log.unshift({ msg, type, turn: S.turn });
   if (S.log.length > 80) S.log.pop();
+  if (type === "event") jot(msg);            // notable happenings flow into the captain's log
   renderLog();
+}
+/* ---- Captain's Log ("journal de bord") ----
+   A persistent, plain-text chronicle of the playthrough, downloadable as a
+   Markdown dossier rich enough for an LLM to write a biography or novel from. */
+function jot(msg, cat) {
+  if (!S.journal) S.journal = [];
+  const text = String(msg).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  if (!text) return;
+  const last = S.journal[S.journal.length - 1];
+  if (last && last.turn === S.turn && last.text === text) return;   // de-dupe
+  S.journal.push({ turn: S.turn, cat: cat || "", text });
+  if (S.journal.length > 2000) S.journal.shift();
 }
 function toast(msg, type = "") {
   if (typeof document === "undefined") return;
@@ -1152,6 +1170,7 @@ const RENEWABLE_RES = { biomass: true, spice: true, ice: true, gas: true };
 function reserveOf(pid, c) {
   if (!S.reserves) S.reserves = {};
   if (!S.crises) S.crises = {};
+  if (!S.journal) S.journal = [];
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.reserves[pid]) S.reserves[pid] = {};
@@ -1385,6 +1404,7 @@ function shipCrippled() {
   S.pirate.hull = 30; clampPirate();
   log(`💥 Your hull buckled! You limp away — lost ${jettisoned.join(" ") || "no cargo"} and paid ${fmt(tow)} cr for a tow.`, "bad");
   toast("Ship crippled!", "bad");
+  jot(`Ship crippled near ${currentPlanet().name} — hull gave out, cargo jettisoned.`, "outlaw");
   if (typeof announce === "function") announce("💥 Ship Crippled", "Your hull gave out under fire. Cargo jettisoned and a tow paid — patch up before you raid again.", true);
 }
 function plunder(prey) {
@@ -1575,6 +1595,7 @@ function navyArrest(reason, crippled) {
   S.interdiction = null; clampPirate();
   log(`⛓️ ${reason}. The navy seized ${seized.join(" ") || "no cargo"}, fined you ${fmt(fine)} cr, and jailed you for ${S.jail} cycle(s) — but your warrants are largely wiped.`, "bad");
   toast("Arrested!", "bad");
+  jot(`Arrested at ${currentPlanet().name}: cargo seized, fined, jailed ${S.jail} cycle(s).`, "outlaw");
   if (typeof announce === "function")
     announce("⛓️ Arrested", `${reason}. Cargo seized and fined, jailed for ${S.jail} cycle(s) — your slate is mostly clean again.`, true);
   afterAction();
@@ -1737,6 +1758,7 @@ function pirateLegacy() {
   }
   S.legacyTitle = title;
   log(`🏴‍☠️ PIRATE LEGACY — <span class="c">${title}</span>: ${blurb}`, "good");
+  jot(`PIRATE LEGACY: ${title} — ${blurb}`, "legacy");
   if (typeof announce === "function") announce(`⭐ ${title}`, `${blurb} Your outlaw legacy is complete!`, true);
   if (typeof fireworks === "function") fireworks(8000, true);
   if (!S.won) S.won = true;
@@ -2374,6 +2396,7 @@ function politicalLegacy(path) {
   else { title = "First Consul"; blurb = "You have ascended to supreme authority over the sector."; }
   S.legacyTitle = title;
   log(`🏛️ POLITICAL LEGACY — <span class="c">${title}</span>: ${blurb}`, "good");
+  jot(`POLITICAL LEGACY: ${title} — ${blurb}`, "legacy");
   if (typeof announce === "function") announce(`⭐ ${title}`, `${blurb} Your political legacy is complete!`, true);
   if (typeof fireworks === "function") fireworks(8000, true);
   if (!S.won) S.won = true;
@@ -3273,11 +3296,13 @@ function checkWin() {
       fireworks(2400, false);
       toast(`🎆 Objective reached: ${m.title}!`, "good");
       log(`🎆 Objective reached: <span class="c">${m.title}</span> — ${m.sub}`, "good");
+  jot(`Objective reached: ${m.title} — ${m.sub}`, "milestone");
     }
   });
   if (!S.won && Object.values(wp).every(x => x.have)) {
     S.won = true;
     log("🏆 LEGACY COMPLETE — You have shaped the destiny of the sector!", "good");
+  jot("LEGACY COMPLETE — you have shaped the destiny of the sector.", "legacy");
     setTimeout(() => {
       announce("🏆 LEGACY COMPLETE", "You have shaped the destiny of the sector. A legend is born!", true);
       fireworks(8000, true);
@@ -4263,6 +4288,98 @@ function setTab(name) {
   document.getElementById("panel-" + name).classList.remove("hidden");
 }
 const SAVE_KEY = "stellar-frontier-save-v2";
+/* ---- Captain's Log: export a narrative dossier for an LLM ---- */
+function playerArchetype() {
+  const P = S.pirate || {}, nCol = Object.keys(S.colonies || {}).length;
+  if (S.legacyTitle) return S.legacyTitle;
+  if (S.office >= 2 || (S.orgs && S.orgs.party)) return "Politician";
+  if ((P.raids || 0) >= 8 || (P.plundered || 0) >= 20000) return "Pirate";
+  if (nCol >= 1) return "Colonial Founder";
+  const visited = Object.keys(S.visited || {}).length;
+  if (visited >= 8) return "Explorer";
+  return "Free Trader";
+}
+function buildJournalText() {
+  const L = [];
+  const arche = playerArchetype();
+  L.push(`# Captain's Log — ${arche}`);
+  L.push(`*S.S. Wanderer · Cycle ${S.turn}*`);
+  L.push("");
+  L.push("> A chronicle of one captain's passage through the sector. Hand this");
+  L.push("> dossier to an AI (e.g. Anthropic's Claude) with the prompt at the end");
+  L.push("> to spin it into a biography or a novel.");
+  L.push("");
+
+  // The setting
+  L.push("## The Sector");
+  PLANETS.filter(isActive).forEach(p => {
+    const deps = Object.keys(p.deposits || {}).map(c => `${COM[c].name} ${Math.round(reserveFrac(p.id, c) * 100)}%`).join(", ") || "none";
+    const law = p.enforce > 0.7 ? "strict law" : p.enforce < 0.25 ? "lawless" : "patrolled";
+    const tags = [];
+    if (S.colonies && S.colonies[p.id]) tags.push(`YOUR COLONY (pop ${Math.round(S.colonies[p.id].pop)}k)`);
+    if (S.crises && S.crises[p.id]) tags.push(`in crisis: ${CRISES[S.crises[p.id].type].name}`);
+    const poll = pollutionOf(p.id);
+    if (poll >= 25) tags.push(`${poll >= 60 ? "heavily polluted" : "polluted"}`);
+    L.push(`- **${p.name}** (${p.tag}; ${FACTIONS[p.faction].name}; ${law}) — deposits: ${deps}.${tags.length ? " " + tags.join("; ") + "." : ""}`);
+  });
+  L.push("");
+
+  // The powers
+  L.push("## The Powers (factions & your standing)");
+  Object.keys(FACTIONS).forEach(f => {
+    const r = Math.round(S.rep[f] || 0);
+    const word = r >= 50 ? "allied" : r >= 20 ? "friendly" : r <= -50 ? "hostile" : r <= -20 ? "resentful" : "neutral";
+    L.push(`- ${FACTIONS[f].name}: ${word} (${r}). ${FACTIONS[f].desc}`);
+  });
+  L.push("");
+
+  // Where the captain stands
+  L.push("## The Captain, at Cycle " + S.turn);
+  L.push(`- Path: **${arche}**${S.legacyTitle ? ` — legend earned: *${S.legacyTitle}*` : ""}`);
+  L.push(`- Wealth: ${fmt(S.res.credits)} cr on hand · net worth ${fmt(netWorth())} cr`);
+  if (S.office && typeof currentOffice === "function" && currentOffice()) L.push(`- Office: ${currentOffice().name} (popularity ${Math.round(S.pol.popularity)}, legitimacy ${Math.round(S.pol.legitimacy)})`);
+  const P = S.pirate || {};
+  if ((P.raids || 0) > 0 || (P.dread || 0) > 0) L.push(`- Outlaw record: ${P.raids} raids, ${fmt(P.plundered)} cr plundered, Wanted ${P.wanted}, Dread ${P.dread}${S.haven ? `, haven at ${PLANETS.find(p => p.id === S.haven.planet).name}` : ""}`);
+  const cols = Object.keys(S.colonies || {});
+  if (cols.length) L.push(`- Colonies founded: ${cols.map(id => PLANETS.find(p => p.id === id).name).join(", ")}`);
+  const techn = Object.keys(S.techs || {}).filter(t => S.techs[t]).length;
+  L.push(`- Voyages: ${S.stats.jumps} jumps · ${S.stats.trades} trades · ${techn} technologies · sector climate stress ${Math.round(S.climate || 0)}`);
+  L.push("");
+
+  // The chronicle
+  L.push("## The Chronicle");
+  const j = S.journal || [];
+  if (!j.length) L.push("*(No entries yet — the voyage has only just begun.)*");
+  else j.forEach(e => L.push(`- **Cycle ${e.turn}.** ${e.text}`));
+  L.push("");
+
+  // The ask
+  L.push("---");
+  L.push("## Prompt for your AI storyteller");
+  L.push("```");
+  L.push(`You are a science-fiction novelist. Using the captain's log above —`);
+  L.push(`the sector, the factions, the captain's standing, and the chronicle of`);
+  L.push(`events — write the biography of this ${arche.toLowerCase()} of the stars.`);
+  L.push(`Stay faithful to the recorded events, names and worlds; invent the`);
+  L.push(`inner life, dialogue and texture around them. Give it a title.`);
+  L.push("```");
+  return L.join("\n");
+}
+function downloadJournal() {
+  const text = buildJournalText();
+  if (typeof document === "undefined" || !document.body || typeof Blob === "undefined" || typeof URL === "undefined" || !URL.createObjectURL) {
+    if (typeof toast === "function") toast("Journal export unavailable here.", "bad");
+    return text;
+  }
+  const blob = new Blob([text], { type: "text/markdown" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `captains-log-cycle-${S.turn}.md`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  if (typeof toast === "function") toast("Captain's log downloaded.", "good");
+  return text;
+}
 function saveGame() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 function loadGame() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { S = JSON.parse(raw); return true; } } catch (e) {}
@@ -4284,10 +4401,19 @@ function newGame(mode) {
   } else {
     log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`);
   }
+  jotOpening(colony ? "colony" : politics ? "politics" : "trade");
   saveGame(); renderAll(); setTab(colony ? "colonies" : politics ? "politics" : "galaxy");
 }
+function jotOpening(mode) {
+  const p = currentPlanet();
+  const worlds = PLANETS.filter(isActive).map(x => x.name).join(", ");
+  const intro = mode === "colony" ? "granted a Colonization charter to tame a frontier world"
+    : mode === "politics" ? "entering public life with a party and a war chest"
+    : "a free trader with a ship and a dream";
+  jot(`The voyage begins at ${p.name} — ${intro}. The charted sector: ${worlds}.`, "origin");
+}
 function init() {
-  if (!loadGame()) { S = freshState(); rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); }
+  if (!loadGame()) { S = freshState(); rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); jotOpening("trade"); }
   if (!S.prices || !S.prices[S.location]) rollPrices();
   if (!S.bases) S.bases = {};   // backfill for older saves
   if (!S.colonies) S.colonies = {};
@@ -4307,6 +4433,7 @@ function init() {
   if (S.legacyTitle === undefined) S.legacyTitle = null;
   if (!S.reserves) S.reserves = {};
   if (!S.crises) S.crises = {};
+  if (!S.journal) S.journal = [];
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
@@ -4326,6 +4453,9 @@ function init() {
   const nc = document.createElement("button");
   nc.className = "btn btn-sm"; nc.style.marginLeft = "6px"; nc.textContent = "🌍 Colonize"; nc.title = "New game — skip trading, start ready to colonize";
   nc.addEventListener("click", () => newGame("colony")); brand.appendChild(nc);
+  const nj = document.createElement("button");
+  nj.className = "btn btn-sm"; nj.style.marginLeft = "6px"; nj.textContent = "📖 Log"; nj.title = "Download your captain's log — a narrative dossier you can hand to an AI to write your biography or a novel";
+  nj.addEventListener("click", () => downloadJournal()); brand.appendChild(nj);
   // (No header button for a politics start — careers switch freely in-game; the
   //  Politics tab offers an "Enter Public Life" kickstart instead.)
   renderAll(); setTab("galaxy");
@@ -4341,7 +4471,7 @@ Object.assign(window, {
   proposeBill, lobbyFaction, bribeFaction, callVote, repealPolicy,
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
-  donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis,
+  donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, repairShip,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
