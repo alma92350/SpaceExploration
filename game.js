@@ -1628,6 +1628,23 @@ function research() {
   toast(`+${pts} 🔬 tech`, "good");
   afterAction();
 }
+/* One-click political career entry — replaces the old "Politics" new-game
+   button: founds your party and seeds clout, all within the running game. */
+const PUBLIC_LIFE_COST = 5000;
+function enterPublicLife() {
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  if (S.office > 0 || S.orgs.party) return toast("You're already in public life.", "bad");
+  if (S.res.credits < PUBLIC_LIFE_COST) return toast(`Entering public life costs ${fmt(PUBLIC_LIFE_COST)} credits.`, "bad");
+  S.res.credits -= PUBLIC_LIFE_COST;
+  S.orgs.party = { tier: 1 };
+  S.res.influence = (S.res.influence || 0) + 15;
+  applyPolDelta({ popularity: 10 });
+  useAction();
+  log(`🏛️ You enter public life — a movement of your own, a war chest and a name people are starting to know. Build popularity and run for office.`, "event");
+  toast("Welcome to public life!", "good");
+  afterAction();
+}
+
 function doPolitics() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
@@ -3599,6 +3616,12 @@ function renderPolitics() {
         <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="doPolitics()">Lobby (1 action)</button>
       </div>
       <div class="card"><h4>🤝 Faction Standing</h4>${reps}</div>
+      ${(!S.office && !S.orgs.party) ? `<div class="card" style="border-color:var(--accent-2)">
+        <h4>🚀 Enter Public Life</h4>
+        <div class="desc">Launch a political career without leaving the cockpit: found your own <b>📣 People's Movement</b>, seed a war chest of clout (+15 🏛️, +10 popularity), and start the climb — rally, then run for Councillor.</div>
+        <div class="meta"><span class="hint">One-time</span><span class="cost">${fmt(PUBLIC_LIFE_COST)} 💰 + 1 action</span></div>
+        <button class="btn btn-primary" ${al > 0 && S.res.credits >= PUBLIC_LIFE_COST ? "" : "disabled"} onclick="enterPublicLife()">Enter Public Life</button>
+      </div>` : ""}
     </div>
     ${(() => { const ic = renderInvestigation(); return ic ? `<div class="cards">${ic}</div>` : ""; })()}
     ${renderOffice()}
@@ -4104,9 +4127,8 @@ function init() {
   const nc = document.createElement("button");
   nc.className = "btn btn-sm"; nc.style.marginLeft = "6px"; nc.textContent = "🌍 Colonize"; nc.title = "New game — skip trading, start ready to colonize";
   nc.addEventListener("click", () => newGame("colony")); brand.appendChild(nc);
-  const np = document.createElement("button");
-  np.className = "btn btn-sm"; np.style.marginLeft = "6px"; np.textContent = "🏛️ Politics"; np.title = "New game — skip trading, start as a politician";
-  np.addEventListener("click", () => newGame("politics")); brand.appendChild(np);
+  // (No header button for a politics start — careers switch freely in-game; the
+  //  Politics tab offers an "Enter Public Life" kickstart instead.)
   renderAll(); setTab("galaxy");
 }
 window.addEventListener("DOMContentLoaded", init);
@@ -4119,7 +4141,7 @@ Object.assign(window, {
   foundOrg, upgradeOrg, runOrgAbility,
   proposeBill, lobbyFaction, bribeFaction, callVote, repealPolicy,
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
-  runForElection, seekAppointment, stageCoup, lobbyLaw,
+  runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, repairShip,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
