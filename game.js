@@ -4903,10 +4903,12 @@ function setTab(name) {
 /* ============================================================
    VERSION CHECK — poll the server for a newer build and tell the player
    whether refreshing will keep their saved game (credits, colonies, …).
-   On each release, bump APP_VERSION here AND version.json to match. Bump
-   SAVE_VERSION (and the SAVE_KEY suffix) ONLY when a release breaks old saves.
+   On each release, bump APP_VERSION here AND version.json to match — AND the
+   ?v= query on game.js / style.css in index.html, so browsers fetch the new
+   build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
+   ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.1.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "saveVersion": "v2",
-  "notes": ""
+  "notes": "Progressive feature unlocks, save/load to disk, a tidier top bar, colony faction alignment, and tabbed Ship/Research/Industry/Colony managers."
 }
