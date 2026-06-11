@@ -5148,26 +5148,22 @@ function init() {
   checkUnlocks(true); applyTabVisibility();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
-  const brand = document.querySelector(".brand");
-  const ng = document.createElement("button");
-  ng.className = "btn btn-sm"; ng.style.marginLeft = "8px"; ng.textContent = "⟲ New"; ng.title = "New game (trading start)";
-  ng.addEventListener("click", () => newGame()); brand.appendChild(ng);
-  const nc = document.createElement("button");
-  nc.className = "btn btn-sm"; nc.style.marginLeft = "6px"; nc.textContent = "🌍 Colonize"; nc.title = "New game — skip trading, start ready to colonize";
-  nc.addEventListener("click", () => newGame("colony")); brand.appendChild(nc);
-  const nj = document.createElement("button");
-  nj.className = "btn btn-sm"; nj.style.marginLeft = "6px"; nj.textContent = "📖 Log"; nj.title = "Download your captain's log — a narrative dossier you can hand to an AI to write your biography or a novel";
-  nj.addEventListener("click", () => downloadJournal()); brand.appendChild(nj);
-  const nsv = document.createElement("button");
-  nsv.className = "btn btn-sm"; nsv.style.marginLeft = "6px"; nsv.textContent = "💾 Save"; nsv.title = "Save this game to a file on your disk (backup, or move between browsers/machines)";
-  nsv.addEventListener("click", () => exportSave()); brand.appendChild(nsv);
-  const nld = document.createElement("button");
-  nld.className = "btn btn-sm"; nld.style.marginLeft = "6px"; nld.textContent = "📂 Load"; nld.title = "Load a game from a save file on your disk (replaces the current game)";
-  nld.addEventListener("click", () => importSave()); brand.appendChild(nld);
-  const nh = document.createElement("button");
-  nh.className = "btn btn-sm"; nh.style.marginLeft = "6px"; nh.textContent = "❓ Help"; nh.title = "How to play, and links to the project";
-  nh.addEventListener("click", () => toggleHelp()); brand.appendChild(nh);
-  // (No header button for a politics start — careers switch freely in-game; the
+  // Captain's Console — game actions live in the sidebar, keeping the top bar
+  // to just resources and the cycle button.
+  const menu = document.getElementById("gameMenu") || document.querySelector(".brand");
+  [
+    { label: "⟲ New",      title: "New game (trading start)",                                                                            fn: () => newGame() },
+    { label: "🌍 Colonize", title: "New game — skip trading, start ready to colonize",                                                    fn: () => newGame("colony") },
+    { label: "📖 Log",      title: "Download your captain's log — a narrative dossier you can hand to an AI to write your biography or a novel", fn: () => downloadJournal() },
+    { label: "💾 Save",     title: "Save this game to a file on your disk (backup, or move between browsers/machines)",                     fn: () => exportSave() },
+    { label: "📂 Load",     title: "Load a game from a save file on your disk (replaces the current game)",                                fn: () => importSave() },
+    { label: "❓ Help",     title: "How to play, and links to the project",                                                                fn: () => toggleHelp() },
+  ].forEach(b => {
+    const el = document.createElement("button");
+    el.className = "btn btn-sm"; el.textContent = b.label; el.title = b.title;
+    el.addEventListener("click", b.fn); menu.appendChild(el);
+  });
+  // (No console button for a politics start — careers switch freely in-game; the
   //  Politics tab offers an "Enter Public Life" kickstart instead.)
   renderAll(); setTab("galaxy");
   startVersionWatch();
