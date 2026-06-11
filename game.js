@@ -927,6 +927,8 @@ function freshState(opts = {}) {
     log: [],
     stats: { jumps: 0, trades: 0, profit: 0, busts: 0 },
     journal: [],               // captain's log: persistent narrative chronicle
+    unlocked: {},              // progressive disclosure: which tabs have been revealed
+    showAllTabs: false,        // veteran toggle: reveal every tab at once
     achieved: {},
     won: false,
   };
@@ -1205,6 +1207,8 @@ function reserveOf(pid, c) {
   if (!S.pirates) S.pirates = {};
   if (S.pirateCalm == null) S.pirateCalm = 0;
   if (S.encounter === undefined) S.encounter = null;
+  if (!S.unlocked) { S.unlocked = {}; checkUnlocks(true); }   // veterans keep everything they've earned, silently
+  if (S.showAllTabs == null) S.showAllTabs = false;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   if (S.res && S.res.drones == null) S.res.drones = 0;
   if (S.res && S.res.ai == null) S.res.ai = 0;
@@ -1522,7 +1526,7 @@ function maybeAmbush(dest) {
     log(`🏴‍☠️ Ambush! A ${pirate.ico} <span class="c">${pirate.name}</span> drops out of the dark off ${dest.name} and demands ${fmt(pirate.toll)} cr — or your cargo.`, "bad");
     toast(`Pirate ambush: ${pirate.name}!`, "bad");
     if (typeof announce === "function") announce("🏴‍☠️ Pirate Ambush", `A ${pirate.name} has you in its sights. Pay, run, or fight.`, false);
-    if (typeof setTab === "function") setTab("raid");
+    unlock("raid"); if (typeof setTab === "function") setTab("raid");
   }
 }
 function encounterPay() {
@@ -1802,7 +1806,7 @@ function startInterdiction(p, kind) {
   toast("Navy interdiction!", "bad");
   if (typeof announce === "function")
     announce("🚨 Navy Interdiction", `${p.name} authorities have you in their sights. Bribe, fight your way clear, or surrender — but you're locked down until it's settled.`, false);
-  if (typeof setTab === "function") setTab("raid");
+  unlock("raid"); if (typeof setTab === "function") setTab("raid");
 }
 // called on arrival at a port: notorious captains can't just stroll into lawful space
 function maybeInterdict(dest) {
@@ -4672,6 +4676,7 @@ function renderColonies() {
 
 function renderAll() {
   if (typeof document === "undefined") return;
+  checkUnlocks(); applyTabVisibility();
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
   renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderShipPanel(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
@@ -4680,7 +4685,76 @@ function renderAll() {
 /* ============================================================
    TABS / PERSISTENCE / INIT
    ============================================================ */
+/* ============================================================
+   PROGRESSIVE DISCLOSURE — reveal features as the captain grows, so a new
+   player meets three tabs, not ten. Unlocks are action-driven (what you hold,
+   research, earn) with cycle-count fallbacks so nothing hides forever. The
+   next 1-2 locked tabs show as 🔒 teasers; the rest stay hidden until near.
+   ============================================================ */
+const ALWAYS_TABS = ["galaxy", "market", "ship"];
+const TAB_LADDER = [
+  { id: "missions",  blurb: "contracts, missions & your legacy goals",
+    hint: "Unlocks with your first contract", test: s => s.contracts.length > 0 || s.turn >= 2 },
+  { id: "research",  blurb: "spend tech points to unlock technologies",
+    hint: "Unlocks once you earn tech points", test: s => (s.res.tech || 0) > 0 || s.turn >= 3 },
+  { id: "industry",  blurb: "refine raw materials into finished goods",
+    hint: "Unlocks when you carry raw materials", test: s => RAW_IDS.some(c => (s.res[c] || 0) > 0) || s.turn >= 4 },
+  { id: "raid",      blurb: "hunt pirates or prey on shipping",
+    hint: "Unlocks when you fit Weapon Systems (Ship)", test: s => (s.upgrades.cannons || 0) > 0 || s.prey || s.encounter || s.interdiction || s.turn >= 6 },
+  { id: "bases",     blurb: "automated off-world production",
+    hint: "Unlocks once you can afford a base (~5,000 cr)", test: s => (s.res.credits || 0) >= 5000 || Object.keys(s.bases || {}).length > 0 || s.turn >= 7 },
+  { id: "politics",  blurb: "factions, influence, office & law",
+    hint: "Unlocks when you gain influence", test: s => (s.res.influence || 0) > 0 || s.office > 0 || (s.orgs && s.orgs.party) || s.turn >= 9 },
+  { id: "colonies",  blurb: "found and grow your own worlds",
+    hint: "Unlocks with the Colonial Charter (Research)", test: s => !!s.techs.colonial || currentPlanet().colonizable || Object.keys(s.colonies || {}).length > 0 },
+];
+const RAW_IDS = ["ore", "crystals", "radioactives", "ice", "biomass", "spice", "gas", "relics"];
+function tabUnlocked(id) { return S.showAllTabs || ALWAYS_TABS.includes(id) || !!(S.unlocked && S.unlocked[id]); }
+function tabHint(id) { const g = TAB_LADDER.find(t => t.id === id); return g ? g.hint : ""; }
+function unlock(id, announceIt) {
+  if (!S.unlocked) S.unlocked = {};
+  if (S.unlocked[id] || ALWAYS_TABS.includes(id)) return;
+  S.unlocked[id] = true;
+  const g = TAB_LADDER.find(t => t.id === id);
+  if (g && announceIt !== false) {
+    const lbl = tabLabel(id);
+    log(`🔓 New feature unlocked: <b>${lbl}</b> — ${g.blurb}.`, "event");
+    if (typeof toast === "function") toast(`🔓 Unlocked: ${lbl}`, "good");
+  }
+}
+function checkUnlocks(silent) {
+  if (!S.unlocked) S.unlocked = {};
+  TAB_LADDER.forEach(g => { if (!S.unlocked[g.id] && g.test(S)) unlock(g.id, !silent); });
+}
+function tabLabel(id) {
+  const el = typeof document !== "undefined" && document.querySelector(`.tab[data-tab="${id}"]`);
+  return (el && (el.dataset.label || el.textContent)) || id;
+}
+function applyTabVisibility() {
+  if (typeof document === "undefined") return;
+  const btns = Array.from(document.querySelectorAll(".tab"));
+  // how many locked ladder tabs to tease (next 2 in ladder order)
+  const lockedLadder = TAB_LADDER.filter(g => !tabUnlocked(g.id));
+  const teasers = new Set(lockedLadder.slice(0, 2).map(g => g.id));
+  btns.forEach(btn => {
+    const id = btn.dataset.tab;
+    if (!btn.dataset.label) btn.dataset.label = btn.textContent;
+    const base = btn.dataset.label;
+    if (tabUnlocked(id)) { btn.style.display = ""; btn.style.opacity = ""; btn.title = ""; btn.textContent = base; btn.classList.remove("locked"); }
+    else if (teasers.has(id)) { btn.style.display = ""; btn.style.opacity = "0.45"; btn.title = "🔒 " + tabHint(id); btn.textContent = "🔒 " + base; btn.classList.add("locked"); }
+    else { btn.style.display = "none"; }
+  });
+}
+function toggleShowAllTabs() {
+  S.showAllTabs = !S.showAllTabs;
+  if (typeof toast === "function") toast(S.showAllTabs ? "All tabs shown." : "Guided disclosure on.", "good");
+  applyTabVisibility(); saveGame();
+}
 function setTab(name) {
+  if (typeof document !== "undefined" && !tabUnlocked(name)) {
+    if (typeof toast === "function") toast("🔒 " + (tabHint(name) || "Not available yet."), "bad");
+    return;
+  }
   document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === name));
   document.querySelectorAll(".panel").forEach(p => p.classList.add("hidden"));
   document.getElementById("panel-" + name).classList.remove("hidden");
@@ -4773,6 +4847,8 @@ function helpHTML() {
       <a href="${REPO_URL}/issues" target="_blank" rel="noopener" style="color:var(--accent,#38bdf8)">🐞 Report a bug / request a feature</a> ·
       <a href="${REPO_URL}#readme" target="_blank" rel="noopener" style="color:var(--accent,#38bdf8)">📖 README</a>
     </p>
+    <h4>Display</h4>
+    <p style="margin:0"><button class="btn btn-sm" onclick="toggleShowAllTabs();toggleHelp();toggleHelp()">${typeof S!=="undefined"&&S.showAllTabs?"Use guided disclosure (hide advanced tabs until earned)":"Show all tabs now (reveal every feature)"}</button></p>
     <p style="opacity:.6;font-size:12px;margin-top:10px">Stellar Frontier v${typeof APP_VERSION!=="undefined"?APP_VERSION:""} · made with Claude. Tip: press <b>Esc</b> to close.</p>
   `;
 }
@@ -4935,6 +5011,8 @@ function newGame(mode) {
     log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`);
   }
   jotOpening(colony ? "colony" : politics ? "politics" : "trade");
+  if (colony) unlock("colonies", false); if (politics) unlock("politics", false);
+  checkUnlocks(true);
   saveGame(); renderAll(); setTab(colony ? "colonies" : politics ? "politics" : "galaxy");
 }
 function jotOpening(mode) {
@@ -4970,6 +5048,8 @@ function init() {
   if (!S.pirates) S.pirates = {};
   if (S.pirateCalm == null) S.pirateCalm = 0;
   if (S.encounter === undefined) S.encounter = null;
+  if (!S.unlocked) { S.unlocked = {}; checkUnlocks(true); }   // veterans keep everything they've earned, silently
+  if (S.showAllTabs == null) S.showAllTabs = false;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   if (S.res && S.res.drones == null) S.res.drones = 0;
   if (S.res && S.res.ai == null) S.res.ai = 0;
@@ -4983,6 +5063,7 @@ function init() {
   if (S.commission === undefined) S.commission = null;
   UPGRADES.forEach(u => { if (S.upgrades[u.id] == null) S.upgrades[u.id] = 0; });  // backfill new upgrades (cannons)
   syncObjectives();
+  checkUnlocks(true); applyTabVisibility();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
   const brand = document.querySelector(".brand");
@@ -5019,6 +5100,6 @@ Object.assign(window, {
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
-  acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp,
+  acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
   huntPirates, encounterPay, encounterFlee, encounterFight, deepScan,
 });
