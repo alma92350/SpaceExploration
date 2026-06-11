@@ -3953,12 +3953,16 @@ function renderIndustry() {
     </div>`;
   }).join("");
 
+  const IND_VIEWS = [["extract", "⛏️ Extraction"], ["produce", "🏭 Production"]];
+  const body = subView("industry", IND_VIEWS) === "produce"
+    ? `<div class="section-title">🏭 Production</div>
+       <div class="cards">${prodCards}</div>`
+    : `<div class="section-title">⛏️ Extraction (here)</div>
+       <div class="cards">${extractCards || '<div class="hint">No raw deposits on this world — trade or produce instead.</div>'}</div>`;
   el.innerHTML = `<h2>Industry — ${p.name}</h2>
     <div class="subtitle">Industry level ${p.industry}/10. Extract raw materials (only what this world holds), then refine and manufacture them. Each task uses 1 action. Actions left: <b>${al}</b>.</div>
-    <div class="section-title">⛏️ Extraction (here)</div>
-    <div class="cards">${extractCards || '<div class="hint">No raw deposits on this world — trade or produce instead.</div>'}</div>
-    <div class="section-title">🏭 Production</div>
-    <div class="cards">${prodCards}</div>`;
+    ${subTabBar("industry", IND_VIEWS)}
+    ${body}`;
 }
 
 /* ----- Research ----- */
@@ -3978,16 +3982,27 @@ function renderResearch() {
         ${done ? "" : `<button class="btn btn-primary" ${avail && S.res.tech >= t.cost ? "" : "disabled"} onclick="researchTech('${t.id}')">Research</button>`}</div>
     </div>`;
   }).join("");
-  el.innerHTML = `<h2>Research & Technology</h2>
-    <div class="subtitle">Generate tech points, then unlock new extraction, production and strategic tech. You have <b>${fmt(S.res.tech)} 🔬</b>.</div>
-    <div class="cards"><div class="card">
+  const researched = TECHS.filter(techUnlocked).length;
+  const RES_VIEWS = [["lab", "🔬 Laboratory"], ["tree", `🌳 Tech Tree (${researched}/${TECHS.length})`]];
+  const labBody = `<div class="cards"><div class="card">
       <h4>🔬 Run Experiments</h4>
       <div class="desc">Output scales with this world's tech level (${p.tech}/10) and your Research Lab.</div>
       <div class="meta"><span class="hint">Est. output</span><span class="cost">+${Math.round((2 + p.tech) * (1 + S.upgrades.lab * 0.40))} 🔬</span></div>
       <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="research()">Research (1 action)</button>
-    </div></div>
-    <div class="section-title">Technology Tree</div>
-    <div class="cards">${techCards}</div>`;
+    </div>
+    <div class="card"><h4>📈 Knowledge</h4>
+      <div class="ship-stat"><span class="k">🔬 Tech points</span><span class="v">${fmt(S.res.tech)}</span></div>
+      <div class="ship-stat"><span class="k">🧪 Researched</span><span class="v">${researched} / ${TECHS.length}</span></div>
+      <div class="ship-stat"><span class="k">🔬 Lab tier</span><span class="v">${S.upgrades.lab ? "Tier " + S.upgrades.lab : "none"}</span></div>
+      <div class="hint" style="margin-top:6px">Switch to the 🌳 Tech Tree to spend points.</div>
+    </div></div>`;
+  const body = subView("research", RES_VIEWS) === "tree"
+    ? `<div class="section-title">Technology Tree</div><div class="cards">${techCards}</div>`
+    : labBody;
+  el.innerHTML = `<h2>Research & Technology</h2>
+    <div class="subtitle">Generate tech points, then unlock new extraction, production and strategic tech. You have <b>${fmt(S.res.tech)} 🔬</b>.</div>
+    ${subTabBar("research", RES_VIEWS)}
+    ${body}`;
 }
 
 /* ----- Politics ----- */
@@ -4496,23 +4511,59 @@ function renderRaid() {
     <div class="subtitle">Two trades, one gun: <b>prey on shipping</b> (build Dread, mind your Wanted — the navy interdicts the notorious; havens and letters of marque are an outlaw&#39;s tools) or <b>hunt pirates</b> for lawful bounties that scale with their rank — every kill calms the lanes, shielding your colonies and convoys. Travel through infested systems and the pirates may find <i>you</i>.</div>
     <div class="cards">${status}${action}${commCard}${havenCard}${lordCard}${marshalCard}</div>`;
 }
+/* ---------- Generic in-panel sub-tabs ----------
+   A lightweight tab strip inside a panel. View state is UI-only (not saved);
+   an unknown/stale view falls back to the first. Used by Ship, Research and
+   Industry to break long pages into focused sections. */
+const subViews = {};
+function subView(panel, views) {
+  const cur = subViews[panel];
+  return views.some(v => v[0] === cur) ? cur : views[0][0];
+}
+function subTabBar(panel, views) {
+  const cur = subView(panel, views);
+  return `<div class="row subtabs" style="margin:6px 0 12px;flex-wrap:wrap">${views.map(([id, lbl]) =>
+    `<button class="btn btn-sm ${cur === id ? "btn-primary" : ""}" onclick="setSubView('${panel}','${id}')">${lbl}</button>`).join("")}</div>`;
+}
+function setSubView(panel, v) {
+  subViews[panel] = v;
+  ({ ship: renderShipPanel, research: renderResearch, industry: renderIndustry }[panel] || renderAll)();
+}
+
+// Ship outfitting grouped into focused bays
+const SHIP_CATEGORIES = [
+  ["core",   "🚀 Core",          ["cargo", "fueltank", "engine"]],
+  ["gather", "⛏️ Gathering",     ["miner", "hydro", "gasscoop", "salvager", "factory", "reactor", "lab"]],
+  ["combat", "⚔️ Combat",        ["shield", "armor", "pointdef", "dronebay", "aimain", "cannons"]],
+  ["trade",  "🕴️ Trade & Holds", ["hazmat", "smuggler", "trade", "envoy"]],
+];
+const SHIP_TAB_VIEWS = SHIP_CATEGORIES.map(c => [c[0], c[1]]);
+
+function shipUpgradeCard(u) {
+  const tier = S.upgrades[u.id], maxed = tier >= u.tiers, cost = upgradeCost(u);
+  const dots = Array.from({ length: u.tiers }, (_, i) => `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
+  const cls = maxed ? "card maxed" : tier > 0 ? "card owned" : "card";
+  return `<div class="${cls}">
+    <h4>${u.ico} ${u.name} <span class="tier-dots">${dots}</span></h4>
+    <div class="desc">${u.desc}</div>
+    <div class="hint">Current: ${tier > 0 ? u.effect(tier) : "not installed"}</div>
+    ${maxed ? `<div class="pill good">◉ Fully upgraded</div>`
+      : `<div class="meta"><span class="hint">Next: ${u.effect(tier + 1)}</span><span class="cost">${fmt(cost)} 💰</span></div>
+         <button class="btn btn-primary" ${S.res.credits >= cost ? "" : "disabled"} onclick="buyUpgrade('${u.id}')">Install Tier ${tier + 1}</button>`}
+  </div>`;
+}
 function renderShipPanel() {
   const el = document.getElementById("panel-ship");
-  const cards = UPGRADES.map(u => {
-    const tier = S.upgrades[u.id], maxed = tier >= u.tiers, cost = upgradeCost(u);
-    const dots = Array.from({ length: u.tiers }, (_, i) => `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
-    const cls = maxed ? "card maxed" : tier > 0 ? "card owned" : "card";
-    return `<div class="${cls}">
-      <h4>${u.ico} ${u.name} <span class="tier-dots">${dots}</span></h4>
-      <div class="desc">${u.desc}</div>
-      <div class="hint">Current: ${tier > 0 ? u.effect(tier) : "not installed"}</div>
-      ${maxed ? `<div class="pill good">◉ Fully upgraded</div>`
-        : `<div class="meta"><span class="hint">Next: ${u.effect(tier + 1)}</span><span class="cost">${fmt(cost)} 💰</span></div>
-           <button class="btn btn-primary" ${S.res.credits >= cost ? "" : "disabled"} onclick="buyUpgrade('${u.id}')">Install Tier ${tier + 1}</button>`}
-    </div>`;
-  }).join("");
+  const cur = subView("ship", SHIP_TAB_VIEWS);
+  const cat = SHIP_CATEGORIES.find(c => c[0] === cur) || SHIP_CATEGORIES[0];
+  const inCat = new Set(SHIP_CATEGORIES.flatMap(c => c[2]));
+  const ids = cur === SHIP_CATEGORIES[0][0]
+    ? cat[2].concat(UPGRADES.filter(u => !inCat.has(u.id)).map(u => u.id))   // stash any uncategorised module in Core
+    : cat[2];
+  const cards = ids.map(id => UPGRADES.find(u => u.id === id)).filter(Boolean).map(shipUpgradeCard).join("");
   el.innerHTML = `<h2>Ship Outfitting — S.S. Wanderer</h2>
-    <div class="subtitle">Fifteen upgrade systems, three tiers each. Some modules (Gas Scoop, Salvage Rig) unlock new extraction; others (Shielded & Smuggler's Holds) keep contraband out of customs' hands.</div>
+    <div class="subtitle">Twenty upgrade systems across four bays, three tiers each. Some modules (Gas Scoop, Salvage Rig) unlock new extraction; others (Shielded & Smuggler's Holds) keep contraband out of customs' hands.</div>
+    ${subTabBar("ship", SHIP_TAB_VIEWS)}
     <div class="cards">${cards}</div>`;
 }
 
@@ -5280,5 +5331,6 @@ Object.assign(window, {
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
   exportSave, importSave, importSaveText, parseSaveText, buildSaveText,
   setColonyView, alignColony, colonyIndependence,
+  setSubView,
   huntPirates, encounterPay, encounterFlee, encounterFight, deepScan,
 });
