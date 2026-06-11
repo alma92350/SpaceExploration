@@ -1,5 +1,5 @@
 {
-  "version": "1.1.1",
+  "version": "1.1.2",
   "saveVersion": "v2",
-  "notes": "Progressive feature unlocks, save/load to disk, a tidier top bar, colony faction alignment, and tabbed Ship/Research/Industry/Colony managers. Pirate adversaries now scale to your strength so fights stay challenging at every stage."
+  "notes": "Spaceport logistics overhaul: every spaceport colony now exports its surplus automatically, and the network carries raw materials and intermediates \u2014 mining colonies can feed factory colonies."
 }

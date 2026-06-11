@@ -3479,7 +3479,17 @@ function processColonies() {
 /* ============================================================
    LOGISTICS NETWORK  (automated colony supply via Spaceports)
    ============================================================ */
-const COLONY_SUPPLY = ["biomass", "energy", "alloys", "medicine", "goods", "luxury"];
+const COLONY_SUPPLY = ["biomass", "energy", "alloys", "medicine", "goods", "luxury"];  // staples every colony can order by default
+// everything the network will carry for a given cycle: staples, plus anything
+// any networked colony stores or has ordered — so mines feed factories too
+function networkGoods(nets) {
+  const set = new Set(COLONY_SUPPLY);
+  nets.forEach(([, c]) => {
+    Object.entries(c.orders || {}).forEach(([k, v]) => { if (v > 0) set.add(k); });
+    Object.entries(c.storage || {}).forEach(([k, v]) => { if (v > 0) set.add(k); });
+  });
+  return CARGO_IDS.filter(c => set.has(c));
+}
 function spaceportTier(col) { return col.buildings.spaceport || 0; }
 function colonyNetworked(col) { return spaceportTier(col) > 0; }
 function logisticsFee(col) {
@@ -3503,7 +3513,7 @@ function setOrder(c) {
 function processLogistics() {
   // pirate convoy ambush: an active logistics network draws raiders unless the lanes are calm
   if (!pirateCalm()) {
-    const nets0 = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c) && c.orders && Object.keys(c.orders).length);
+    const nets0 = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c));
     if (nets0.length) {
       const threat = PLANETS.reduce((s2, p) => s2 + pirateLevel(p.id), 0) / PLANETS.length;
       if (Math.random() < 0.04 + threat * 0.03) {
@@ -3516,13 +3526,14 @@ function processLogistics() {
       }
     }
   }
-  const nets = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c) && c.orders && Object.keys(c.orders).length);
-  if (!nets.length) return;
+  const nets = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c));
+  if (nets.length < 1) return;
   const used = {};
-  nets.forEach(([id]) => { used[id] = {}; COLONY_SUPPLY.forEach(c => used[id][c] = 0); });
+  nets.forEach(([id]) => { used[id] = {}; });
   let spent = 0, moved = false;
 
-  COLONY_SUPPLY.forEach(c => {
+  networkGoods(nets).forEach(c => {
+    nets.forEach(([id]) => { used[id][c] = used[id][c] || 0; });
     const parties = nets.map(([id, col]) => ({ id, col, planet: PLANETS.find(p => p.id === id) }));
     const receivers = parties.filter(p => (p.col.orders[c] || 0) > (p.col.storage[c] || 0));
     if (!receivers.length) return;
@@ -4768,14 +4779,26 @@ function renderColonies() {
         <div class="hint">Build a 🛰️ Spaceport to automate supply: set target stock levels and each cycle the network redistributes surplus from your other colonies (free), then imports the rest from market. No more ferrying food by hand.</div>`;
     } else {
       const fee = Math.round(logisticsFee(col) * 100);
-      const orderRows = COLONY_SUPPLY.map(c => {
+      // orderable here: the staples, anything stored or already ordered, and the
+      // inputs of every industry building standing in this colony — so a factory
+      // world can order ore without you ferrying the first batch by hand
+      const orderable = (() => {
+        const set = new Set(COLONY_SUPPLY);
+        Object.entries(col.orders || {}).forEach(([k, v]) => { if (v > 0) set.add(k); });
+        Object.entries(col.storage || {}).forEach(([k, v]) => { if (v > 0) set.add(k); });
+        colonyBuildingList(planet).forEach(b => {
+          if ((col.buildings[b.id] || 0) > 0 && b.recipe) Object.keys(b.recipe.in).forEach(i => set.add(i));
+        });
+        return CARGO_IDS.filter(c2 => set.has(c2));
+      })();
+      const orderRows = orderable.map(c => {
         const tgt = (col.orders && col.orders[c]) || 0;
         return `<tr><td>${COM[c].ico} ${COM[c].name}</td><td class="num">${fmt(col.storage[c] || 0)}</td>
           <td><div class="trade-controls"><input class="qty" id="auto-${c}" type="number" min="0" value="${tgt}" />
           <button class="btn btn-sm" onclick="setOrder('${c}')">Set auto</button></div></td></tr>`;
       }).join("");
       logi = `<div class="section-title">🚚 Logistics — Spaceport ${sp} · fee ${fee}% · ${logisticsCap(col)}/cycle</div>
-        <div class="hint" style="margin-bottom:8px">Each cycle the network keeps these topped to target: first from surplus on your other colonies (free), then bought from market at +${fee}%. Set a target to 0 to stop importing it.</div>
+        <div class="hint" style="margin-bottom:8px">Each cycle the network keeps these topped to target: <b>first from surplus on your other spaceport colonies (free)</b> — every spaceport colony donates anything above its own targets automatically — then bought from market at +${fee}%. Set a target to 0 to stop importing it. Rows cover staples plus your industry's inputs.</div>
         <table><thead><tr><th>Commodity</th><th class="num">In colony</th><th>Keep stocked to</th></tr></thead><tbody>${orderRows}</tbody></table>`;
     }
     // ---- faction diplomacy card (Overview tab) ----
@@ -4925,7 +4948,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.1.1";
+const APP_VERSION = "1.1.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
