@@ -4527,7 +4527,7 @@ function subTabBar(panel, views) {
 }
 function setSubView(panel, v) {
   subViews[panel] = v;
-  ({ ship: renderShipPanel, research: renderResearch, industry: renderIndustry }[panel] || renderAll)();
+  ({ ship: renderShipPanel, research: renderResearch, industry: renderIndustry, colonies: renderColonies }[panel] || renderAll)();
 }
 
 // Ship outfitting grouped into focused bays
@@ -4657,8 +4657,6 @@ function colonyHealthPill(col) {
     : h >= 45 ? '<span class="pill">stable</span>'
     : '<span class="pill bad">unrest</span>';
 }
-let colonyView = "overview";   // sub-tab within the colony manager (UI-only, not saved)
-function setColonyView(v) { colonyView = v; renderColonies(); }
 function renderColonies() {
   const el = document.getElementById("panel-colonies");
   const pid = S.location, planet = currentPlanet(), col = S.colonies[pid];
@@ -4792,9 +4790,8 @@ function renderColonies() {
     }
     // ---- sub-tabs: Overview / Buildings / Supplies / Spaceport ----
     const views = [["overview", "📊 Overview"], ["buildings", "🏗️ Buildings"], ["supplies", "📦 Supplies"], ["spaceport", "🛰️ Spaceport"]];
-    if (!views.some(v => v[0] === colonyView)) colonyView = "overview";
-    const subBar = `<div class="row" style="margin:6px 0 10px;flex-wrap:wrap">${views.map(([id, lbl]) =>
-      `<button class="btn btn-sm ${colonyView === id ? "btn-primary" : ""}" onclick="setColonyView('${id}')">${lbl}</button>`).join("")}</div>`;
+    const colonyView = subView("colonies", views);
+    const subBar = subTabBar("colonies", views);
     let body;
     if (colonyView === "buildings") {
       body = `<div class="cards">${buildCards}</div>`;
@@ -5330,7 +5327,7 @@ Object.assign(window, {
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
   exportSave, importSave, importSaveText, parseSaveText, buildSaveText,
-  setColonyView, alignColony, colonyIndependence,
+  alignColony, colonyIndependence,
   setSubView,
   huntPirates, encounterPay, encounterFlee, encounterFight, deepScan,
 });
