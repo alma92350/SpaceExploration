@@ -4847,6 +4847,8 @@ function helpHTML() {
       <a href="${REPO_URL}/issues" target="_blank" rel="noopener" style="color:var(--accent,#38bdf8)">🐞 Report a bug / request a feature</a> ·
       <a href="${REPO_URL}#readme" target="_blank" rel="noopener" style="color:var(--accent,#38bdf8)">📖 README</a>
     </p>
+    <h4>Save &amp; Load</h4>
+    <p style="margin:0 0 6px">Your game autosaves in this browser. Use <b>💾 Save</b> (top bar) to download a save file you own — a backup, or to carry your run to another browser or machine — and <b>📂 Load</b> to restore one.</p>
     <h4>Display</h4>
     <p style="margin:0"><button class="btn btn-sm" onclick="toggleShowAllTabs();toggleHelp();toggleHelp()">${typeof S!=="undefined"&&S.showAllTabs?"Use guided disclosure (hide advanced tabs until earned)":"Show all tabs now (reveal every feature)"}</button></p>
     <p style="opacity:.6;font-size:12px;margin-top:10px">Stellar Frontier v${typeof APP_VERSION!=="undefined"?APP_VERSION:""} · made with Claude. Tip: press <b>Esc</b> to close.</p>
@@ -4989,6 +4991,86 @@ function downloadJournal() {
   if (typeof toast === "function") toast("Captain's log downloaded.", "good");
   return text;
 }
+/* ============================================================
+   SAVE / LOAD TO DISK — the autosave lives in localStorage (one slot, tied to
+   this browser). These let a captain export the run to a .json file they own:
+   a backup, a way to move between machines/browsers, or to keep many saves.
+   Importing replaces the autosave and reloads so init() normalises cleanly.
+   ============================================================ */
+const SAVE_FILE_TAG = "stellar-frontier-save";
+function buildSaveText() {
+  // a small envelope so the file is self-describing and future-proof
+  return JSON.stringify({
+    game: SAVE_FILE_TAG,
+    version: SAVE_VERSION,
+    exported: new Date().toISOString(),
+    cycle: S.turn,
+    credits: S.res && S.res.credits,
+    state: S,
+  }, null, 2);
+}
+function looksLikeState(o) {
+  return !!o && typeof o === "object" && o.res && typeof o.res === "object"
+    && o.location !== undefined && o.upgrades && typeof o.upgrades === "object";
+}
+function parseSaveText(text) {
+  let data;
+  try { data = JSON.parse(text); } catch (e) { return { ok: false, error: "Not a valid save file (could not read JSON)." }; }
+  // accept our envelope, or a bare state object (forgiving)
+  const state = data && data.state !== undefined ? data.state : data;
+  if (data && data.game && data.game !== SAVE_FILE_TAG) return { ok: false, error: "This file is not a Stellar Frontier save." };
+  if (!looksLikeState(state)) return { ok: false, error: "This file doesn't contain a valid Stellar Frontier save." };
+  return { ok: true, state: state };
+}
+function exportSave() {
+  if (typeof saveGame === "function") saveGame();   // capture the very latest state
+  const text = buildSaveText();
+  if (typeof document === "undefined" || !document.body || typeof Blob === "undefined" || typeof URL === "undefined" || !URL.createObjectURL) {
+    if (typeof toast === "function") toast("Save export unavailable here.", "bad");
+    return text;
+  }
+  const stamp = new Date().toISOString().slice(0, 10);
+  const blob = new Blob([text], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = `${SAVE_FILE_TAG}-cycle-${S.turn}-${stamp}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  if (typeof toast === "function") toast("Game saved to disk.", "good");
+  return text;
+}
+// testable core: validate text, persist to the autosave slot. Returns {ok,error}.
+function importSaveText(text) {
+  const res = parseSaveText(text);
+  if (!res.ok) return res;
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(res.state)); }
+  catch (e) { return { ok: false, error: "Could not write the save to this browser." }; }
+  return { ok: true, state: res.state };
+}
+function importSave() {
+  if (typeof document === "undefined" || !document.createElement || typeof FileReader === "undefined") {
+    if (typeof toast === "function") toast("Save import unavailable here.", "bad");
+    return;
+  }
+  const input = document.createElement("input");
+  input.type = "file"; input.accept = "application/json,.json"; input.style.display = "none";
+  input.addEventListener("change", () => {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = importSaveText(String(reader.result || ""));
+      if (!res.ok) { if (typeof toast === "function") toast(res.error || "Import failed.", "bad"); input.remove(); return; }
+      if (typeof confirm === "function" && !confirm("Load this save? It will replace your current game (cycle " + (res.state.turn != null ? res.state.turn : "?") + "). The page will reload.")) { input.remove(); return; }
+      if (typeof toast === "function") toast("Save loaded — reloading…", "good");
+      if (typeof location !== "undefined" && location.reload) location.reload();
+    };
+    reader.onerror = () => { if (typeof toast === "function") toast("Could not read that file.", "bad"); };
+    reader.readAsText(file);
+  });
+  if (document.body) document.body.appendChild(input);
+  input.click();
+}
 function saveGame() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
 function loadGame() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { S = JSON.parse(raw); return true; } } catch (e) {}
@@ -5076,6 +5158,12 @@ function init() {
   const nj = document.createElement("button");
   nj.className = "btn btn-sm"; nj.style.marginLeft = "6px"; nj.textContent = "📖 Log"; nj.title = "Download your captain's log — a narrative dossier you can hand to an AI to write your biography or a novel";
   nj.addEventListener("click", () => downloadJournal()); brand.appendChild(nj);
+  const nsv = document.createElement("button");
+  nsv.className = "btn btn-sm"; nsv.style.marginLeft = "6px"; nsv.textContent = "💾 Save"; nsv.title = "Save this game to a file on your disk (backup, or move between browsers/machines)";
+  nsv.addEventListener("click", () => exportSave()); brand.appendChild(nsv);
+  const nld = document.createElement("button");
+  nld.className = "btn btn-sm"; nld.style.marginLeft = "6px"; nld.textContent = "📂 Load"; nld.title = "Load a game from a save file on your disk (replaces the current game)";
+  nld.addEventListener("click", () => importSave()); brand.appendChild(nld);
   const nh = document.createElement("button");
   nh.className = "btn btn-sm"; nh.style.marginLeft = "6px"; nh.textContent = "❓ Help"; nh.title = "How to play, and links to the project";
   nh.addEventListener("click", () => toggleHelp()); brand.appendChild(nh);
@@ -5101,5 +5189,6 @@ Object.assign(window, {
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
+  exportSave, importSave, importSaveText, parseSaveText, buildSaveText,
   huntPirates, encounterPay, encounterFlee, encounterFight, deepScan,
 });
