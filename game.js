@@ -839,12 +839,12 @@ function colonyRecipeStr(r) {
 function effIndustry(p) {
   const c = S.colonies && S.colonies[p.id];
   if (!c) return p.industry;
-  return p.industry + (c.buildings.factory || 0) + Math.floor(c.pop / 12);
+  return p.industry + (c.buildings.factory || 0) + Math.floor(c.pop / 12) + (c.faction === "miners" ? 1 : 0);
 }
 function effTech(p) {
   const c = S.colonies && S.colonies[p.id];
   if (!c) return p.tech;
-  return p.tech + (c.buildings.lab || 0) + Math.floor(c.pop / 20);
+  return p.tech + (c.buildings.lab || 0) + Math.floor(c.pop / 20) + (c.faction === "syndicate" ? 1 : 0);
 }
 
 /* ============================================================
@@ -3133,9 +3133,10 @@ function colonyStorageCap(col, planet) {
   return cap;
 }
 function colonyTaxIncome(col) {
-  return Math.round(col.pop * (col.tax / 100) * 5 * (col.happiness / 100));
+  const factionMul = col.faction ? 1.25 : 1;   // bloc trade network lifts commerce
+  return Math.round(col.pop * (col.tax / 100) * 5 * (col.happiness / 100) * factionMul);
 }
-function colonyDefense(col) { return col.buildings.garrison || 0; }
+function colonyDefense(col) { return (col.buildings.garrison || 0) + colonyFactionDefenseBonus(col); }
 
 /* one risk/boom roll per colony per cycle — returns true if the colony seceded */
 function colonyEventRoll(pid, col, planet) {
@@ -3208,6 +3209,50 @@ function colonyEventRoll(pid, col, planet) {
   return false;
 }
 
+/* ---------- Colony faction alignment ----------
+   A colony may petition to join one of the great factions. The charter buys
+   real benefits — the bloc's trade network (commerce), its patrols (support)
+   and a flavored perk — at the price of irking rival blocs. */
+const ALIGN_REP_REQ = 20;     // your standing with the bloc before they'll charter a colony
+const ALIGN_COST_INF = 3;     // influence to push the petition through
+const FACTION_COLONY_PERKS = {
+  core:      "⚖️ +1 extra defense level — the law watches over you",
+  miners:    "⛏️ +1 planetary Industry — guild engineers on site",
+  agri:      "🌾 Farms yield +25% — combine agronomists at work",
+  syndicate: "🔬 +1 planetary Tech — syndicate data access",
+  frontier:  "🛰️ Import fees cut to the bone — free-trader routes",
+};
+function colonyFactionDefenseBonus(col) { return col.faction ? (col.faction === "core" ? 2 : 1) : 0; }
+function alignColony(fid) {
+  const pid = S.location, col = S.colonies[pid], planet = currentPlanet();
+  if (!col || !FACTIONS[fid] || col.faction === fid) return;
+  if ((S.rep[fid] || 0) < ALIGN_REP_REQ) return toast(`${FACTIONS[fid].name} won't charter a colony for a stranger — need rep ${ALIGN_REP_REQ}+.`, "bad");
+  if ((S.res.influence || 0) < ALIGN_COST_INF) return toast(`Need ${ALIGN_COST_INF} influence to push the petition through.`, "bad");
+  if (col.happiness < 40) return toast("The colonists are too unhappy to rally behind a banner (need 40+ happiness).", "bad");
+  const old = col.faction;
+  S.res.influence -= ALIGN_COST_INF;
+  col.faction = fid;
+  addRep(fid, 8);
+  Object.keys(FACTIONS).forEach(o => { if (o !== fid && o !== old) addRep(o, -3); });
+  if (old) addRep(old, -10);
+  const F = FACTIONS[fid];
+  log(`${F.ico} <span class="c">${planet.name}</span> has joined the <b>${F.name}</b>${old ? ` — the ${FACTIONS[old].name} are furious` : ""}. Their trade network and patrols now serve the colony.`, "event");
+  toast(`${planet.name} joins the ${F.name}!`, "event");
+  jot(`${planet.name} raised the colors of the ${F.name} — commerce, protection, and a bloc's expectations.`, "colony");
+  afterAction();
+}
+function colonyIndependence() {
+  const pid = S.location, col = S.colonies[pid], planet = currentPlanet();
+  if (!col || !col.faction) return;
+  const old = col.faction;
+  col.faction = null;
+  addRep(old, -10);
+  col.unrest = (col.unrest || 0) + 1;
+  col.happiness = Math.max(0, col.happiness - 8);
+  log(`🏳️ <span class="c">${planet.name}</span> declares independence from the ${FACTIONS[old].name}. The bloc takes it badly, and the streets are tense.`, "bad");
+  toast(`${planet.name} goes independent.`, "bad");
+  afterAction();
+}
 function canColonize() { return !!S.techs.colonial; }
 function colonize() {
   const pid = S.location, planet = currentPlanet();
@@ -3217,7 +3262,7 @@ function colonize() {
   if (S.res.credits < COLONY_FOUNDATION_COST) return toast("Not enough credits.", "bad");
   if (!canAfford(COLONY_FOUNDATION_MATS)) return toast("Need materials in your hold: metals & goods.", "bad");
   S.res.credits -= COLONY_FOUNDATION_COST; pay(COLONY_FOUNDATION_MATS);
-  S.colonies[pid] = { pop: 5, happiness: 70, tax: 10, buildings: {}, storage: {}, orders: {}, unrest: 0 };
+  S.colonies[pid] = { pop: 5, happiness: 70, tax: 10, buildings: {}, storage: {}, orders: {}, unrest: 0, faction: null };
   log(`🌍 Founded a colony on <span class="c">${planet.name}</span>! It will grow as you develop it.`, "event");
   toast("Colony founded!", "event");
   afterAction();
@@ -3287,7 +3332,7 @@ function processColonies() {
       if (b.recipe) return;                                               // industry chain handled in 1b
       if (b.produces) {
         let out;
-        if (b.id === "farm") out = Math.round(t * 8 * pollutionFarmMult(pid));   // smog & climate wither crops
+        if (b.id === "farm") out = Math.round(t * 8 * pollutionFarmMult(pid) * (col.faction === "agri" ? 1.25 : 1));   // smog withers crops; Agri-Combine agronomists boost them
         else {
           out = Math.round(t * 5 * (planet.deposits[b.produces] || 1) * depletionMult(pid, b.produces) * pollutionYieldMult(pid));
           drawReserve(pid, b.produces, out);
@@ -3340,6 +3385,7 @@ function processColonies() {
     if ((col.storage.medicine || 0) > 0) target += 6;          // healthcare keeps colonists well
     target -= col.tax * 0.8;
     target -= pollutionOf(pid) * 0.12;                         // nobody loves living in smog
+    if (col.faction) target += 6;                              // a bloc's backing steadies morale
     target = Math.max(0, Math.min(100, target));
     col.happiness = Math.round(col.happiness + (target - col.happiness) * 0.34);
 
@@ -3359,6 +3405,7 @@ function processColonies() {
     // 5) tax income
     const income = colonyTaxIncome(col);
     if (income > 0) S.res.credits += income;
+    if (col.faction && S.turn % 5 === 0) addRep(col.faction, 1);   // loyal colonies endear you to their bloc
 
     // 5b) the spaceport exports surplus manufactured goods for credits (keeping happiness reserves)
     const sp = spaceportTier(col);
@@ -3375,6 +3422,7 @@ function processColonies() {
         if (q > 0) { col.storage[c] -= q; revenue += Math.round(sellPrice(pid, c) * 0.85 * q); throughput -= q; }
       }
       if (revenue > 0) {
+        if (col.faction) revenue = Math.round(revenue * 1.15);     // bloc merchants pay a premium
         S.res.credits += revenue; col._exp = (col._exp || 0) + revenue;
         if (S.turn % 4 === 0) { log(`🛰️ <span class="c">${planet.name}</span>'s spaceport exported manufactured goods (+${fmt(col._exp)} cr).`, "good"); col._exp = 0; }
       }
@@ -3419,7 +3467,11 @@ function processColonies() {
 const COLONY_SUPPLY = ["biomass", "energy", "alloys", "medicine", "goods", "luxury"];
 function spaceportTier(col) { return col.buildings.spaceport || 0; }
 function colonyNetworked(col) { return spaceportTier(col) > 0; }
-function logisticsFee(col) { return Math.max(0.10, 0.30 - spaceportTier(col) * 0.05); }
+function logisticsFee(col) {
+  let fee = 0.30 - spaceportTier(col) * 0.05;
+  if (col.faction) fee -= col.faction === "frontier" ? 0.15 : 0.10;   // bloc trade routes
+  return Math.max(col.faction ? 0.05 : 0.10, fee);
+}
 function logisticsCap(col) { return spaceportTier(col) * 40; }  // throughput per commodity per cycle
 
 function setOrder(c) {
@@ -4554,6 +4606,8 @@ function colonyHealthPill(col) {
     : h >= 45 ? '<span class="pill">stable</span>'
     : '<span class="pill bad">unrest</span>';
 }
+let colonyView = "overview";   // sub-tab within the colony manager (UI-only, not saved)
+function setColonyView(v) { colonyView = v; renderColonies(); }
 function renderColonies() {
   const el = document.getElementById("panel-colonies");
   const pid = S.location, planet = currentPlanet(), col = S.colonies[pid];
@@ -4564,7 +4618,7 @@ function renderColonies() {
     overview = ids.map(id => {
       const c = S.colonies[id], pl = PLANETS.find(p => p.id === id);
       return `<div class="card ${id === pid ? "owned" : ""}">
-        <h4>${pl.name} ${id === pid ? '<span class="pill good">here</span>' : ""} ${colonyHealthPill(c)}</h4>
+        <h4>${pl.name} ${c.faction ? `<span class="pill" title="${FACTIONS[c.faction].name}">${FACTIONS[c.faction].ico}</span>` : ""} ${id === pid ? '<span class="pill good">here</span>' : ""} ${colonyHealthPill(c)}</h4>
         <div class="ship-stat"><span class="k">👥 Population</span><span class="v">${fmt(c.pop)}k</span></div>
         <div class="ship-stat"><span class="k">😊 Happiness</span><span class="v">${c.happiness}%</span></div>
         <div class="ship-stat"><span class="k">🏭/🔬 Dev</span><span class="v">Ind ${effIndustry(pl)} · Tech ${effTech(pl)}</span></div>
@@ -4658,13 +4712,52 @@ function renderColonies() {
         <div class="hint" style="margin-bottom:8px">Each cycle the network keeps these topped to target: first from surplus on your other colonies (free), then bought from market at +${fee}%. Set a target to 0 to stop importing it.</div>
         <table><thead><tr><th>Commodity</th><th class="num">In colony</th><th>Keep stocked to</th></tr></thead><tbody>${orderRows}</tbody></table>`;
     }
-    here = `<div class="section-title">🏛️ Govern — ${planet.name}</div>
-      <div class="cards">${govCard}</div>
-      <div class="section-title">🏗️ Buildings</div>
-      <div class="cards">${buildCards}</div>
-      <div class="section-title">📦 Supplies (${colonyStorageUsed(col)}/${colonyStorageCap(col, planet)}) — feed & develop your colony</div>
-      <table><thead><tr><th>Commodity</th><th class="num">In ship</th><th class="num">In colony</th><th></th></tr></thead><tbody>${rows}</tbody></table>
-      ${logi}`;
+    // ---- faction diplomacy card (Overview tab) ----
+    let factionCard;
+    if (col.faction) {
+      const F = FACTIONS[col.faction];
+      factionCard = `<div class="card owned">
+        <h4>${F.ico} Aligned — ${F.name}</h4>
+        <div class="desc">${planet.name} flies ${F.name} colors: their merchants trade here and their patrols watch the sky.</div>
+        <div class="ship-stat"><span class="k">💰 Commerce</span><span class="v">tax +25% · exports +15% · import fee −${col.faction === "frontier" ? 15 : 10}pp</span></div>
+        <div class="ship-stat"><span class="k">🛡️ Support</span><span class="v">+${colonyFactionDefenseBonus(col)} defense · +6 happiness</span></div>
+        <div class="ship-stat"><span class="k">${F.ico} Perk</span><span class="v">${FACTION_COLONY_PERKS[col.faction]}</span></div>
+        <div class="ship-stat"><span class="k">🤝 Standing</span><span class="v">+1 ${F.name} rep / 5 cycles</span></div>
+        <button class="btn btn-sm" style="margin-top:8px" onclick="colonyIndependence()">🏳️ Declare independence</button>
+        <div class="hint">Leaving costs −10 rep with the ${F.name}, +1 unrest and −8 happiness.</div>
+      </div>`;
+    } else {
+      const fRows = Object.entries(FACTIONS).map(([fid, F]) => {
+        const rep = Math.round(S.rep[fid] || 0);
+        const ok = rep >= ALIGN_REP_REQ && (S.res.influence || 0) >= ALIGN_COST_INF && col.happiness >= 40;
+        const why = rep < ALIGN_REP_REQ ? `rep ${rep}/${ALIGN_REP_REQ}` : (S.res.influence || 0) < ALIGN_COST_INF ? `need ${ALIGN_COST_INF}⚖ influence` : col.happiness < 40 ? "happiness 40+ needed" : `rep ${rep}`;
+        return `<div class="meta"><span>${F.ico} <b style="color:${F.color}">${F.name}</b><br><span class="hint">${FACTION_COLONY_PERKS[fid]}</span></span>
+          <span style="text-align:right"><span class="hint">${why}</span><br><button class="btn btn-sm" ${ok ? "" : "disabled"} onclick="alignColony('${fid}')">Join</button></span></div>`;
+      }).join("");
+      factionCard = `<div class="card">
+        <h4>🤝 Faction Alignment <span class="pill">independent</span></h4>
+        <div class="desc">Petition a great faction to charter ${planet.name}. Their trade network lifts tax income and export prices and cuts import fees; their patrols bolster defense; their backing steadies morale — and each loyal cycle earns their respect. Costs ${ALIGN_COST_INF} ⚖ influence; rival blocs take offense (−3 rep).</div>
+        ${fRows}</div>`;
+    }
+    // ---- sub-tabs: Overview / Buildings / Supplies / Spaceport ----
+    const views = [["overview", "📊 Overview"], ["buildings", "🏗️ Buildings"], ["supplies", "📦 Supplies"], ["spaceport", "🛰️ Spaceport"]];
+    if (!views.some(v => v[0] === colonyView)) colonyView = "overview";
+    const subBar = `<div class="row" style="margin:6px 0 10px;flex-wrap:wrap">${views.map(([id, lbl]) =>
+      `<button class="btn btn-sm ${colonyView === id ? "btn-primary" : ""}" onclick="setColonyView('${id}')">${lbl}</button>`).join("")}</div>`;
+    let body;
+    if (colonyView === "buildings") {
+      body = `<div class="cards">${buildCards}</div>`;
+    } else if (colonyView === "supplies") {
+      body = `<div class="section-title">📦 Supplies (${colonyStorageUsed(col)}/${colonyStorageCap(col, planet)}) — feed & develop your colony</div>
+        <table><thead><tr><th>Commodity</th><th class="num">In ship</th><th class="num">In colony</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    } else if (colonyView === "spaceport") {
+      const expNote = sp ? `<div class="hint" style="margin-top:8px">🛰️ The spaceport also auto-exports surplus finished goods each cycle (throughput ${sp * 6})${col.faction ? `, and ${FACTIONS[col.faction].name} merchants pay a 15% premium` : ""}.</div>` : "";
+      body = `${logi}${expNote}`;
+    } else {
+      body = `<div class="cards">${govCard}${factionCard}</div>`;
+    }
+    here = `<div class="section-title">🏛️ Govern — ${planet.name} ${col.faction ? `<span class="pill" title="${FACTIONS[col.faction].name}">${FACTIONS[col.faction].ico} ${FACTIONS[col.faction].name}</span>` : ""}</div>
+      ${subBar}${body}`;
   }
 
   el.innerHTML = `<h2>Colonies</h2>
@@ -5110,7 +5203,7 @@ function init() {
   if (!S.prices || !S.prices[S.location]) rollPrices();
   if (!S.bases) S.bases = {};   // backfill for older saves
   if (!S.colonies) S.colonies = {};
-  Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; });
+  Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; });
   if (!S.discovered) S.discovered = {};
   if (!S.contracts) { S.contracts = []; S.contractSeq = S.contractSeq || 0; }
   if (!S.pol) S.pol = { popularity: 0, legitimacy: 0, heat: 0, slush: 0 };  // backfill politics meters
@@ -5186,5 +5279,6 @@ Object.assign(window, {
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
   exportSave, importSave, importSaveText, parseSaveText, buildSaveText,
+  setColonyView, alignColony, colonyIndependence,
   huntPirates, encounterPay, encounterFlee, encounterFight, deepScan,
 });
