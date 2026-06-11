@@ -67,6 +67,9 @@ const COM = {
                  illegalAt: ["terra", "verdani"], hazard: true },
   // ----- LUXURY / STRATEGIC -----
   luxury:      { name: "Luxury Goods",   ico: "💠", tier: "Luxury", base: 220 },
+  drones:      { name: "Combat Drones",  ico: "🛸", tier: "Component", base: 140 },
+  ai:          { name: "AI Cores",       ico: "🧠", tier: "Strategic", base: 380,
+                 illegalAt: ["terra", "verdani"] },
   antimatter:  { name: "Antimatter",     ico: "🌀", tier: "Strategic", base: 420,
                  illegalAt: ["terra", "verdani", "kybernet", "forge", "glacius"], hazard: true },
 };
@@ -104,6 +107,8 @@ const RECIPES = [
   { id: "machine", out: "machinery",   qty: 1, in: { alloys: 1, electronics: 1, energy: 1 },      kind: "make" },
   { id: "weapfab", out: "weapons",     qty: 1, in: { alloys: 1, electronics: 1, radioactives: 1 }, req: "weapontech", kind: "make" },
   { id: "luxefab", out: "luxury",      qty: 1, in: { spice: 2, electronics: 1, energy: 1 },       kind: "make" },
+  { id: "dronefab",out: "drones",      qty: 1, in: { alloys: 1, electronics: 1, energy: 1 }, req: "dronetech",  kind: "make" },
+  { id: "aifab",   out: "ai",          qty: 1, in: { electronics: 2, crystals: 1, energy: 3 }, req: "aicores",   kind: "make" },
   { id: "antifab", out: "antimatter",  qty: 1, in: { relics: 2, electronics: 1, energy: 3 }, req: "antimatter", kind: "make" },
 ];
 
@@ -256,6 +261,14 @@ const UPGRADES = [
     desc: "Generate more tech points from research.", effect: t => `+${t*40}% research` },
   { id: "shield",  name: "Deflector Shield",  ico: "🛡️", tiers: 3, baseCost: 1600, costMul: 2.4,
     desc: "Reduce losses from pirates, hazards and customs scans.", effect: t => `-${t*20}% losses` },
+  { id: "armor",   name: "Armor Plating",      ico: "🦾", tiers: 3, baseCost: 1700, costMul: 2.4,
+    desc: "Ablative plate — blunts KINETIC fire from cannons and mass drivers.", effect: t => `-${t*12}% kinetic damage` },
+  { id: "pointdef", name: "Point-Defense Grid", ico: "📡", tiers: 3, baseCost: 1900, costMul: 2.4,
+    desc: "Flak screens & interceptors — swats GUIDED torpedoes and enemy drones.", effect: t => `-${t*12}% guided damage` },
+  { id: "dronebay", name: "Drone Bay",          ico: "🛸", tiers: 3, baseCost: 2200, costMul: 2.4,
+    desc: "Launch racks for Combat Drones — deploys up to 2 per tier each battle (needs Swarm Robotics).", effect: t => `deploys ${t*2} drones` },
+  { id: "aimain",  name: "AI Mainframe",        ico: "🧠", tiers: 3, baseCost: 2600, costMul: 2.5,
+    desc: "Shipboard machine mind — free Deep Scans, smarter drones, sharper escapes (needs Machine Minds).", effect: t => `scan free · drones +${t*30}% · flee +${t*8}%` },
   { id: "cannons", name: "Weapon Systems",     ico: "🔫", tiers: 3, baseCost: 1800, costMul: 2.4,
     desc: "Mass drivers and torpedoes — the muscle for raiding ships on the lanes.", effect: t => `+${t*9} raid power` },
   { id: "hazmat",  name: "Shielded Hold",     ico: "☣️", tiers: 3, baseCost: 1500, costMul: 2.3,
@@ -296,6 +309,14 @@ const TECHS = [
     desc: "Unlock faction & senate politics and high-tier missions." },
   { id: "colonial",   name: "Colonial Charter",   cost: 120, ico: "🏙️", req: ["diplomacy"],
     desc: "Unlock colonization: found and govern your own colonies on frontier worlds, and run deep-space surveys to chart new ones." },
+  { id: "energyweapons", name: "Coherent Beam Arrays", cost: 80, ico: "⚡", req: ["weapontech"],
+    desc: "Unlock Energy Lances — beam weapons that burn through armor (ammo: energy)." },
+  { id: "torpedoes", name: "Fusion Torpedoes", cost: 110, ico: "☢️", req: ["weapontech", "reactors"],
+    desc: "Unlock torpedo salvos — devastating, but point-defense can swat them (ammo: radioactives + metals)." },
+  { id: "dronetech", name: "Swarm Robotics", cost: 120, ico: "🛸", req: ["electronics"],
+    desc: "Unlock Combat Drones: fabrication, the Drone Bay, and drone swarms in battle." },
+  { id: "aicores", name: "Machine Minds", cost: 150, ico: "🧠", req: ["dronetech"],
+    desc: "Unlock AI Cores, colony Datacenters and the shipboard AI Mainframe." },
   { id: "antimatter", name: "Antimatter Containment", cost: 160, ico: "🌀", req: ["reactors", "electronics"],
     desc: "Unlock Antimatter synthesis from relics & energy." },
   { id: "terraform",  name: "Terraforming",       cost: 200, ico: "🌍", req: ["biotech", "antimatter"],
@@ -775,6 +796,12 @@ function colonyBuildingList(planet) {
     { id: "arms_factory", name: "Arms Factory", ico: "🔫", tiers: 5, baseCost: 4000, costMul: 1.75, req: "weapontech", pollute: 0.5,
       recipe: { in: { alloys: 1, electronics: 1, radioactives: 1 }, out: "weapons", outQty: 1, rate: 2, stage: 4 },
       desc: "Forges Weapons from Alloys + Electronics + Radioactives — lucrative, but watch the law." },
+    { id: "drone_works", name: "Drone Works", ico: "🛸", tiers: 5, baseCost: 3600, costMul: 1.7, req: "dronetech", pollute: 0.2,
+      recipe: { in: { alloys: 1, electronics: 1, energy: 1 }, out: "drones", outQty: 1, rate: 2, stage: 4 },
+      desc: "Assembles Combat Drones from Alloys + Electronics — ammunition for your Drone Bay, and a hot export." },
+    { id: "datacenter", name: "Datacenter", ico: "🧠", tiers: 5, baseCost: 4400, costMul: 1.75, req: "aicores", pollute: 0.1,
+      tech: 1, recipe: { in: { electronics: 1, energy: 3 }, out: "ai", outQty: 1, rate: 1, stage: 4 },
+      desc: "+1 tech per tier. Trains AI Cores from Electronics + Energy — the sector&#39;s machine-mind economy runs on these." },
     { id: "antimatter_forge", name: "Antimatter Forge", ico: "🌀", tiers: 4, baseCost: 5200, costMul: 1.8, req: "antimatter", pollute: 0.6,
       recipe: { in: { relics: 2, electronics: 1, energy: 3 }, out: "antimatter", outQty: 1, rate: 1, stage: 5 },
       desc: "Binds Relics + Electronics into Antimatter — the apex of colonial industry." },
@@ -797,7 +824,8 @@ function colonyBuildingList(planet) {
 function colonyBuildingMats(def, nextTier) {
   const mats = { metals: 10 + nextTier * 7 };
   if (["factory", "lab", "spaceport", "garrison", "reactor", "foundry", "fabricator",
-       "machine_works", "luxury_atelier", "pharma_lab", "arms_factory", "antimatter_forge"].includes(def.id)
+       "machine_works", "luxury_atelier", "pharma_lab", "arms_factory", "antimatter_forge",
+       "drone_works", "datacenter"].includes(def.id)
       || ADVANCED_MODULES.includes(def.id))
     mats.electronics = 2 + nextTier * 2;
   return mats;
@@ -1178,6 +1206,8 @@ function reserveOf(pid, c) {
   if (S.pirateCalm == null) S.pirateCalm = 0;
   if (S.encounter === undefined) S.encounter = null;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
+  if (S.res && S.res.drones == null) S.res.drones = 0;
+  if (S.res && S.res.ai == null) S.res.ai = 0;
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.reserves[pid]) S.reserves[pid] = {};
@@ -1322,6 +1352,80 @@ function notoriety() {
   return { tier: 0, label: "Unknown", col: "var(--good)" };
 }
 function dmgReduction() { return Math.min(0.6, S.upgrades.shield * 0.18); }
+
+/* ------------------------------------------------------------
+   TACTICAL COMBAT — typed weapons vs typed defenses
+   Every foe carries a defense profile (armor / shields / point-defense, 0-3)
+   and fights with a weapon class of its own. You pick your weapon per attack:
+   ammo comes from your hold, effectiveness depends on what the target is
+   hardened against — Deep Scan reveals the profile so you can pick the
+   counter. Damage you take is typed too: Armor Plating blunts kinetic,
+   shields soak energy, the Point-Defense Grid swats guided munitions.
+   ------------------------------------------------------------ */
+const WEAPONS = {
+  kinetic:    { name: "Kinetic Cannons",     ico: "🔫", mult: 1.0,  ammo: {},                              counter: "armor",  req: null },
+  energy:     { name: "Energy Lance",        ico: "⚡", mult: 1.2,  ammo: { energy: 5 },                   counter: "shield", req: "energyweapons" },
+  torpedo:    { name: "Fusion Torpedoes",    ico: "☢️", mult: 1.45, ammo: { radioactives: 2, metals: 2 },  counter: "pd",     req: "torpedoes" },
+  antimatter: { name: "Antimatter Warhead",  ico: "🌀", mult: 1.95, ammo: { antimatter: 1 },               counter: null,     req: "antimatter" },
+};
+function weaponAvailable(w) { const W = WEAPONS[w]; return !W.req || !!S.techs[W.req]; }
+function weaponAffordable(w) { return Object.entries(WEAPONS[w].ammo).every(([c, q]) => (S.res[c] || 0) >= q); }
+function weaponEff(w, foe) {
+  const W = WEAPONS[w];
+  const resist = W.counter && foe.def ? (foe.def[W.counter] || 0) : 0;
+  return W.mult * (1 - resist * 0.13);                   // hardened targets shrug off the countered class
+}
+function payAmmo(w) { Object.entries(WEAPONS[w].ammo).forEach(([c, q]) => { S.res[c] -= q; }); }
+// foe defense profile + weapon class, scaled to its strength/locale
+function genFoeProfile(kind, strength, law) {
+  const grade = Math.min(3, Math.floor(strength / 18));
+  const def = { armor: 0, shield: 0, pd: 0 };
+  if (kind === "hauler" || kind === "collapse" || kind === "pirate") def.armor = Math.min(3, grade + 1);
+  else if (kind === "patrol" || kind === "liner") def.shield = Math.min(3, grade + 1);
+  else def[pick(["armor", "shield", "pd"])] = grade;
+  if (grade >= 2) def[pick(["armor", "shield", "pd"])] = Math.max(def[pick(["armor", "shield", "pd"])] || 0, grade - 1);
+  const wtype = kind === "patrol" ? (law >= 0.5 ? "guided" : "energy")
+    : kind === "pirate" ? pick(["kinetic", "kinetic", "guided"])
+    : pick(["kinetic", "energy"]);
+  return { def, wtype };
+}
+function bestWeaponHint(foe) {
+  let best = "kinetic", bestEff = 0;
+  Object.keys(WEAPONS).forEach(w => {
+    if (!weaponAvailable(w)) return;
+    const e = weaponEff(w, foe);
+    if (e > bestEff) { bestEff = e; best = w; }
+  });
+  return WEAPONS[best];
+}
+// typed incoming damage: your specialized defenses blunt the matching class
+function takeTypedDamage(amount, wtype) {
+  if (wtype === "kinetic") amount *= 1 - Math.min(0.36, S.upgrades.armor * 0.12);
+  else if (wtype === "guided") amount *= 1 - Math.min(0.36, S.upgrades.pointdef * 0.12);
+  return takeHullDamage(amount);                          // shields (generic) apply inside as before
+}
+function dronesDeployable() { return Math.min((S.upgrades.dronebay || 0) * 2, S.res.drones || 0); }
+function droneStrike(foe) {
+  const n = dronesDeployable();
+  if (n <= 0) return { n: 0, bonus: 0, lost: 0 };
+  const pd = (foe.def && foe.def.pd) || 0;
+  const eff = (2.5 + (S.upgrades.aimain || 0) * 0.75) * (1 - pd * 0.15);   // AI flies them better; flak thins them
+  const lost = Math.min(n, rint(0, Math.ceil(n * 0.25 + pd * 0.5)));
+  return { n, bonus: n * eff, lost };
+}
+function deepScan() {
+  const t = S.prey || S.encounter;
+  if (!t) return toast("Nothing to scan.", "bad");
+  if (t.scanned) return toast("Already scanned.", "bad");
+  const free = S.upgrades.aimain >= 1;
+  if (!free && (S.res.energy || 0) < 4) return toast("Deep scan needs 4 ⚡ energy (or an AI Mainframe).", "bad");
+  if (!free) S.res.energy -= 4;
+  t.scanned = true;
+  const hint = bestWeaponHint(t);
+  log(`🔍 Deep scan complete: ${t.name} — strength ${t.strength}, armor ${t.def.armor}, shields ${t.def.shield}, point-defense ${t.def.pd}; fights with ${t.wtype} weapons. Recommended: ${hint.ico} ${hint.name}.`, "");
+  toast("Scan complete.", "");
+  afterAction();
+}
 /* prey archetypes — cutthroat buffet: bulk haulers, fat liners, hard patrols */
 const PREY = {
   hauler:   { name: "Ore Hauler",    ico: "🛻", faction: "miners",    base: 10, wanted: 5,  credits: [200, 600],   goods: ["ore", "metals", "ice"],            bulk: [12, 26] },
@@ -1357,12 +1461,14 @@ function pirateCalm() { return (S.pirateCalm || 0) > S.turn; }
 function genPirate(level) {
   const lv = Math.max(1, Math.min(5, level));
   const R = PIRATE_RANKS[lv];
+  const str = Math.round(R.str * (0.85 + Math.random() * 0.3));
+  const prof = genFoeProfile("pirate", str, 0.2);
   return {
     type: "pirate", isPirate: true, level: lv,
     name: R.name, ico: R.ico, faction: "frontier",
     cargo: { weapons: rint(2, 4 + lv), fuel: rint(3, 8) },
     credits: rint(100, 250) * lv,
-    strength: Math.round(R.str * (0.85 + Math.random() * 0.3)),
+    strength: str, def: prof.def, wtype: prof.wtype,
     bounty: Math.round(R.bounty * (0.85 + Math.random() * 0.3)),
     wantedGain: 0,
   };
@@ -1429,7 +1535,7 @@ function encounterPay() {
 }
 function encounterFlee() {
   const e = S.encounter; if (!e) return;
-  const odds = 0.45 + S.upgrades.engine * 0.15 - e.level * 0.05;
+  const odds = 0.45 + S.upgrades.engine * 0.15 + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05;
   if (Math.random() < odds) {
     S.encounter = null;
     log(`🏃 You burned hard and lost the ${e.name} in the void. Clean getaway.`, "good");
@@ -1441,20 +1547,24 @@ function encounterFlee() {
   }
   afterAction();
 }
-function encounterFight() {
+function encounterFight(wkey) {
   const e = S.encounter; if (!e) return;
-  const power = raidPower() + Math.random() * 10;
+  wkey = wkey && WEAPONS[wkey] && weaponAvailable(wkey) && weaponAffordable(wkey) ? wkey : "kinetic";
+  payAmmo(wkey);
+  const drones = droneStrike(e);
+  if (drones.lost > 0) S.res.drones -= drones.lost;
+  const power = (raidPower() + Math.random() * 10) * weaponEff(wkey, e) + drones.bonus;
   const def = e.strength + Math.random() * 10;
   if (power > def) {
     const taken = plunder(e);
-    const dmg = takeHullDamage(e.strength * 0.5 * (0.4 + Math.random() * 0.5) + 2);
+    const dmg = takeTypedDamage(e.strength * 0.5 * (0.4 + Math.random() * 0.5) + 2, e.wtype);
     S.pirate.dread += 3; clampPirate();
     pirateKillRewards(e);
     S.encounter = null;
     log(`⚔️ You turned on the ${e.ico} ${e.name} and blew it apart! Bounty ${fmt(e.bounty)} cr + salvage ${taken.join(" ") || "none"}. (Hull −${dmg}, no Wanted)`, "good");
     toast(`Ambusher destroyed — bounty ${fmt(e.bounty)} cr!`, "good");
   } else {
-    const dmg = takeHullDamage(e.strength * 0.8 * (0.6 + Math.random() * 0.6) + 5);
+    const dmg = takeTypedDamage(e.strength * 0.8 * (0.6 + Math.random() * 0.6) + 5, e.wtype);
     const loss = Math.min(S.res.credits, Math.round(e.toll * 0.8));
     S.res.credits -= loss;
     const stolen = [];
@@ -1488,11 +1598,12 @@ function genPrey() {
   picks.forEach(c => cargo[c] = rint(A.bulk[0], A.bulk[1]));
   let strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5)); // lawful escorts tough but beatable
   if (S.crises && S.crises[p.id]) strength = Math.round(strength * 0.85);                 // escorts thinned by the crisis
+  const prof = genFoeProfile(key, strength, law);
   return {
     type: key, name: A.name, ico: A.ico,
     faction: A.faction || p.faction,
     cargo, credits: rint(A.credits[0], A.credits[1]),
-    strength,
+    strength, def: prof.def, wtype: prof.wtype,
     wantedGain: Math.round(A.wanted * (1 + law * 0.6)),
   };
 }
@@ -1551,23 +1662,28 @@ function plunder(prey) {
   S.pirate.plundered += Math.round(value);
   return taken;
 }
-function resolveRaid(noQuarter) {
+function resolveRaid(noQuarter, wkey) {
   const prey = S.prey; if (!prey) return;
+  wkey = wkey && WEAPONS[wkey] && weaponAvailable(wkey) ? wkey : "kinetic";
+  if (!weaponAffordable(wkey)) { return toast(`No ammo for ${WEAPONS[wkey].name}.`, "bad"); }
   useAction();
-  const power = raidPower() + Math.random() * 10;
+  payAmmo(wkey);
+  const drones = droneStrike(prey);
+  if (drones.lost > 0) S.res.drones -= drones.lost;
+  const power = (raidPower() + Math.random() * 10) * weaponEff(wkey, prey) + drones.bonus;
   const def = prey.strength + Math.random() * 10;
   const margin = power - def;
   S.pirate.raids++;
   if (prey.isPirate) {
     if (margin > 0) {
       const taken = plunder(prey);
-      const dmg = takeHullDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5) + 3);
+      const dmg = takeTypedDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5) + 3, prey.wtype);
       S.pirate.dread += 3; clampPirate();                       // even pirates fear the hunter
       pirateKillRewards(prey);
       log(`🎯 You brought down the ${prey.ico} ${prey.name}! Bounty ${fmt(prey.bounty)} cr + salvage ${taken.join(" ") || "none"} + ${fmt(prey.credits)} cr. (Hull −${dmg}, no Wanted — a lawful kill)`, "good");
       toast(`Bounty collected: ${fmt(prey.bounty)} cr!`, "good");
     } else {
-      const dmg = takeHullDamage(prey.strength * 0.8 * (0.6 + Math.random() * 0.6) + 6);
+      const dmg = takeTypedDamage(prey.strength * 0.8 * (0.6 + Math.random() * 0.6) + 6, prey.wtype);
       log(`☠️ The ${prey.ico} ${prey.name} outfought you — Hull −${dmg} and it slipped back into the dark.`, "bad");
       toast("Pirate escaped!", "bad");
     }
@@ -1577,7 +1693,7 @@ function resolveRaid(noQuarter) {
   const betray = S.commission && prey.faction === S.commission.patron;
   if (margin > 0) {
     const taken = plunder(prey);
-    const dmg = takeHullDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5) + 3); // every fight scars the hull
+    const dmg = takeTypedDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5) + 3, prey.wtype); // every fight scars the hull
     let dread = noQuarter ? 9 : 5;
     const sanctioned = applyCommissionRaid(prey);     // legal kill under marque
     let wanted = sanctioned ? (noQuarter ? 8 : 0) : prey.wantedGain + (noQuarter ? 8 : 0);
@@ -1589,7 +1705,7 @@ function resolveRaid(noQuarter) {
     log(`🏴‍☠️ You raided the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"} + ${fmt(prey.credits)} cr.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Hull −${dmg}, Dread +${dread}, Wanted +${wanted})`, "good");
     toast(`Plundered ${prey.name}!`, "good");
   } else {
-    const dmg = takeHullDamage(prey.strength * 0.8 * (0.6 + Math.random() * 0.6) + 6);
+    const dmg = takeTypedDamage(prey.strength * 0.8 * (0.6 + Math.random() * 0.6) + 6, prey.wtype);
     S.pirate.wanted += Math.round(prey.wantedGain * 0.5);
     clampPirate();
     log(`🛡️ The ${prey.ico} ${prey.name} fought you off — you took Hull −${dmg} and it slipped away. (Wanted +${Math.round(prey.wantedGain * 0.5)})`, "bad");
@@ -1599,8 +1715,8 @@ function resolveRaid(noQuarter) {
   S.prey = null;
   afterAction();
 }
-function raidAttack() { if (!S.prey) return; if (actionsLeft() <= 0) return toast("No actions left.", "bad"); resolveRaid(false); }
-function raidNoQuarter() { if (!S.prey) return; if (actionsLeft() <= 0) return toast("No actions left.", "bad"); resolveRaid(true); }
+function raidAttack(wkey) { if (!S.prey) return; if (actionsLeft() <= 0) return toast("No actions left.", "bad"); resolveRaid(false, wkey); }
+function raidNoQuarter(wkey) { if (!S.prey) return; if (actionsLeft() <= 0) return toast("No actions left.", "bad"); resolveRaid(true, wkey); }
 function raidExtort() {
   const prey = S.prey; if (!prey) return;
   if (actionsLeft() <= 0) return toast("No actions left.", "bad");
@@ -3162,6 +3278,7 @@ function processColonies() {
     colonyBuildingList(planet).forEach(b => {
       const t = col.buildings[b.id] || 0; if (t <= 0) return;
       if (b.id === "lab") { S.res.tech += t * 3; return; }                 // passive research
+      if (b.id === "datacenter") { S.res.tech += t * 2; }                    // machine minds crunch data too (recipe still runs below)
       if (b.id === "scrubber") { if (S.pollution && S.pollution[pid]) S.pollution[pid] = Math.max(0, S.pollution[pid] - t * 1.2); return; }
       if (b.recipe) return;                                               // industry chain handled in 1b
       if (b.produces) {
@@ -4118,6 +4235,29 @@ function renderMissions() {
 }
 
 /* ----- Ship ----- */
+/* tactical readout + weapon buttons for a prey/encounter card */
+function tacticalHTML(t, attackFn) {
+  const al = actionsLeft();
+  const scanBtn = t.scanned ? "" :
+    `<button class="btn btn-sm" title="Reveal defenses, weapon class and the best counter${S.upgrades.aimain >= 1 ? " (free — AI Mainframe)" : " (4 ⚡)"}" onclick="deepScan()">🔍 Deep Scan${S.upgrades.aimain >= 1 ? "" : " (4⚡)"}</button>`;
+  const profile = t.scanned
+    ? `<div class="hint">🛡️ armor ${t.def.armor} · 🔰 shields ${t.def.shield} · 📡 point-def ${t.def.pd} · fires <b>${t.wtype}</b> — counter with <b>${bestWeaponHint(t).ico} ${bestWeaponHint(t).name}</b></div>`
+    : `<div class="hint">Capabilities unknown — a 🔍 Deep Scan reveals its defenses and the best counter.</div>`;
+  const weapons = Object.keys(WEAPONS).filter(weaponAvailable).map(w => {
+    const W = WEAPONS[w];
+    const ammoStr = Object.entries(W.ammo).map(([c, q]) => `${q}${COM[c].ico}`).join("") || "free";
+    const eff = t.scanned ? ` ×${weaponEff(w, t).toFixed(2)}` : "";
+    const ok = al > 0 && weaponAffordable(w);
+    return `<button class="btn btn-sm ${t.scanned && bestWeaponHint(t) === W ? "btn-primary" : ""}" ${ok ? "" : "disabled"}
+      title="${W.name} — ammo: ${ammoStr}${t.scanned ? ` · effectiveness vs this target${eff}` : ""}"
+      onclick="${attackFn}('${w}')">${W.ico}${eff}</button>`;
+  }).join(" ");
+  const dr = dronesDeployable();
+  const droneLine = (S.upgrades.dronebay || 0) > 0
+    ? `<div class="hint">🛸 ${dr > 0 ? `Will deploy <b>${dr}</b> drone${dr > 1 ? "s" : ""}${t.scanned && t.def.pd > 0 ? " (their point-defense will thin them)" : ""}` : "Drone Bay empty — stock 🛸 Combat Drones"}</div>` : "";
+  return `${profile}${droneLine}
+    <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Attack:</span> ${weapons}</div>`;
+}
 function renderRaid() {
   const el = document.getElementById("panel-raid");
   if (!el) return;
@@ -4146,15 +4286,15 @@ function renderRaid() {
     const rp = raidPower();
     const odds = rp >= e.strength * 1.2 ? "favorable" : rp >= e.strength * 0.8 ? "even" : "grim";
     const oddsCol = odds === "favorable" ? "var(--good)" : odds === "even" ? "var(--warn)" : "var(--bad)";
-    const fleeOdds = Math.round(Math.max(5, Math.min(95, (0.45 + S.upgrades.engine * 0.15 - e.level * 0.05) * 100)));
+    const fleeOdds = Math.round(Math.max(5, Math.min(95, (0.45 + S.upgrades.engine * 0.15 + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * 100)));
     action = `<div class="card" style="border-color:var(--bad)">
       <h4>🏴‍☠️ Ambush: ${e.ico} ${e.name} <span class="pill bad">level ${e.level}</span></h4>
       <div class="hint">It demands <b>${fmt(e.toll)} 💰</b> to let you pass. Strength ~${e.strength} · bounty on its head ${fmt(e.bounty)} cr.</div>
       <div class="meta"><span class="hint">Fight odds</span><span class="cost" style="color:${oddsCol}">${odds} — power ${Math.round(rp)} vs ~${e.strength}</span></div>
+      ${tacticalHTML(e, "encounterFight")}
       <div class="row" style="margin-top:6px">
         <button class="btn btn-sm" ${S.res.credits >= e.toll ? "" : "disabled"} title="Pay the toll — bloodless, but galling" onclick="encounterPay()">💰 Pay ${fmt(e.toll)}</button>
         <button class="btn btn-sm" title="Burn for it — failing costs hull" onclick="encounterFlee()">🏃 Flee (~${fleeOdds}%)</button>
-        <button class="btn btn-bad" title="Turn and fight — win the bounty, or be boarded and robbed" onclick="encounterFight()">⚔️ Fight</button>
       </div>
     </div>`;
   } else if (S.interdiction) {
@@ -4184,8 +4324,8 @@ function renderRaid() {
       <h4>${prey.ico} ${prey.name} <span class="pill good">🎯 bounty ${fmt(prey.bounty)} 💰</span></h4>
       <div class="hint">A wanted raider — bringing it down is a <b>lawful kill</b>: bounty, salvage, faction goodwill, no Wanted.</div>
       <div class="meta"><span class="hint">Your odds</span><span class="cost" style="color:${oddsCol2}">${odds2} — power ${Math.round(rp2)} vs ~${prey.strength}</span></div>
+      ${tacticalHTML(prey, "raidAttack")}
       <div class="row" style="margin-top:6px">
-        <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="raidAttack()">⚔️ Engage</button>
         <button class="btn btn-sm" onclick="raidDisengage()">Let it go</button>
       </div>
     </div>`;
@@ -4199,8 +4339,8 @@ function renderRaid() {
       <h4>${prey.ico} ${prey.name} <span class="pill">${FACTIONS[prey.faction].ico} ${FACTIONS[prey.faction].name}</span></h4>
       <div class="hint">Hold: ${cargoStr} · ${fmt(prey.credits)} 💰 · escort strength ~${prey.strength}</div>
       <div class="meta"><span class="hint">Your odds</span><span class="cost" style="color:${oddsCol}">${odds} — power ${Math.round(rp)} vs ~${prey.strength}</span></div>
+      ${tacticalHTML(prey, "raidAttack")}
       <div class="row" style="margin-top:6px">
-        <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="raidAttack()">⚔️ Attack</button>
         <button class="btn btn-bad" ${al > 0 ? "" : "disabled"} title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
         <button class="btn btn-sm" ${al > 0 ? "" : "disabled"} title="Use your Dread to extort tribute — no fight" onclick="raidExtort()">💀 Extort</button>
         <button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>
@@ -4831,6 +4971,8 @@ function init() {
   if (S.pirateCalm == null) S.pirateCalm = 0;
   if (S.encounter === undefined) S.encounter = null;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
+  if (S.res && S.res.drones == null) S.res.drones = 0;
+  if (S.res && S.res.ai == null) S.res.ai = 0;
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
@@ -4878,5 +5020,5 @@ Object.assign(window, {
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp,
-  huntPirates, encounterPay, encounterFlee, encounterFight,
+  huntPirates, encounterPay, encounterFlee, encounterFight, deepScan,
 });
