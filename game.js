@@ -1285,6 +1285,7 @@ function extractMods(comId) {
 }
 
 function extract(comId) {
+  if (combatLocked()) return;
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
   const dep = p.deposits && p.deposits[comId];
@@ -1308,6 +1309,7 @@ function extract(comId) {
 }
 
 function salvage() {
+  if (combatLocked()) return;
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
   if (!p.salvage) return toast("No wrecks to salvage here.", "bad");
@@ -1345,6 +1347,18 @@ function clampPirate() {
 }
 function raidPower() {
   return 6 + S.upgrades.cannons * 9 + S.pirate.dread * 0.15 + (S.techs.weapontech ? 6 : 0);
+}
+/* ---------- Combat lockdown ----------
+   An ambush or interdiction is a STANDOFF: until it's resolved you can't
+   shop, refit, repair, produce, research, move goods or end the cycle —
+   no slipping away to re-arm against the threat. You can always resolve it
+   without resources (flee/fight are free; complying needs no purchase). */
+function inCombat() { return !!(S.encounter || S.interdiction); }
+function combatLocked() {
+  if (!inCombat()) return false;
+  const foe = S.encounter ? `the ${S.encounter.name}` : "the navy patrol";
+  toast(`⚔️ You're locked in a standoff with ${foe} — resolve it first.`, "bad");
+  return true;
 }
 /* how hard the law is hunting you, by Wanted level */
 function notoriety() {
@@ -1768,6 +1782,7 @@ function raidDisengage() {
   afterAction();
 }
 function repairShip() {
+  if (combatLocked()) return;
   if (S.pirate.hull >= HULL_MAX) return toast("Hull is already pristine.", "bad");
   const rate = atHaven() ? 18 : 30;          // your own dry-dock patches up cheap
   const cost = Math.round((HULL_MAX - S.pirate.hull) * rate);
@@ -2109,6 +2124,7 @@ function recipeMaxBatches(r) {
   return Math.min(...Object.entries(r.in).map(([k, v]) => Math.floor((S.res[k] || 0) / v)));
 }
 function produce(recipeId) {
+  if (combatLocked()) return;
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const r = RECIPES.find(x => x.id === recipeId);
   if (!recipeAvailable(r)) return toast("Technology not yet researched.", "bad");
@@ -2137,6 +2153,7 @@ function produce(recipeId) {
    RESEARCH & POLITICS actions
    ============================================================ */
 function research() {
+  if (combatLocked()) return;
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
   const pts = Math.round((2 + effTech(p)) * (1 + S.upgrades.lab * 0.40));
@@ -2234,6 +2251,7 @@ function payAbilityCost(cost) {
   return null;
 }
 function runOrgAbility(orgId, abId) {
+  if (combatLocked()) return;
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const def = orgDef(orgId), o = S.orgs[orgId];
   if (!o) return;
@@ -2730,6 +2748,7 @@ function afterAction() { checkWin(); saveGame(); renderAll(); }
    TRADE
    ============================================================ */
 function buy(c, qty) {
+  if (combatLocked()) return;
   qty = Math.max(0, Math.floor(qty)); if (qty <= 0) return;
   const p = currentPlanet();
   const slip = tradeSlippage(p, c, qty);
@@ -2745,6 +2764,7 @@ function buy(c, qty) {
   afterAction();
 }
 function sell(c, qty) {
+  if (combatLocked()) return;
   qty = Math.max(0, Math.floor(qty)); if (qty <= 0) return;
   if (S.res[c] < qty) return toast("You don't have that many.", "bad");
   // selling contraband where illegal triggers a customs check
@@ -2782,6 +2802,7 @@ function fencePrice(pid, c) {
   return Math.max(1, Math.round(sellPrice(pid, c) * fenceMul(c)));
 }
 function fence(c, qty) {
+  if (combatLocked()) return;
   qty = Math.max(0, Math.floor(qty)); if (qty <= 0) return;
   const p = currentPlanet();
   if (!hasBlackMarket(p)) return toast("No fence operates here — try a syndicate world or the lawless rim.", "bad");
@@ -2888,6 +2909,7 @@ function travel(destId) {
   if (!dest || !isVisible(dest)) return toast("That world isn't on your charts.", "bad");
   const cost = fuelCost(destId);
   if (S.res.fuel < cost) return toast(`Not enough fuel (need ${cost}).`, "bad");
+  if (S.prey) { log(`Your quarry, the ${S.prey.ico} ${S.prey.name}, slipped away as you left the system.`, ""); S.prey = null; }
   S.res.fuel -= cost; S.location = destId; S.visited[destId] = true; S.stats.jumps++;
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
   toast(`Arrived at ${dest.name}`, "event");
@@ -2902,6 +2924,7 @@ function travel(destId) {
    ============================================================ */
 function upgradeCost(u) { return Math.round(u.baseCost * Math.pow(u.costMul, S.upgrades[u.id])); }
 function buyUpgrade(uid) {
+  if (combatLocked()) return;
   const u = UPGRADES.find(x => x.id === uid);
   if (S.upgrades[uid] >= u.tiers) return;
   const cost = upgradeCost(u);
@@ -2914,6 +2937,7 @@ function buyUpgrade(uid) {
 function techUnlocked(t) { return !!S.techs[t.id]; }
 function techAvailable(t) { return !techUnlocked(t) && t.req.every(r => S.techs[r]); }
 function researchTech(tid) {
+  if (combatLocked()) return;
   const t = TECHS.find(x => x.id === tid);
   if (!techAvailable(t)) return;
   if (S.res.tech < t.cost) return toast("Not enough tech points.", "bad");
@@ -3308,6 +3332,7 @@ function setTax(delta) {
   afterAction();
 }
 function colonyDeposit(c) {
+  if (combatLocked()) return;
   const col = S.colonies[S.location];
   if (!col) return;
   let qty = Math.min(+document.getElementById("col-" + c).value || 0, S.res[c] || 0);
@@ -3319,6 +3344,7 @@ function colonyDeposit(c) {
   afterAction();
 }
 function colonyWithdraw(c) {
+  if (combatLocked()) return;
   const col = S.colonies[S.location];
   if (!col) return;
   let qty = Math.min(+document.getElementById("col-" + c).value || 0, col.storage[c] || 0);
@@ -3648,6 +3674,7 @@ function applyDecreeIncome() {
   }
 }
 function endTurn(fromTravel = false) {
+  if (!fromTravel && combatLocked()) return;
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
   processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
@@ -4948,7 +4975,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.1.2";
+const APP_VERSION = "1.1.3";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
