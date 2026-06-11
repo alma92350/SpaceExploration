@@ -29,11 +29,14 @@
         <nav id="tabs">
           <button class="tab active" data-tab="galaxy">🪐 Galaxy</button>
           <button class="tab" data-tab="market">💱 Market</button>
-          <button class="tab" data-tab="industry">🏭 Industry</button>
-          <button class="tab" data-tab="research">🔬 Research</button>
-          <button class="tab" data-tab="politics">🏛️ Politics</button>
-          <button class="tab" data-tab="bases">🏗️ Bases</button>
           <button class="tab" data-tab="ship">🚀 Ship</button>
+          <button class="tab" data-tab="missions">🎯 Missions</button>
+          <button class="tab" data-tab="research">🔬 Research</button>
+          <button class="tab" data-tab="industry">🏭 Industry</button>
+          <button class="tab" data-tab="raid">⚔️ Raider</button>
+          <button class="tab" data-tab="bases">🏗️ Bases</button>
+          <button class="tab" data-tab="politics">🏛️ Politics</button>
+          <button class="tab" data-tab="colonies">🌍 Colonies</button>
         </nav>
 
         <div class="ship-panel">
@@ -45,6 +48,11 @@
             <span id="currentPlanet" class="loc-value">—</span>
           </div>
         </div>
+
+        <div class="game-menu">
+          <h3>Captain's Console</h3>
+          <div id="gameMenu" class="game-menu-buttons"></div>
+        </div>
       </aside>
 
       <!-- Right: tab content -->
@@ -53,8 +61,11 @@
         <div id="panel-market" class="panel hidden"></div>
         <div id="panel-industry" class="panel hidden"></div>
         <div id="panel-research" class="panel hidden"></div>
+        <div id="panel-missions" class="panel hidden"></div>
         <div id="panel-politics" class="panel hidden"></div>
         <div id="panel-bases" class="panel hidden"></div>
+        <div id="panel-colonies" class="panel hidden"></div>
+        <div id="panel-raid" class="panel hidden"></div>
         <div id="panel-ship" class="panel hidden"></div>
       </section>
     </main>
