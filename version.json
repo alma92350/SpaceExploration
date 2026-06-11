@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "saveVersion": "v2",
-  "notes": "Progressive feature unlocks, save/load to disk, a tidier top bar, colony faction alignment, and tabbed Ship/Research/Industry/Colony managers."
+  "notes": "Progressive feature unlocks, save/load to disk, a tidier top bar, colony faction alignment, and tabbed Ship/Research/Industry/Colony managers. Pirate adversaries now scale to your strength so fights stay challenging at every stage."
 }

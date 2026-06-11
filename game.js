@@ -1462,6 +1462,21 @@ function pirateLevel(pid) {
   return S.pirates[pid];
 }
 function pirateCalm() { return (S.pirateCalm || 0) > S.turn; }
+/* ---------- Adversary matchmaking ----------
+   Pirate opposition tracks the CAPTAIN's strength, not the system's raw
+   activity: wherever you are in the game there are corsairs a rank below you
+   and captains a rank above. System activity only tilts the extremes —
+   infested space (4+) breeds bolder names. Activity still gates WHETHER
+   pirates appear (and how often); matchmaking decides WHO shows up. */
+function playerCombatTier() {
+  const pw = raidPower();                               // ~6 green .. ~55 maxed
+  return Math.max(1, Math.min(5, 1 + Math.floor((pw - 8) / 10)));
+}
+function pirateOpposition(systemLvl, bias) {
+  const tier = playerCombatTier();
+  const tilt = systemLvl >= 4 ? 1 : 0;                  // infested space runs a rank hotter
+  return Math.max(1, Math.min(5, tier + tilt + rint(-1, 1) + (bias || 0)));
+}
 function genPirate(level) {
   const lv = Math.max(1, Math.min(5, level));
   const R = PIRATE_RANKS[lv];
@@ -1491,7 +1506,7 @@ function huntPirates() {
     toast("No pirates found.", "");
     return afterAction();
   }
-  S.prey = genPirate(Math.max(1, lvl + rint(-1, 1)));
+  S.prey = genPirate(pirateOpposition(lvl));
   log(`🎯 Pirate contact: a ${S.prey.ico} <span class="c">${S.prey.name}</span> — bounty ${fmt(S.prey.bounty)} cr on its head.`, "event");
   toast(`Pirate sighted: ${S.prey.name}`, "event");
   afterAction();
@@ -1520,7 +1535,7 @@ function maybeAmbush(dest) {
   const lvl = pirateLevel(dest.id);
   if (lvl <= 0) return;
   if (Math.random() < 0.05 + lvl * 0.045) {
-    const pirate = genPirate(Math.max(1, lvl + rint(-1, 0)));
+    const pirate = genPirate(pirateOpposition(lvl, -1));
     pirate.toll = Math.round(300 * pirate.level + Math.min(2500, (S.res.credits + cargoValue()) * 0.04));
     S.encounter = pirate;
     log(`🏴‍☠️ Ambush! A ${pirate.ico} <span class="c">${pirate.name}</span> drops out of the dark off ${dest.name} and demands ${fmt(pirate.toll)} cr — or your cargo.`, "bad");
@@ -4430,7 +4445,9 @@ function renderRaid() {
     action += `<div class="card" ${lvl > 0 ? 'style="border-color:var(--good)"' : ""}>
       <h4>🎯 Hunt Pirates ${lvl > 0 ? `<span class="pill ${lvl >= 2 ? "bad" : ""}">activity level ${lvl}</span>` : '<span class="pill good">lanes clear</span>'}</h4>
       <div class="desc">${lvl > 0
-        ? `Raiders of about <b>${PIRATE_RANKS[Math.min(5, Math.max(1, lvl))].name}</b> rank work this system. Bounties scale with rank — and every kill suppresses pirate raids on your colonies and convoys for a while. A <b>lawful</b> trade: no Wanted.${pirateCalm() ? " <i>(Lanes currently calm.)</i>" : ""}`
+        ? (() => { const _t = playerCombatTier(), _tilt = lvl >= 4 ? 1 : 0;
+            const _lo = Math.max(1, Math.min(5, _t + _tilt - 1)), _hi = Math.max(1, Math.min(5, _t + _tilt + 1));
+            return `Against a captain of your calibre, expect <b>${PIRATE_RANKS[_lo].name}</b> to <b>${PIRATE_RANKS[_hi].name}</b> rank${_tilt ? " — infested space runs hot" : ""}. Bounties scale with rank — and every kill suppresses pirate raids on your colonies and convoys for a while. A <b>lawful</b> trade: no Wanted.${pirateCalm() ? " <i>(Lanes currently calm.)</i>" : ""}`; })()
         : "No pirate activity here right now — check ⚠️ flagged systems on the lawless rim."} Costs ${PROWL_FUEL} ⛽ and one action.</div>
       <button class="btn btn-primary" ${al > 0 && lvl > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="huntPirates()">Hunt (1 action)</button>
     </div>`;
@@ -4908,7 +4925,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.1.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
