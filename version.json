@@ -1,5 +1,5 @@
 {
-  "version": "1.2.0",
+  "version": "1.2.1",
   "saveVersion": "v2",
-  "notes": "Combat overhaul (1/3): raids are now multi-round duels \u2014 wear down a foe's hull over free rounds while it damages your hull AND subsystems (weapons, shields, engines, sensors). Damaged systems work worse and must be repaired with credits + materials, so raiding is no longer free money."
+  "notes": "Combat overhaul (2/3): tactical depth \u2014 split a power budget between offense and defense each round (Aggressive/Balanced/Evasive presets or an advanced slider; reactor & AI raise the budget) and choose your target: the foe's hull, its weapons (blunt its fire) or its defenses (strip armor/shields)."
 }

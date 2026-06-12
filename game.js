@@ -895,6 +895,7 @@ function freshState(opts = {}) {
     invest: null,       // active corruption investigation: { lead, evidence, defense, cycles }
     jail: 0,            // cycles remaining in detention
     pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0, bountyKills: 0, bountyEarned: 0, subsys: { weapons: 100, shields: 100, engines: 100, sensors: 100 } },  // outlaw career
+    combat: { posture: "balanced", offense: 50, target: "hull", advanced: false },  // combat posture & targeting (UI-tunable)
     prey: null,         // current raid encounter: { type, name, ico, cargo, credits, strength, faction, wantedGain }
     interdiction: null, // active navy confrontation: { kind, planet, strength, bribe }
     haven: null,        // pirate hideout: { planet, tier, stash } — lie low, stash loot, collect tribute
@@ -1379,14 +1380,14 @@ function foeHp(foe) {
 function playerStrikes(foe, wkey) {
   const drones = droneStrike(foe);
   if (drones.lost > 0) S.res.drones -= drones.lost;
-  const base = (raidPower() * 0.55 + Math.random() * 8) * condFactor("weapons");
+  const base = (raidPower() * 0.55 + Math.random() * 8) * condFactor("weapons") * offenseMult();
   const dmg = Math.max(1, Math.round(base * weaponEff(wkey, foe) + drones.bonus));
-  foe.hp = foeHp(foe) - dmg;
   return { dmg, drones };
 }
 // one foe counter-attack: hull damage + a chance to wound a subsystem
 function foeStrikes(foe, intensity) {
-  const raw = foe.strength * intensity * (0.7 + Math.random() * 0.6);
+  const postureFactor = Math.max(0.5, Math.min(1.8, 1 / Math.max(0.4, defenseMult())));   // evasive soaks, aggressive exposes
+  const raw = foe.strength * intensity * (0.7 + Math.random() * 0.6) * postureFactor;
   const dmg = takeTypedDamage(raw, foe.wtype);
   let subHit = null;
   if (Math.random() < 0.55 && dmg > 0) {                 // genuinely punishing: most hits scar a system
@@ -1399,6 +1400,52 @@ function subsysHitLog(hit) {
   if (!hit) return "";
   const m = SUBSYS_META[hit];
   return ` · ${m.ico} ${m.name} damaged (${shipCond(hit)}%)`;
+}
+/* ---------- Phase 2: energy budget & targeting ----------
+   Each round you divide a power budget between offense and defense (presets
+   for one-tap play, an advanced slider for fine control) and choose what to
+   shoot: the foe's hull (kill), its weapons (blunt its return fire) or its
+   defenses (strip armor/shields so your hits land harder). Reactor and AI
+   Mainframe raise the budget, so those upgrades buy tactical headroom. */
+const COMBAT_PRESETS = {
+  aggressive: { offense: 70, label: "⚔️ Aggressive", hint: "max damage, thin defenses" },
+  balanced:   { offense: 50, label: "⚖️ Balanced",   hint: "even split" },
+  evasive:    { offense: 30, label: "🛡️ Evasive",    hint: "soak hits, better escape" },
+};
+const COMBAT_TARGETS = {
+  hull:    { ico: "🎯", name: "Hull",     hint: "full damage — destroy it fastest" },
+  weapons: { ico: "🔫", name: "Weapons",  hint: "half damage, but blunts its return fire" },
+  defense: { ico: "🛡️", name: "Defenses", hint: "half damage, but strips armor/shields" },
+};
+function combatState() {
+  if (!S.combat) S.combat = { posture: "balanced", offense: 50, target: "hull", advanced: false };
+  return S.combat;
+}
+function combatBudget() { return 100 + (S.upgrades.reactor || 0) * 6 + (S.upgrades.aimain || 0) * 5; }
+function offenseMult() { const c = combatState(); return (combatBudget() / 100) * (c.offense / 50); }
+function defenseMult() { const c = combatState(); return (combatBudget() / 100) * ((100 - c.offense) / 50); }
+function setCombatPosture(p) {
+  const c = combatState(), pre = COMBAT_PRESETS[p];
+  if (pre) { c.posture = p; c.offense = pre.offense; c.advanced = false; }
+  renderRaid(); saveGame();
+}
+function setCombatOffense(v) {
+  const c = combatState(); c.offense = Math.max(0, Math.min(100, Math.round(+v))); c.advanced = true;
+  c.posture = c.offense >= 65 ? "aggressive" : c.offense <= 35 ? "evasive" : "balanced";
+  renderRaid(); saveGame();
+}
+function setCombatTarget(t) { if (COMBAT_TARGETS[t]) { combatState().target = t; renderRaid(); saveGame(); } }
+// apply a strike to the foe per the chosen target; returns what was hit
+function applyTargetedDamage(foe, dmg) {
+  const c = combatState();
+  if (c.target === "weapons") { foe.hp = foeHp(foe) - dmg * 0.5; foe.strength = Math.max(4, Math.round(foe.strength - dmg * 0.18)); return "weapons"; }
+  if (c.target === "defense") {
+    foe.hp = foeHp(foe) - dmg * 0.5;
+    const layer = ["shield", "armor", "pd"].reduce((m, k) => ((foe.def[k] || 0) > (foe.def[m] || 0) ? k : m), "shield");
+    if ((foe.def[layer] || 0) > 0) foe.def[layer] -= 1;
+    return "defense";
+  }
+  foe.hp = foeHp(foe) - dmg; return "hull";
 }
 /* ---------- Combat lockdown ----------
    An ambush or interdiction is a STANDOFF: until it's resolved you can't
@@ -1621,7 +1668,7 @@ function encounterPay() {
 }
 function encounterFlee() {
   const e = S.encounter; if (!e) return;
-  const odds = (0.45 + S.upgrades.engine * 0.15 + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * condFactor("engines");
+  const odds = (0.45 + S.upgrades.engine * 0.15 + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * condFactor("engines") * (0.7 + 0.3 * defenseMult());
   if (Math.random() < odds) {
     S.encounter = null;
     log(`🏃 You burned hard and lost the ${e.name} in the void. Clean getaway.`, "good");
@@ -1641,6 +1688,7 @@ function encounterFight(wkey) {
   if (!e._engaged) { e._engaged = true; S.pirate.raids++; }
   foeHp(e); payAmmo(wkey);
   const ps = playerStrikes(e, wkey);
+  const etgt = applyTargetedDamage(e, ps.dmg);
   if (e.hp <= 0) {
     const taken = plunder(e);
     S.pirate.dread += 3; clampPirate();
@@ -1652,7 +1700,8 @@ function encounterFight(wkey) {
   }
   const fs = foeStrikes(e, 0.3);
   const hpPct = Math.max(0, Math.round(e.hp / e.maxhp * 100));
-  log(`⚔️ You hit the ${e.name} for ${ps.dmg} (hull ${hpPct}%); it fires back — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
+  const etgtNote = etgt === "weapons" ? " (blunted its guns)" : etgt === "defense" ? " (stripped its defenses)" : "";
+  log(`⚔️ You hit the ${e.name} for ${ps.dmg}${etgtNote} (hull ${hpPct}%); it fires back — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
   toast(`Foe at ${hpPct}%`, "");
   if (S.pirate.hull <= 0) { S.encounter = null; return afterAction(); }   // crippled; they let you limp off
   afterAction();
@@ -1780,10 +1829,12 @@ function combatStrike(noQuarter, wkey) {
   if (!prey._engaged) { prey._engaged = true; S.pirate.raids++; }
   foeHp(prey); payAmmo(wkey);
   const ps = playerStrikes(prey, wkey);
+  const tgt = applyTargetedDamage(prey, ps.dmg);
   if (prey.hp <= 0) return prey.isPirate ? raidWinPirate(prey) : raidWinMerchant(prey, noQuarter);
   const fs = foeStrikes(prey, noQuarter ? 0.34 : 0.28);    // pressing hard exposes you
   const hpPct = Math.max(0, Math.round(prey.hp / prey.maxhp * 100));
-  log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${ps.dmg} (its hull ${hpPct}%); it returns fire — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
+  const tgtNote = tgt === "weapons" ? " (blunted its guns)" : tgt === "defense" ? " (stripped its defenses)" : "";
+  log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${ps.dmg}${tgtNote} (its hull ${hpPct}%); it returns fire — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
   toast(`Hit for ${ps.dmg} — foe at ${hpPct}%`, "");
   if (S.pirate.hull <= 0) { S.prey = null; return afterAction(); }   // crippled mid-fight; shipCrippled already fired
   afterAction();
@@ -4464,8 +4515,23 @@ function tacticalHTML(t, attackFn) {
   const dr = dronesDeployable();
   const droneLine = (S.upgrades.dronebay || 0) > 0
     ? `<div class="hint">🛸 ${dr > 0 ? `Will deploy <b>${dr}</b> drone${dr > 1 ? "s" : ""}${t.scanned && t.def.pd > 0 ? " (their point-defense will thin them)" : ""}` : "Drone Bay empty — stock 🛸 Combat Drones"}</div>` : "";
+  const c = combatState();
+  const budget = combatBudget();
+  const postureBtns = Object.entries(COMBAT_PRESETS).map(([k, pre]) =>
+    `<button class="btn btn-sm ${c.posture === k && !c.advanced ? "btn-primary" : ""}" title="${pre.hint}" onclick="setCombatPosture('${k}')">${pre.label}</button>`).join(" ");
+  const advBtn = `<button class="btn btn-sm ${c.advanced ? "btn-primary" : ""}" title="Fine-tune the offense/defense split" onclick="setCombatOffense(${c.offense})">⚙️ Advanced</button>`;
+  const advRow = c.advanced
+    ? `<div class="row" style="margin-top:4px;align-items:center"><span class="hint">Offense ${c.offense}% / Defense ${100 - c.offense}%</span>
+       <input type="range" min="0" max="100" step="5" value="${c.offense}" oninput="setCombatOffense(this.value)" style="flex:1;min-width:120px" /></div>`
+    : "";
+  const budgetNote = budget > 100 ? ` <span class="hint">· power budget ${budget}% (reactor/AI)</span>` : "";
+  const targetBtns = Object.entries(COMBAT_TARGETS).map(([k, tg]) =>
+    `<button class="btn btn-sm ${c.target === k ? "btn-primary" : ""}" title="${tg.hint}" onclick="setCombatTarget('${k}')">${tg.ico} ${tg.name}</button>`).join(" ");
   return `${hullBar}${profile}${droneLine}
-    <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Attack:</span> ${weapons}</div>`;
+    <div class="row" style="margin-top:8px;align-items:center"><span class="hint">Posture:</span> ${postureBtns} ${advBtn}${budgetNote}</div>
+    ${advRow}
+    <div class="row" style="margin-top:4px;align-items:center"><span class="hint">Target:</span> ${targetBtns}</div>
+    <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Fire:</span> ${weapons}</div>`;
 }
 function renderRaid() {
   const el = document.getElementById("panel-raid");
@@ -5067,7 +5133,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.2.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -5442,6 +5508,7 @@ function init() {
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
   if (S.pirate.commissionsDone == null) S.pirate.commissionsDone = 0;
   initSubsys();
+  if (!S.combat) S.combat = { posture: "balanced", offense: 50, target: "hull", advanced: false };
   if (S.prey === undefined) S.prey = null;
   if (S.interdiction === undefined) S.interdiction = null;
   if (S.haven === undefined) S.haven = null;
@@ -5492,4 +5559,5 @@ Object.assign(window, {
   alignColony, colonyIndependence,
   setSubView,
   huntPirates, encounterPay, encounterFlee, encounterFight, deepScan, repairSubsys, repairAll,
+  setCombatPosture, setCombatOffense, setCombatTarget,
 });
