@@ -1,5 +1,5 @@
 {
-  "version": "1.3.2",
+  "version": "1.3.3",
   "saveVersion": "v2",
-  "notes": "Bugfix: a weapon (often torpedoes) looked permanently selected. The highlight was marking the recommended counter; it now follows the weapon you last fired, and the recommendation is shown as a \u2605 marker instead."
+  "notes": "Raider tweaks: the attack/contacts area is now double-width (letters of marque and other tools move to a second row), so the contact list shows two columns \u2014 more targets at a glance. Deep-scanning a ship with a live drive now risks it bolting (or priming it to jump sooner) \u2014 cripple its engines first. Field Repair restores +15 hull (was +35)."
 }

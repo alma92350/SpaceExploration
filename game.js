@@ -1489,9 +1489,10 @@ function applyTargetedDamage(foe, dmg) {
 function foeFleeCheck(foe) {
   if ((foe.engines || 0) <= 0) return false;                    // pinned
   foeHp(foe);
-  if (foe.hp / foe.maxhp > 0.4) return false;                   // only runs when hurt
+  const thresh = foe.jumpPrimed ? 0.6 : 0.4;                    // a scan-spooked ship bolts earlier
+  if (foe.hp / foe.maxhp > thresh) return false;
   const cls = SHIP_CLASSES[foe.cls] || SHIP_CLASSES.corvette;
-  const chance = cls.flee * (foe.engines / (foe.enginesMax || 1));
+  const chance = cls.flee * (foe.engines / (foe.enginesMax || 1)) * (foe.jumpPrimed ? 1.4 : 1);
   return Math.random() < chance;
 }
 /* ---------- Combat lockdown ----------
@@ -1589,6 +1590,18 @@ function deepScan() {
   const hint = bestWeaponHint(t);
   log(`🔍 Deep scan complete: ${t.name} — strength ${t.strength}, armor ${t.def.armor}, shields ${t.def.shield}, point-defense ${t.def.pd}; fights with ${t.wtype} weapons. Recommended: ${hint.ico} ${hint.name}.`, "");
   toast("Scan complete.", "");
+  // a painted ship with a live drive reacts: it may bolt outright, or spin up to jump sooner
+  if ((t.engines || 0) > 0) {
+    const cls = SHIP_CLASSES[t.cls] || SHIP_CLASSES.corvette;
+    if (Math.random() < cls.flee * 0.5) {
+      log(`🏃 Your active scan spooked the ${t.ico} ${t.name} — it lit its drive and jumped clear before you could close. Should've crippled its 🚀 engines first.`, "bad");
+      toast(`${t.name} bolted during the scan!`, "bad");
+      if (S.encounter === t) S.encounter = null; else if (S.prey === t) S.prey = null;
+      return afterAction();
+    }
+    t.jumpPrimed = true;     // spooked — readier to run
+    log(`⚠️ The scan put the ${t.name} on alert — its drive is spinning up. It'll try to jump sooner now.`, "");
+  }
   afterAction();
 }
 /* prey archetypes — cutthroat buffet: bulk haulers, fat liners, hard patrols */
@@ -2089,7 +2102,7 @@ function repairAll() {
    Full repairs are a dockside job (Ship tab). Mid-fight you can only jury-rig
    an emergency patch with materials on hand — and you hold fire to do it, so
    the foe gets a free strike. A real tactical gamble. */
-const FIELD_REPAIR = { hull: 35, sub: 18, mats: { metals: 4, electronics: 3 } };
+const FIELD_REPAIR = { hull: 15, sub: 18, mats: { metals: 4, electronics: 3 } };
 function canFieldRepair() { return Object.entries(FIELD_REPAIR.mats).every(([c, q]) => (S.res[c] || 0) >= q); }
 function fieldRepairWorthwhile() { return S.pirate.hull < HULL_MAX || SUBSYS.some(k => shipCond(k) < 100); }
 function fieldRepair() {
@@ -4927,7 +4940,8 @@ function renderRaid() {
   }
   el.innerHTML = `<h2>⚔️ Raider</h2>
     <div class="subtitle">Two trades, one gun: <b>prey on shipping</b> (build Dread, mind your Wanted — the navy interdicts the notorious; havens and letters of marque are an outlaw&#39;s tools) or <b>hunt pirates</b> for lawful bounties that scale with their rank — every kill calms the lanes, shielding your colonies and convoys. Travel through infested systems and the pirates may find <i>you</i>.</div>
-    <div class="cards">${status}${action}${commCard}${havenCard}${lordCard}${marshalCard}</div>`;
+    <div class="cards raid-top">${status}<div class="raid-action">${action}</div></div>
+    <div class="cards" style="margin-top:14px">${commCard}${havenCard}${lordCard}${marshalCard}</div>`;
 }
 /* ---------- Generic in-panel sub-tabs ----------
    A lightweight tab strip inside a panel. View state is UI-only (not saved);
@@ -5367,7 +5381,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.3.2";
+const APP_VERSION = "1.3.3";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

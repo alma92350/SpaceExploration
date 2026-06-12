@@ -197,6 +197,13 @@ tr:hover td { background: rgba(255,255,255,0.03); }
 
 /* ===== Generic cards grid (industry / research / ship) ===== */
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+/* Raider top row: status (1 unit) beside a double-width attack/contacts area */
+.raid-top { grid-template-columns: minmax(260px, 1fr) minmax(420px, 2fr); align-items: start; }
+.raid-action { display: grid; gap: 14px; }
+.raid-action > .card { height: 100%; }
+/* contacts list inside the wide attack area shows two columns */
+.raid-action .cards { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+@media (max-width: 760px) { .raid-top { grid-template-columns: 1fr; } }
 .card {
   background: linear-gradient(160deg, var(--panel-2), var(--panel));
   border: 1px solid var(--border); border-radius: 12px; padding: 14px;
