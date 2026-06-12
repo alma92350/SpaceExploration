@@ -1,5 +1,5 @@
 {
-  "version": "1.2.6",
+  "version": "1.2.7",
   "saveVersion": "v2",
-  "notes": "Combat clarity: targeting now shows its effect \u2014 the log reports actual hull damage plus the special result (foe strength dropping when you hit its Weapons, a defense layer breaking when you hit its Defenses), and a live readout of the foe's strength and armor/shield/point-defense updates each round so you can watch it change."
+  "notes": "Combat fixes: extortion now spends Dread (so you can't coast on intimidation alone \u2014 back it with real raids), the foe-hull readout shows the true value from first sight (no jump after your first shot), and the in-fight Field Repair button is clearer (shows your hull, and says why it's unavailable)."
 }

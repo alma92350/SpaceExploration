@@ -1911,14 +1911,14 @@ function raidExtort() {
     const credits = Math.round(prey.credits * 0.6);
     const taken = plunder({ cargo: tributeCargo, credits });
     const sanctioned = applyCommissionRaid(prey);
-    S.pirate.dread += 3; if (!sanctioned) S.pirate.wanted += Math.round(prey.wantedGain * 0.4);
+    S.pirate.dread = Math.max(0, S.pirate.dread - 12); if (!sanctioned) S.pirate.wanted += Math.round(prey.wantedGain * 0.4);   // menace spent leaning on them
     addRep(prey.faction, -5); clampPirate();
-    log(`💀 Your reputation alone broke the ${prey.ico} ${prey.name} — it paid tribute: ${taken.join(" ") || "credits"} + ${fmt(credits)} cr.${sanctioned ? ` ⚖️ Sanctioned bounty +${fmt(COMM_BOUNTY)} cr.` : ""} No shots fired.`, "good");
-    toast(`Tribute extorted from ${prey.name}!`, "good");
+    log(`💀 Your reputation alone broke the ${prey.ico} ${prey.name} — it paid tribute: ${taken.join(" ") || "credits"} + ${fmt(credits)} cr.${sanctioned ? ` ⚖️ Sanctioned bounty +${fmt(COMM_BOUNTY)} cr.` : ""} No shots fired. <span class="hint">(Dread −12 — fear fades when it isn't backed by blood)</span>`, "good");
+    toast(`Tribute extorted from ${prey.name}! (Dread −12)`, "good");
   } else {
-    S.pirate.wanted += Math.round(prey.wantedGain * 0.3); clampPirate();
-    log(`💀 The ${prey.ico} ${prey.name} called your bluff and ran. You aren't feared enough… yet.`, "bad");
-    toast("They called your bluff.", "bad");
+    S.pirate.dread = Math.max(0, S.pirate.dread - 5); S.pirate.wanted += Math.round(prey.wantedGain * 0.3); clampPirate();   // a called bluff dents your menace
+    log(`💀 The ${prey.ico} ${prey.name} called your bluff and ran. You aren't feared enough… yet. <span class="hint">(Dread −5)</span>`, "bad");
+    toast("They called your bluff. (Dread −5)", "bad");
   }
   if (S.commission && prey.faction === S.commission.patron) revokeCommission(true);
   S.prey = null;
@@ -4577,8 +4577,8 @@ function tacticalHTML(t, attackFn) {
   const al = actionsLeft();
   const scanBtn = t.scanned ? "" :
     `<button class="btn btn-sm" title="Reveal defenses, weapon class and the best counter${S.upgrades.aimain >= 1 ? " (free — AI Mainframe)" : " (4 ⚡)"}" onclick="deepScan()">🔍 Deep Scan${S.upgrades.aimain >= 1 ? "" : " (4⚡)"}</button>`;
-  const _max = t.maxhp != null ? t.maxhp : Math.max(8, Math.round(t.strength * FOE_HP_MULT));
-  const _hp = t.hp != null ? t.hp : _max;
+  foeHp(t);                                  // lock in the real (rubber-banded) hull so the readout doesn't jump after the first shot
+  const _max = t.maxhp, _hp = t.hp;
   const _pct = Math.max(0, Math.min(100, _hp / _max * 100));
   const _hpCol = _pct >= 60 ? "var(--good)" : _pct >= 30 ? "var(--warn)" : "var(--bad)";
   const badges = `${t.elite ? '<span class="pill bad" title="Elite captain — tougher, hardened against your favourite weapon">💀 ELITE</span> ' : ""}${(t.escorts || 0) > 0 ? `<span class="pill" title="Fights with ${t.escorts} escort(s) — more hull, heavier fire">🛰️ ${t.escorts} escort${t.escorts > 1 ? "s" : ""}</span> ` : ""}`;
@@ -4614,14 +4614,18 @@ function tacticalHTML(t, attackFn) {
   const budgetNote = budget > 100 ? ` <span class="hint">· power budget ${budget}% (reactor/AI)</span>` : "";
   const targetBtns = Object.entries(COMBAT_TARGETS).map(([k, tg]) =>
     `<button class="btn btn-sm ${c.target === k ? "btn-primary" : ""}" title="${tg.hint}" onclick="setCombatTarget('${k}')">${tg.ico} ${tg.name}</button>`).join(" ");
-  const frOk = canFieldRepair() && fieldRepairWorthwhile();
-  const frBtn = `<button class="btn btn-sm" ${frOk ? "" : "disabled"} title="Emergency patch: +${FIELD_REPAIR.hull} hull and shore up your worst system for ${matsString(FIELD_REPAIR.mats)} — but you hold fire and the foe attacks" onclick="fieldRepair()">🔧 Field Repair (${matsString(FIELD_REPAIR.mats)})</button>`;
+  const frWorth = fieldRepairWorthwhile(), frHasMat = canFieldRepair(), frUsable = frWorth && frHasMat;
+  const frLabel = !frWorth ? "🔧 Field Repair — hull & systems sound"
+    : !frHasMat ? `🔧 Field Repair — need ${matsString(FIELD_REPAIR.mats)} aboard`
+    : `🔧 Field Repair (+${FIELD_REPAIR.hull} hull · ${matsString(FIELD_REPAIR.mats)})`;
+  const frBtn = `<button class="btn btn-sm ${frUsable ? "btn-good" : ""}" ${frUsable ? "" : "disabled"} title="Emergency patch: +${FIELD_REPAIR.hull} hull and shore up your worst subsystem for ${matsString(FIELD_REPAIR.mats)} — but you hold fire this round and the foe attacks" onclick="fieldRepair()">${frLabel}</button>`;
+  const ownHullCol = S.pirate.hull >= 60 ? "var(--good)" : S.pirate.hull >= 30 ? "var(--warn)" : "var(--bad)";
   return `${hullBar}${profile}${droneLine}
     <div class="row" style="margin-top:8px;align-items:center"><span class="hint">Posture:</span> ${postureBtns} ${advBtn}${budgetNote}</div>
     ${advRow}
     <div class="row" style="margin-top:4px;align-items:center"><span class="hint">Target:</span> ${targetBtns}</div>
     <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Fire:</span> ${weapons}</div>
-    <div class="row" style="margin-top:4px;align-items:center"><span class="hint">Defend:</span> ${frBtn}</div>`;
+    <div class="row" style="margin-top:6px;align-items:center"><span class="hint">🛡️ Your hull <b style="color:${ownHullCol}">${S.pirate.hull}/${HULL_MAX}</b> ·</span> ${frBtn}</div>`;
 }
 function renderRaid() {
   const el = document.getElementById("panel-raid");
@@ -5250,7 +5254,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.2.6";
+const APP_VERSION = "1.2.7";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
