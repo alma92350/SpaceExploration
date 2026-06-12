@@ -1972,6 +1972,29 @@ function repairAll() {
   toast("Ship refitted.", "good");
   afterAction();
 }
+/* ---------- Field repair (combat only) ----------
+   Full repairs are a dockside job (Ship tab). Mid-fight you can only jury-rig
+   an emergency patch with materials on hand — and you hold fire to do it, so
+   the foe gets a free strike. A real tactical gamble. */
+const FIELD_REPAIR = { hull: 35, sub: 18, mats: { metals: 4, electronics: 3 } };
+function canFieldRepair() { return Object.entries(FIELD_REPAIR.mats).every(([c, q]) => (S.res[c] || 0) >= q); }
+function fieldRepairWorthwhile() { return S.pirate.hull < HULL_MAX || SUBSYS.some(k => shipCond(k) < 100); }
+function fieldRepair() {
+  const foe = S.encounter || S.prey;
+  if (!foe) return toast("No engagement — repair fully at the 🚀 Ship tab.", "bad");
+  if (!fieldRepairWorthwhile()) return toast("Hull and systems are already sound.", "bad");
+  if (!canFieldRepair()) return toast(`Field patch needs ${matsString(FIELD_REPAIR.mats)}.`, "bad");
+  Object.entries(FIELD_REPAIR.mats).forEach(([c, q]) => { S.res[c] -= q; });
+  const before = S.pirate.hull;
+  S.pirate.hull = Math.min(HULL_MAX, S.pirate.hull + FIELD_REPAIR.hull);
+  const worst = SUBSYS.reduce((m, k) => (shipCond(k) < shipCond(m) ? k : m), SUBSYS[0]);
+  let sysNote = "";
+  if (shipCond(worst) < 100) { S.pirate.subsys[worst] = Math.min(100, S.pirate.subsys[worst] + FIELD_REPAIR.sub); sysNote = ` and shored up ${SUBSYS_META[worst].ico} ${SUBSYS_META[worst].name}`; }
+  log(`🔧 Field patch: +${S.pirate.hull - before} hull${sysNote} — but you held fire, and the ${foe.name} presses the attack.`, "");
+  const fs = foeStrikes(foe, S.encounter ? 0.3 : 0.28);   // you forfeited your turn — the foe strikes
+  toast(`Patched +${S.pirate.hull - before + fs.dmg > 0 ? S.pirate.hull - before : 0} hull; ${foe.name} hit you for ${fs.dmg}.`, "");
+  afterAction();
+}
 function processWanted() {
   if (!S.pirate) return;
   const P = S.pirate;
@@ -4578,11 +4601,14 @@ function tacticalHTML(t, attackFn) {
   const budgetNote = budget > 100 ? ` <span class="hint">· power budget ${budget}% (reactor/AI)</span>` : "";
   const targetBtns = Object.entries(COMBAT_TARGETS).map(([k, tg]) =>
     `<button class="btn btn-sm ${c.target === k ? "btn-primary" : ""}" title="${tg.hint}" onclick="setCombatTarget('${k}')">${tg.ico} ${tg.name}</button>`).join(" ");
+  const frOk = canFieldRepair() && fieldRepairWorthwhile();
+  const frBtn = `<button class="btn btn-sm" ${frOk ? "" : "disabled"} title="Emergency patch: +${FIELD_REPAIR.hull} hull and shore up your worst system for ${matsString(FIELD_REPAIR.mats)} — but you hold fire and the foe attacks" onclick="fieldRepair()">🔧 Field Repair (${matsString(FIELD_REPAIR.mats)})</button>`;
   return `${hullBar}${profile}${droneLine}
     <div class="row" style="margin-top:8px;align-items:center"><span class="hint">Posture:</span> ${postureBtns} ${advBtn}${budgetNote}</div>
     ${advRow}
     <div class="row" style="margin-top:4px;align-items:center"><span class="hint">Target:</span> ${targetBtns}</div>
-    <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Fire:</span> ${weapons}</div>`;
+    <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Fire:</span> ${weapons}</div>
+    <div class="row" style="margin-top:4px;align-items:center"><span class="hint">Defend:</span> ${frBtn}</div>`;
 }
 function renderRaid() {
   const el = document.getElementById("panel-raid");
@@ -4601,14 +4627,12 @@ function renderRaid() {
     ${(P.bountyKills || 0) > 0 ? `<div class="ship-stat"><span class="k">Pirates hunted</span><span class="v">${fmt(P.bountyKills)} · ${fmt(P.bountyEarned)} cr</span></div>` : ""}
     <div class="ship-stat"><span class="k">Total plundered</span><span class="v">${fmt(P.plundered)} cr</span></div>
     <div class="ship-stat"><span class="k">Raid power</span><span class="v">${Math.round(raidPower())}</span></div>
-    ${P.hull < HULL_MAX ? `<button class="btn btn-good" style="margin-top:8px" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * (atHaven() ? 18 : 30)))} 💰${atHaven() ? ", haven rate" : ""})</button>` : `<div class="pill good" style="margin-top:8px">◉ Hull pristine</div>`}
-    <div class="ship-stat" style="margin-top:10px"><span class="k">🛠️ Subsystems</span><span class="v">${SUBSYS.every(k => shipCond(k) >= 100) ? '<span class="pill good">all nominal</span>' : ""}</span></div>
-    ${SUBSYS.map(k => { const c = shipCond(k), col = c >= 60 ? "var(--good)" : c >= 30 ? "var(--warn)" : "var(--bad)", m = SUBSYS_META[k], q = subsysRepairCost(k);
+    <div class="ship-stat" style="margin-top:10px"><span class="k">🛠️ Subsystems</span><span class="v">${SUBSYS.every(k => shipCond(k) >= 100) ? '<span class="pill good">all nominal</span>' : '<span class="pill bad">damaged</span>'}</span></div>
+    ${SUBSYS.map(k => { const c = shipCond(k), col = c >= 60 ? "var(--good)" : c >= 30 ? "var(--warn)" : "var(--bad)", m = SUBSYS_META[k];
       return `<div class="ship-stat"><span class="k">${m.ico} ${m.name}</span><span class="v" style="color:${col}">${c}%</span></div>
-        <div class="bar"><span style="width:${c}%;background:${col}"></span></div>
-        ${q ? `<button class="btn btn-sm" style="margin:2px 0 4px" ${(S.res.credits >= q.credits && (S.res[q.mat] || 0) >= q.matQ) ? "" : "disabled"} title="Repair ${m.name}: ${fmt(q.credits)} cr + ${q.matQ} ${COM[q.mat].name}" onclick="repairSubsys('${k}')">🔧 ${m.name} (${fmt(q.credits)}💰+${q.matQ}${COM[q.mat].ico})</button>` : ""}`;
+        <div class="bar"><span style="width:${c}%;background:${col}"></span></div>`;
     }).join("")}
-    ${(P.hull < HULL_MAX || SUBSYS.some(k => shipCond(k) < 100)) ? `<button class="btn btn-good" style="margin-top:6px" onclick="repairAll()">🛠️ Full refit (hull + systems)</button>` : ""}
+    ${(P.hull < HULL_MAX || SUBSYS.some(k => shipCond(k) < 100)) ? `<div class="hint" style="margin-top:6px">🔧 Full repairs at the 🚀 <b>Ship</b> tab (Repair Bay). Mid-fight, use 🔧 Field Repair below.</div>` : ""}
     ${P.wanted > 0 && !S.interdiction ? (corruptible
       ? `<button class="btn btn-sm" style="margin-top:6px" ${al > 0 && S.res.credits >= settleCost ? "" : "disabled"} title="Bribe corruptible officials to wipe warrants" onclick="settleWarrants()">📝 Settle warrants (${fmt(settleCost)} 💰)</button>`
       : `<div class="hint" style="margin-top:6px">Officials here are incorruptible — settle warrants in lawless space.</div>`) : ""}
@@ -4816,6 +4840,28 @@ function shipUpgradeCard(u) {
          <button class="btn btn-primary" ${S.res.credits >= cost ? "" : "disabled"} onclick="buyUpgrade('${u.id}')">Install Tier ${tier + 1}</button>`}
   </div>`;
 }
+function repairBayHTML() {
+  const P = S.pirate;
+  const hullCol = P.hull >= 60 ? "var(--good)" : P.hull >= 30 ? "var(--warn)" : "var(--bad)";
+  const anyDamage = P.hull < HULL_MAX || SUBSYS.some(k => shipCond(k) < 100);
+  const hullBtn = P.hull < HULL_MAX
+    ? `<button class="btn btn-good btn-sm" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * (atHaven() ? 18 : 30)))} 💰${atHaven() ? ", haven rate" : ""})</button>`
+    : "";
+  const subRows = SUBSYS.map(k => {
+    const c = shipCond(k), col = c >= 60 ? "var(--good)" : c >= 30 ? "var(--warn)" : "var(--bad)", m = SUBSYS_META[k], q = subsysRepairCost(k);
+    return `<div class="ship-stat"><span class="k">${m.ico} ${m.name}</span><span class="v" style="color:${col}">${c}%</span></div>
+      <div class="bar"><span style="width:${c}%;background:${col}"></span></div>
+      ${q ? `<button class="btn btn-sm" style="margin:2px 0 4px" ${(S.res.credits >= q.credits && (S.res[q.mat] || 0) >= q.matQ) ? "" : "disabled"} title="Repair ${m.name}: ${fmt(q.credits)} cr + ${q.matQ} ${COM[q.mat].name}" onclick="repairSubsys('${k}')">🔧 ${m.name} (${fmt(q.credits)}💰+${q.matQ}${COM[q.mat].ico})</button>` : ""}`;
+  }).join("");
+  return `<div class="card" style="margin-bottom:12px"><h4>🔧 Repair Bay <span class="hint">— docked at ${currentPlanet().name}</span></h4>
+    <div class="ship-stat"><span class="k">🛡️ Hull</span><span class="v" style="color:${hullCol}">${P.hull}/${HULL_MAX}</span></div>
+    <div class="bar"><span style="width:${P.hull}%;background:${hullCol}"></span></div>
+    ${hullBtn}
+    <div class="ship-stat" style="margin-top:8px"><span class="k">🛠️ Subsystems</span><span class="v">${SUBSYS.every(k => shipCond(k) >= 100) ? '<span class="pill good">all nominal</span>' : ""}</span></div>
+    ${subRows}
+    ${anyDamage ? `<button class="btn btn-good" style="margin-top:6px" onclick="repairAll()">🛠️ Full refit (hull + systems)</button>` : '<div class="pill good" style="margin-top:6px">◉ All systems pristine</div>'}
+  </div>`;
+}
 function renderShipPanel() {
   const el = document.getElementById("panel-ship");
   const cur = subView("ship", SHIP_TAB_VIEWS);
@@ -4827,6 +4873,7 @@ function renderShipPanel() {
   const cards = ids.map(id => UPGRADES.find(u => u.id === id)).filter(Boolean).map(shipUpgradeCard).join("");
   el.innerHTML = `<h2>Ship Outfitting — S.S. Wanderer</h2>
     <div class="subtitle">Twenty upgrade systems across four bays, three tiers each. Some modules (Gas Scoop, Salvage Rig) unlock new extraction; others (Shielded & Smuggler's Holds) keep contraband out of customs' hands.</div>
+    ${repairBayHTML()}
     ${subTabBar("ship", SHIP_TAB_VIEWS)}
     <div class="cards">${cards}</div>`;
 }
@@ -5190,7 +5237,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.2.4";
+const APP_VERSION = "1.2.5";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -5617,5 +5664,5 @@ Object.assign(window, {
   alignColony, colonyIndependence,
   setSubView,
   huntPirates, encounterPay, encounterFlee, encounterFight, deepScan, repairSubsys, repairAll,
-  setCombatPosture, setCombatOffense, setCombatTarget,
+  setCombatPosture, setCombatOffense, setCombatTarget, fieldRepair,
 });

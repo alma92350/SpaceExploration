@@ -1,5 +1,5 @@
 {
-  "version": "1.2.4",
+  "version": "1.2.5",
   "saveVersion": "v2",
-  "notes": "Combat UX: the engagement lock now surfaces the moment you click another sidebar tab (and those tabs dim during a fight), instead of only failing when you finally press an action. Stay on the Raider tab to resolve the fight."
+  "notes": "Combat repairs split: full hull & subsystem repairs are now a dockside job in the Ship tab's Repair Bay (locked during a fight). Mid-fight you can only jury-rig a limited Field Repair with materials on hand \u2014 and you hold fire to do it, so the enemy gets a free strike."
 }
