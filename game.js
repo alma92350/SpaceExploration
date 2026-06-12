@@ -894,7 +894,7 @@ function freshState(opts = {}) {
     planetLaws: {},     // player per-planet trade laws: pid -> com -> { type, until }
     invest: null,       // active corruption investigation: { lead, evidence, defense, cycles }
     jail: 0,            // cycles remaining in detention
-    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0, bountyKills: 0, bountyEarned: 0 },  // outlaw career
+    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0, bountyKills: 0, bountyEarned: 0, subsys: { weapons: 100, shields: 100, engines: 100, sensors: 100 } },  // outlaw career
     prey: null,         // current raid encounter: { type, name, ico, cargo, credits, strength, faction, wantedGain }
     interdiction: null, // active navy confrontation: { kind, planet, strength, bribe }
     haven: null,        // pirate hideout: { planet, tier, stash } — lie low, stash loot, collect tribute
@@ -1348,6 +1348,58 @@ function clampPirate() {
 function raidPower() {
   return 6 + S.upgrades.cannons * 9 + S.pirate.dread * 0.15 + (S.techs.weapontech ? 6 : 0);
 }
+/* ---------- Ship subsystem condition (Phase 1 combat) ----------
+   Combat is no longer a single coin-flip: foes have hull (HP) worn down over
+   free rounds, and incoming fire damages not just your hull but your
+   subsystems — weapons (your damage), shields (mitigation), engines (flee
+   odds) and sensors (deep scan). Degraded systems work worse, so a hard
+   fight has a lasting, genuinely punishing cost: repairs in credits AND
+   materials, paid between raids — which means raiding can't be a free money
+   fountain. */
+const SUBSYS = ["weapons", "shields", "engines", "sensors"];
+const SUBSYS_META = {
+  weapons: { ico: "🔫", name: "Weapons", mat: "metals" },
+  shields: { ico: "🔰", name: "Shields", mat: "electronics" },
+  engines: { ico: "🚀", name: "Engines", mat: "metals" },
+  sensors: { ico: "📡", name: "Sensors", mat: "electronics" },
+};
+const FOE_HP_MULT = 2.2;        // a foe's hull ≈ strength × this
+function initSubsys() {
+  if (!S.pirate.subsys) S.pirate.subsys = {};
+  SUBSYS.forEach(k => { if (S.pirate.subsys[k] == null) S.pirate.subsys[k] = 100; });
+}
+function shipCond(sub) { initSubsys(); return S.pirate.subsys[sub]; }
+function condFactor(sub) { return 0.35 + 0.65 * (shipCond(sub) / 100); }   // 35% effective when wrecked
+function damageSubsys(sub, amt) { initSubsys(); S.pirate.subsys[sub] = Math.max(0, Math.round(S.pirate.subsys[sub] - amt)); }
+function foeHp(foe) {
+  if (foe.hp == null) { foe.maxhp = Math.max(8, Math.round(foe.strength * FOE_HP_MULT)); foe.hp = foe.maxhp; }
+  return foe.hp;
+}
+// one player attack round: returns damage dealt to the foe
+function playerStrikes(foe, wkey) {
+  const drones = droneStrike(foe);
+  if (drones.lost > 0) S.res.drones -= drones.lost;
+  const base = (raidPower() * 0.55 + Math.random() * 8) * condFactor("weapons");
+  const dmg = Math.max(1, Math.round(base * weaponEff(wkey, foe) + drones.bonus));
+  foe.hp = foeHp(foe) - dmg;
+  return { dmg, drones };
+}
+// one foe counter-attack: hull damage + a chance to wound a subsystem
+function foeStrikes(foe, intensity) {
+  const raw = foe.strength * intensity * (0.7 + Math.random() * 0.6);
+  const dmg = takeTypedDamage(raw, foe.wtype);
+  let subHit = null;
+  if (Math.random() < 0.55 && dmg > 0) {                 // genuinely punishing: most hits scar a system
+    subHit = pick(SUBSYS);
+    damageSubsys(subHit, dmg * (0.5 + Math.random() * 0.5));
+  }
+  return { dmg, subHit };
+}
+function subsysHitLog(hit) {
+  if (!hit) return "";
+  const m = SUBSYS_META[hit];
+  return ` · ${m.ico} ${m.name} damaged (${shipCond(hit)}%)`;
+}
 /* ---------- Combat lockdown ----------
    An ambush or interdiction is a STANDOFF: until it's resolved you can't
    shop, refit, repair, produce, research, move goods or end the cycle —
@@ -1369,7 +1421,7 @@ function notoriety() {
   if (w >= 10) return { tier: 1, label: "Petty Crook", col: "var(--warn)" };
   return { tier: 0, label: "Unknown", col: "var(--good)" };
 }
-function dmgReduction() { return Math.min(0.6, S.upgrades.shield * 0.18); }
+function dmgReduction() { return Math.min(0.6, S.upgrades.shield * 0.18) * condFactor("shields"); }
 
 /* ------------------------------------------------------------
    TACTICAL COMBAT — typed weapons vs typed defenses
@@ -1435,6 +1487,7 @@ function deepScan() {
   const t = S.prey || S.encounter;
   if (!t) return toast("Nothing to scan.", "bad");
   if (t.scanned) return toast("Already scanned.", "bad");
+  if (shipCond("sensors") < 25) return toast("Sensors too damaged to deep-scan — repair them first.", "bad");
   const free = S.upgrades.aimain >= 1;
   if (!free && (S.res.energy || 0) < 4) return toast("Deep scan needs 4 ⚡ energy (or an AI Mainframe).", "bad");
   if (!free) S.res.energy -= 4;
@@ -1568,7 +1621,7 @@ function encounterPay() {
 }
 function encounterFlee() {
   const e = S.encounter; if (!e) return;
-  const odds = 0.45 + S.upgrades.engine * 0.15 + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05;
+  const odds = (0.45 + S.upgrades.engine * 0.15 + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * condFactor("engines");
   if (Math.random() < odds) {
     S.encounter = null;
     log(`🏃 You burned hard and lost the ${e.name} in the void. Clean getaway.`, "good");
@@ -1580,32 +1633,28 @@ function encounterFlee() {
   }
   afterAction();
 }
+
 function encounterFight(wkey) {
   const e = S.encounter; if (!e) return;
   wkey = wkey && WEAPONS[wkey] && weaponAvailable(wkey) && weaponAffordable(wkey) ? wkey : "kinetic";
-  payAmmo(wkey);
-  const drones = droneStrike(e);
-  if (drones.lost > 0) S.res.drones -= drones.lost;
-  const power = (raidPower() + Math.random() * 10) * weaponEff(wkey, e) + drones.bonus;
-  const def = e.strength + Math.random() * 10;
-  if (power > def) {
+  if (!weaponAffordable(wkey)) return toast(`No ammo for ${WEAPONS[wkey].name}.`, "bad");
+  if (!e._engaged) { e._engaged = true; S.pirate.raids++; }
+  foeHp(e); payAmmo(wkey);
+  const ps = playerStrikes(e, wkey);
+  if (e.hp <= 0) {
     const taken = plunder(e);
-    const dmg = takeTypedDamage(e.strength * 0.5 * (0.4 + Math.random() * 0.5) + 2, e.wtype);
     S.pirate.dread += 3; clampPirate();
     pirateKillRewards(e);
     S.encounter = null;
-    log(`⚔️ You turned on the ${e.ico} ${e.name} and blew it apart! Bounty ${fmt(e.bounty)} cr + salvage ${taken.join(" ") || "none"}. (Hull −${dmg}, no Wanted)`, "good");
-    toast(`Ambusher destroyed — bounty ${fmt(e.bounty)} cr!`, "good");
-  } else {
-    const dmg = takeTypedDamage(e.strength * 0.8 * (0.6 + Math.random() * 0.6) + 5, e.wtype);
-    const loss = Math.min(S.res.credits, Math.round(e.toll * 0.8));
-    S.res.credits -= loss;
-    const stolen = [];
-    CARGO_IDS.forEach(c => { const take = Math.floor((S.res[c] || 0) * 0.2); if (take > 0) { S.res[c] -= take; stolen.push(`${take}${COM[c].ico}`); } });
-    S.encounter = null;
-    log(`💥 The ${e.name} beat you down — Hull −${dmg}, ${fmt(loss)} cr and ${stolen.join(" ") || "no cargo"} taken before they let you limp off.`, "bad");
-    toast("Boarded and robbed!", "bad");
+    log(`⚔️ You blew the ${e.ico} ${e.name} apart! Bounty ${fmt(e.bounty)} cr + salvage ${taken.join(" ") || "none"}. (no Wanted)`, "good");
+    toast(`Ambusher destroyed — ${fmt(e.bounty)} cr!`, "good");
+    return afterAction();
   }
+  const fs = foeStrikes(e, 0.3);
+  const hpPct = Math.max(0, Math.round(e.hp / e.maxhp * 100));
+  log(`⚔️ You hit the ${e.name} for ${ps.dmg} (hull ${hpPct}%); it fires back — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
+  toast(`Foe at ${hpPct}%`, "");
+  if (S.pirate.hull <= 0) { S.encounter = null; return afterAction(); }   // crippled; they let you limp off
   afterAction();
 }
 
@@ -1677,7 +1726,8 @@ function shipCrippled() {
   const tow = Math.min(S.res.credits, 1500);
   S.res.credits -= tow;
   S.pirate.hull = 30; clampPirate();
-  log(`💥 Your hull buckled! You limp away — lost ${jettisoned.join(" ") || "no cargo"} and paid ${fmt(tow)} cr for a tow.`, "bad");
+  SUBSYS.forEach(k => damageSubsys(k, 15 + Math.random() * 20));   // a wreck damages everything
+  log(`💥 Your hull buckled! You limp away — lost ${jettisoned.join(" ") || "no cargo"} and paid ${fmt(tow)} cr for a tow. Systems are battered.`, "bad");
   toast("Ship crippled!", "bad");
   jot(`Ship crippled near ${currentPlanet().name} — hull gave out, cargo jettisoned.`, "outlaw");
   if (typeof announce === "function") announce("💥 Ship Crippled", "Your hull gave out under fire. Cargo jettisoned and a tow paid — patch up before you raid again.", true);
@@ -1695,65 +1745,53 @@ function plunder(prey) {
   S.pirate.plundered += Math.round(value);
   return taken;
 }
-function resolveRaid(noQuarter, wkey) {
-  const prey = S.prey; if (!prey) return;
-  wkey = wkey && WEAPONS[wkey] && weaponAvailable(wkey) ? wkey : "kinetic";
-  if (!weaponAffordable(wkey)) { return toast(`No ammo for ${WEAPONS[wkey].name}.`, "bad"); }
-  useAction();
-  payAmmo(wkey);
-  const drones = droneStrike(prey);
-  if (drones.lost > 0) S.res.drones -= drones.lost;
-  const power = (raidPower() + Math.random() * 10) * weaponEff(wkey, prey) + drones.bonus;
-  const def = prey.strength + Math.random() * 10;
-  const margin = power - def;
-  S.pirate.raids++;
-  if (prey.isPirate) {
-    if (margin > 0) {
-      const taken = plunder(prey);
-      const dmg = takeTypedDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5) + 3, prey.wtype);
-      S.pirate.dread += 3; clampPirate();                       // even pirates fear the hunter
-      pirateKillRewards(prey);
-      log(`🎯 You brought down the ${prey.ico} ${prey.name}! Bounty ${fmt(prey.bounty)} cr + salvage ${taken.join(" ") || "none"} + ${fmt(prey.credits)} cr. (Hull −${dmg}, no Wanted — a lawful kill)`, "good");
-      toast(`Bounty collected: ${fmt(prey.bounty)} cr!`, "good");
-    } else {
-      const dmg = takeTypedDamage(prey.strength * 0.8 * (0.6 + Math.random() * 0.6) + 6, prey.wtype);
-      log(`☠️ The ${prey.ico} ${prey.name} outfought you — Hull −${dmg} and it slipped back into the dark.`, "bad");
-      toast("Pirate escaped!", "bad");
-    }
-    S.prey = null;
-    return afterAction();
-  }
+/* ---------- Multi-round raids (free combat sub-loop) ----------
+   Each attack is one free round: you wear the foe's hull down, it fires back
+   at your hull and subsystems. The engagement ends when the foe is destroyed,
+   you disengage, or your hull buckles. Rounds cost no cycle-actions (the hunt
+   that found the foe already did) — the cost is damage and the repairs after. */
+function raidWinPirate(prey) {
+  const taken = plunder(prey);
+  S.pirate.dread += 3; clampPirate();
+  pirateKillRewards(prey);
+  log(`🎯 You destroyed the ${prey.ico} ${prey.name}! Bounty ${fmt(prey.bounty)} cr + salvage ${taken.join(" ") || "none"} + ${fmt(prey.credits)} cr. (a lawful kill — no Wanted)`, "good");
+  toast(`Bounty collected: ${fmt(prey.bounty)} cr!`, "good");
+  S.prey = null; afterAction();
+}
+function raidWinMerchant(prey, noQuarter) {
   const betray = S.commission && prey.faction === S.commission.patron;
-  if (margin > 0) {
-    const taken = plunder(prey);
-    const dmg = takeTypedDamage(prey.strength * 0.5 * (0.4 + Math.random() * 0.5) + 3, prey.wtype); // every fight scars the hull
-    let dread = noQuarter ? 9 : 5;
-    const sanctioned = applyCommissionRaid(prey);     // legal kill under marque
-    let wanted = sanctioned ? (noQuarter ? 8 : 0) : prey.wantedGain + (noQuarter ? 8 : 0);
-    S.pirate.dread += dread; S.pirate.wanted += wanted;
-    addRep(prey.faction, noQuarter ? -14 : -8);
-    if (!sanctioned) addRep("core", -(prey.faction === "core" ? 8 : 5));
-    addRep("frontier", 3);
-    clampPirate();
-    log(`🏴‍☠️ You raided the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"} + ${fmt(prey.credits)} cr.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Hull −${dmg}, Dread +${dread}, Wanted +${wanted})`, "good");
-    toast(`Plundered ${prey.name}!`, "good");
-  } else {
-    const dmg = takeTypedDamage(prey.strength * 0.8 * (0.6 + Math.random() * 0.6) + 6, prey.wtype);
-    S.pirate.wanted += Math.round(prey.wantedGain * 0.5);
-    clampPirate();
-    log(`🛡️ The ${prey.ico} ${prey.name} fought you off — you took Hull −${dmg} and it slipped away. (Wanted +${Math.round(prey.wantedGain * 0.5)})`, "bad");
-    toast("Driven off!", "bad");
-  }
-  if (betray) revokeCommission(true);   // raiding your own patron tears up the marque
-  S.prey = null;
+  const taken = plunder(prey);
+  const dread = noQuarter ? 9 : 5;
+  const sanctioned = applyCommissionRaid(prey);
+  const wanted = sanctioned ? (noQuarter ? 8 : 0) : prey.wantedGain + (noQuarter ? 8 : 0);
+  S.pirate.dread += dread; S.pirate.wanted += wanted;
+  addRep(prey.faction, noQuarter ? -14 : -8);
+  if (!sanctioned) addRep("core", -(prey.faction === "core" ? 8 : 5));
+  addRep("frontier", 3); clampPirate();
+  log(`🏴‍☠️ You took the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"} + ${fmt(prey.credits)} cr.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Dread +${dread}, Wanted +${wanted})`, "good");
+  toast(`Plundered ${prey.name}!`, "good");
+  if (betray) revokeCommission(true);
+  S.prey = null; afterAction();
+}
+function combatStrike(noQuarter, wkey) {
+  const prey = S.prey; if (!prey) return;
+  wkey = wkey && WEAPONS[wkey] && weaponAvailable(wkey) && weaponAffordable(wkey) ? wkey : "kinetic";
+  if (!weaponAffordable(wkey)) return toast(`No ammo for ${WEAPONS[wkey].name}.`, "bad");
+  if (!prey._engaged) { prey._engaged = true; S.pirate.raids++; }
+  foeHp(prey); payAmmo(wkey);
+  const ps = playerStrikes(prey, wkey);
+  if (prey.hp <= 0) return prey.isPirate ? raidWinPirate(prey) : raidWinMerchant(prey, noQuarter);
+  const fs = foeStrikes(prey, noQuarter ? 0.34 : 0.28);    // pressing hard exposes you
+  const hpPct = Math.max(0, Math.round(prey.hp / prey.maxhp * 100));
+  log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${ps.dmg} (its hull ${hpPct}%); it returns fire — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
+  toast(`Hit for ${ps.dmg} — foe at ${hpPct}%`, "");
+  if (S.pirate.hull <= 0) { S.prey = null; return afterAction(); }   // crippled mid-fight; shipCrippled already fired
   afterAction();
 }
-function raidAttack(wkey) { if (!S.prey) return; if (actionsLeft() <= 0) return toast("No actions left.", "bad"); resolveRaid(false, wkey); }
-function raidNoQuarter(wkey) { if (!S.prey) return; if (actionsLeft() <= 0) return toast("No actions left.", "bad"); resolveRaid(true, wkey); }
+function raidAttack(wkey) { if (!S.prey) return; combatStrike(false, wkey); }
+function raidNoQuarter(wkey) { if (!S.prey || S.prey.isPirate) return; combatStrike(true, wkey); }
 function raidExtort() {
   const prey = S.prey; if (!prey) return;
-  if (actionsLeft() <= 0) return toast("No actions left.", "bad");
-  useAction();
   const intimidation = S.pirate.dread + raidPower() * 0.3 + Math.random() * 20;
   if (intimidation >= prey.strength * 1.4) {
     // they surrender tribute without a fight — partial haul, low heat
@@ -1777,9 +1815,15 @@ function raidExtort() {
 }
 function raidDisengage() {
   if (!S.prey) return;
+  if (S.prey._engaged) {
+    const fs = foeStrikes(S.prey, 0.2);
+    log(`You break off from the ${S.prey.name}; it rakes you as you run — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "bad");
+    toast("Broke off under fire.", "bad");
+  } else {
+    log("You let the target slip past, unmolested.", "");
+  }
   S.prey = null;
-  log("You let the target slip past, unmolested.", "");
-  afterAction();
+  if (S.pirate.hull > 0) afterAction(); else afterAction();
 }
 function repairShip() {
   if (combatLocked()) return;
@@ -1790,6 +1834,41 @@ function repairShip() {
   S.res.credits -= cost; S.pirate.hull = HULL_MAX;
   log(`🔧 Hull fully repaired at ${currentPlanet().name}${atHaven() ? " (haven dry-dock)" : ""} for ${fmt(cost)} credits.`, "good");
   toast("Hull repaired.", "good");
+  afterAction();
+}
+function subsysRepairCost(sub) {
+  const c = shipCond(sub); if (c >= 100) return null;
+  const miss = 100 - c, rate = atHaven() ? 14 : 24;
+  return { credits: Math.round(miss * rate), mat: SUBSYS_META[sub].mat, matQ: Math.ceil(miss / 18) };
+}
+function repairSubsys(sub) {
+  if (combatLocked()) return;
+  const q = subsysRepairCost(sub);
+  if (!q) return toast(`${SUBSYS_META[sub].name} is intact.`, "bad");
+  if (S.res.credits < q.credits) return toast(`${SUBSYS_META[sub].name} repair costs ${fmt(q.credits)} cr.`, "bad");
+  if ((S.res[q.mat] || 0) < q.matQ) return toast(`Need ${q.matQ} ${COM[q.mat].name} to repair ${SUBSYS_META[sub].name}.`, "bad");
+  S.res.credits -= q.credits; S.res[q.mat] -= q.matQ; S.pirate.subsys[sub] = 100;
+  log(`🔧 ${SUBSYS_META[sub].ico} ${SUBSYS_META[sub].name} repaired for ${fmt(q.credits)} cr + ${q.matQ} ${COM[q.mat].ico}.`, "good");
+  toast(`${SUBSYS_META[sub].name} repaired.`, "good");
+  afterAction();
+}
+function repairAll() {
+  if (combatLocked()) return;
+  let spent = 0; const did = [];
+  if (S.pirate.hull < HULL_MAX) {
+    const cost = Math.round((HULL_MAX - S.pirate.hull) * (atHaven() ? 18 : 30));
+    if (S.res.credits >= cost) { S.res.credits -= cost; S.pirate.hull = HULL_MAX; spent += cost; did.push("hull"); }
+  }
+  SUBSYS.forEach(sub => {
+    const q = subsysRepairCost(sub); if (!q) return;
+    if (S.res.credits >= q.credits && (S.res[q.mat] || 0) >= q.matQ) {
+      S.res.credits -= q.credits; S.res[q.mat] -= q.matQ; S.pirate.subsys[sub] = 100;
+      spent += q.credits; did.push(SUBSYS_META[sub].name);
+    }
+  });
+  if (!did.length) return toast("Nothing to refit, or you can't afford it.", "bad");
+  log(`🔧 Refit at ${currentPlanet().name}: ${did.join(", ")} — ${fmt(spent)} cr + materials.`, "good");
+  toast("Ship refitted.", "good");
   afterAction();
 }
 function processWanted() {
@@ -4364,6 +4443,12 @@ function tacticalHTML(t, attackFn) {
   const al = actionsLeft();
   const scanBtn = t.scanned ? "" :
     `<button class="btn btn-sm" title="Reveal defenses, weapon class and the best counter${S.upgrades.aimain >= 1 ? " (free — AI Mainframe)" : " (4 ⚡)"}" onclick="deepScan()">🔍 Deep Scan${S.upgrades.aimain >= 1 ? "" : " (4⚡)"}</button>`;
+  const _max = t.maxhp != null ? t.maxhp : Math.max(8, Math.round(t.strength * FOE_HP_MULT));
+  const _hp = t.hp != null ? t.hp : _max;
+  const _pct = Math.max(0, Math.min(100, _hp / _max * 100));
+  const _hpCol = _pct >= 60 ? "var(--good)" : _pct >= 30 ? "var(--warn)" : "var(--bad)";
+  const hullBar = `<div class="ship-stat" style="margin-top:4px"><span class="k">Foe hull</span><span class="v" style="color:${_hpCol}">${Math.max(0, Math.round(_hp))}/${_max}</span></div>
+    <div class="bar"><span style="width:${_pct}%;background:${_hpCol}"></span></div>`;
   const profile = t.scanned
     ? `<div class="hint">🛡️ armor ${t.def.armor} · 🔰 shields ${t.def.shield} · 📡 point-def ${t.def.pd} · fires <b>${t.wtype}</b> — counter with <b>${bestWeaponHint(t).ico} ${bestWeaponHint(t).name}</b></div>`
     : `<div class="hint">Capabilities unknown — a 🔍 Deep Scan reveals its defenses and the best counter.</div>`;
@@ -4379,7 +4464,7 @@ function tacticalHTML(t, attackFn) {
   const dr = dronesDeployable();
   const droneLine = (S.upgrades.dronebay || 0) > 0
     ? `<div class="hint">🛸 ${dr > 0 ? `Will deploy <b>${dr}</b> drone${dr > 1 ? "s" : ""}${t.scanned && t.def.pd > 0 ? " (their point-defense will thin them)" : ""}` : "Drone Bay empty — stock 🛸 Combat Drones"}</div>` : "";
-  return `${profile}${droneLine}
+  return `${hullBar}${profile}${droneLine}
     <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Attack:</span> ${weapons}</div>`;
 }
 function renderRaid() {
@@ -4400,6 +4485,13 @@ function renderRaid() {
     <div class="ship-stat"><span class="k">Total plundered</span><span class="v">${fmt(P.plundered)} cr</span></div>
     <div class="ship-stat"><span class="k">Raid power</span><span class="v">${Math.round(raidPower())}</span></div>
     ${P.hull < HULL_MAX ? `<button class="btn btn-good" style="margin-top:8px" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * (atHaven() ? 18 : 30)))} 💰${atHaven() ? ", haven rate" : ""})</button>` : `<div class="pill good" style="margin-top:8px">◉ Hull pristine</div>`}
+    <div class="ship-stat" style="margin-top:10px"><span class="k">🛠️ Subsystems</span><span class="v">${SUBSYS.every(k => shipCond(k) >= 100) ? '<span class="pill good">all nominal</span>' : ""}</span></div>
+    ${SUBSYS.map(k => { const c = shipCond(k), col = c >= 60 ? "var(--good)" : c >= 30 ? "var(--warn)" : "var(--bad)", m = SUBSYS_META[k], q = subsysRepairCost(k);
+      return `<div class="ship-stat"><span class="k">${m.ico} ${m.name}</span><span class="v" style="color:${col}">${c}%</span></div>
+        <div class="bar"><span style="width:${c}%;background:${col}"></span></div>
+        ${q ? `<button class="btn btn-sm" style="margin:2px 0 4px" ${(S.res.credits >= q.credits && (S.res[q.mat] || 0) >= q.matQ) ? "" : "disabled"} title="Repair ${m.name}: ${fmt(q.credits)} cr + ${q.matQ} ${COM[q.mat].name}" onclick="repairSubsys('${k}')">🔧 ${m.name} (${fmt(q.credits)}💰+${q.matQ}${COM[q.mat].ico})</button>` : ""}`;
+    }).join("")}
+    ${(P.hull < HULL_MAX || SUBSYS.some(k => shipCond(k) < 100)) ? `<button class="btn btn-good" style="margin-top:6px" onclick="repairAll()">🛠️ Full refit (hull + systems)</button>` : ""}
     ${P.wanted > 0 && !S.interdiction ? (corruptible
       ? `<button class="btn btn-sm" style="margin-top:6px" ${al > 0 && S.res.credits >= settleCost ? "" : "disabled"} title="Bribe corruptible officials to wipe warrants" onclick="settleWarrants()">📝 Settle warrants (${fmt(settleCost)} 💰)</button>`
       : `<div class="hint" style="margin-top:6px">Officials here are incorruptible — settle warrants in lawless space.</div>`) : ""}
@@ -4975,7 +5067,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.1.3";
+const APP_VERSION = "1.2.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -5349,6 +5441,7 @@ function init() {
   if (S.climate == null) S.climate = 0;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
   if (S.pirate.commissionsDone == null) S.pirate.commissionsDone = 0;
+  initSubsys();
   if (S.prey === undefined) S.prey = null;
   if (S.interdiction === undefined) S.interdiction = null;
   if (S.haven === undefined) S.haven = null;
@@ -5398,5 +5491,5 @@ Object.assign(window, {
   exportSave, importSave, importSaveText, parseSaveText, buildSaveText,
   alignColony, colonyIndependence,
   setSubView,
-  huntPirates, encounterPay, encounterFlee, encounterFight, deepScan,
+  huntPirates, encounterPay, encounterFlee, encounterFight, deepScan, repairSubsys, repairAll,
 });
