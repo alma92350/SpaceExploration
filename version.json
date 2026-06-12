@@ -1,5 +1,5 @@
 {
-  "version": "1.2.1",
+  "version": "1.2.2",
   "saveVersion": "v2",
-  "notes": "Combat overhaul (2/3): tactical depth \u2014 split a power budget between offense and defense each round (Aggressive/Balanced/Evasive presets or an advanced slider; reactor & AI raise the budget) and choose your target: the foe's hull, its weapons (blunt its fire) or its defenses (strip armor/shields)."
+  "notes": "Combat overhaul (3/3): opponents now scale with your veterancy and the cycle count, elite NAMED captains with escorts appear for seasoned hunters (hardened against your favourite weapon), and foe hull rubber-bands to your true firepower with an unblockable damage floor \u2014 so raiding stays challenging and costs real repairs even with a fully maxed ship."
 }

@@ -894,7 +894,7 @@ function freshState(opts = {}) {
     planetLaws: {},     // player per-planet trade laws: pid -> com -> { type, until }
     invest: null,       // active corruption investigation: { lead, evidence, defense, cycles }
     jail: 0,            // cycles remaining in detention
-    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0, bountyKills: 0, bountyEarned: 0, subsys: { weapons: 100, shields: 100, engines: 100, sensors: 100 } },  // outlaw career
+    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0, bountyKills: 0, bountyEarned: 0, subsys: { weapons: 100, shields: 100, engines: 100, sensors: 100 }, wuse: {} },  // outlaw career
     combat: { posture: "balanced", offense: 50, target: "hull", advanced: false },  // combat posture & targeting (UI-tunable)
     prey: null,         // current raid encounter: { type, name, ico, cargo, credits, strength, faction, wantedGain }
     interdiction: null, // active navy confrontation: { kind, planet, strength, bribe }
@@ -1364,7 +1364,7 @@ const SUBSYS_META = {
   engines: { ico: "🚀", name: "Engines", mat: "metals" },
   sensors: { ico: "📡", name: "Sensors", mat: "electronics" },
 };
-const FOE_HP_MULT = 2.2;        // a foe's hull ≈ strength × this
+const FOE_HP_MULT = 1.7;        // a foe's hull ≈ strength × this
 function initSubsys() {
   if (!S.pirate.subsys) S.pirate.subsys = {};
   SUBSYS.forEach(k => { if (S.pirate.subsys[k] == null) S.pirate.subsys[k] = 100; });
@@ -1372,8 +1372,23 @@ function initSubsys() {
 function shipCond(sub) { initSubsys(); return S.pirate.subsys[sub]; }
 function condFactor(sub) { return 0.35 + 0.65 * (shipCond(sub) / 100); }   // 35% effective when wrecked
 function damageSubsys(sub, amt) { initSubsys(); S.pirate.subsys[sub] = Math.max(0, Math.round(S.pirate.subsys[sub] - amt)); }
+const COMBAT_ROUNDS_TARGET = 3.6;     // a fair fight should last about this many rounds
+function bestWeaponMult() {
+  let m = 1; Object.keys(WEAPONS).forEach(w => { if (weaponAvailable(w)) m = Math.max(m, WEAPONS[w].mult); });
+  return m;
+}
+// your realistic per-round damage ceiling (best weapon, drones, offense budget)
+function estPlayerDPS() {
+  const droneF = 1 + (S.upgrades.dronebay || 0) * 0.12;
+  return (raidPower() * 0.55 + 4) * Math.max(0.5, offenseMult()) * bestWeaponMult() * droneF;
+}
 function foeHp(foe) {
-  if (foe.hp == null) { foe.maxhp = Math.max(8, Math.round(foe.strength * FOE_HP_MULT)); foe.hp = foe.maxhp; }
+  if (foe.hp == null) {
+    const base = foe.strength * FOE_HP_MULT;
+    const scaled = estPlayerDPS() * COMBAT_ROUNDS_TARGET;     // rubber-band: never a one-shot for a strong ship
+    foe.maxhp = Math.max(8, Math.round(Math.max(base, scaled) * (1 + 0.4 * (foe.escorts || 0))));
+    foe.hp = foe.maxhp;
+  }
   return foe.hp;
 }
 // one player attack round: returns damage dealt to the foe
@@ -1387,8 +1402,11 @@ function playerStrikes(foe, wkey) {
 // one foe counter-attack: hull damage + a chance to wound a subsystem
 function foeStrikes(foe, intensity) {
   const postureFactor = Math.max(0.5, Math.min(1.8, 1 / Math.max(0.4, defenseMult())));   // evasive soaks, aggressive exposes
+  intensity *= (1 + 0.12 * (foe.escorts || 0));                                            // escorts pile on
   const raw = foe.strength * intensity * (0.7 + Math.random() * 0.6) * postureFactor;
-  const dmg = takeTypedDamage(raw, foe.wtype);
+  let dmg = takeTypedDamage(raw, foe.wtype);
+  const floor = Math.round(foe.strength * 0.06 * postureFactor);   // some fire always gets through
+  if (dmg < floor) { const extra = floor - dmg; S.pirate.hull = Math.max(0, S.pirate.hull - extra); clampPirate(); if (S.pirate.hull <= 0) shipCrippled(); dmg = floor; }
   let subHit = null;
   if (Math.random() < 0.55 && dmg > 0) {                 // genuinely punishing: most hits scar a system
     subHit = pick(SUBSYS);
@@ -1591,20 +1609,52 @@ function pirateOpposition(systemLvl, bias) {
   const tilt = systemLvl >= 4 ? 1 : 0;                  // infested space runs a rank hotter
   return Math.max(1, Math.min(5, tier + tilt + rint(-1, 1) + (bias || 0)));
 }
+/* ---------- Phase 3: veterancy, elites & escorts ----------
+   The rank ladder caps at 5, but a veteran hunter would soon outgrow it — so
+   foe strength, hull and bounties keep climbing with your experience (kills
+   + raids) and the cycle count. At high veterancy, elite NAMED captains
+   appear: tougher, hardened against your favourite weapon, and running with
+   escorts — keeping even a maxed ship honest, and the rewards scaling too. */
+const PIRATE_NAMES = ["Vex", "Kessler", "Mora", "Drake", "Sable", "Rurik", "Calla", "Voss", "Talia", "Garr"];
+const PIRATE_EPITHETS = ["the Cruel", "the Shadow", "Ironhand", "the Wolf", "Bonebreaker", "the Vulture", "Blacksun", "the Reaver"];
+function veterancy() { return (S.pirate ? (S.pirate.bountyKills || 0) : 0) + Math.floor((S.pirate ? (S.pirate.raids || 0) : 0) / 3); }
+function foeStrengthMult() { return 1 + Math.min(0.55, veterancy() * 0.009 + (S.turn || 0) * 0.0015); }
+function favWeapon() {
+  const u = (S.pirate && S.pirate.wuse) || {};
+  return Object.keys(u).sort((a, b) => u[b] - u[a])[0] || "kinetic";
+}
+function noteWeaponUse(wkey) { if (!S.pirate.wuse) S.pirate.wuse = {}; S.pirate.wuse[wkey] = (S.pirate.wuse[wkey] || 0) + 1; }
+// upgrade a freshly-generated foe into an elite, in place
+function maybeElite(foe) {
+  const chance = Math.min(0.25, Math.max(0, (veterancy() - 6) * 0.009));
+  if (Math.random() >= chance) return foe;
+  foe.elite = true;
+  foe.name = `${pick(PIRATE_NAMES)} ${pick(PIRATE_EPITHETS)}`;
+  foe.ico = "💀";
+  foe.strength = Math.round(foe.strength * 1.28);
+  ["armor", "shield", "pd"].forEach(k => { foe.def[k] = Math.min(3, (foe.def[k] || 0) + 1); });
+  const cw = WEAPONS[favWeapon()] && WEAPONS[favWeapon()].counter;   // harden against what you favour
+  if (cw) foe.def[cw] = 3;
+  foe.bounty = Math.round((foe.bounty || 0) * 1.9);
+  foe.credits = Math.round((foe.credits || 0) * 1.6);
+  foe.escorts = 1 + (veterancy() >= 25 ? rint(0, 1) : 0);
+  return foe;
+}
 function genPirate(level) {
   const lv = Math.max(1, Math.min(5, level));
   const R = PIRATE_RANKS[lv];
-  const str = Math.round(R.str * (0.85 + Math.random() * 0.3));
+  const str = Math.round(R.str * (0.85 + Math.random() * 0.3) * foeStrengthMult());
   const prof = genFoeProfile("pirate", str, 0.2);
-  return {
+  const foe = {
     type: "pirate", isPirate: true, level: lv,
     name: R.name, ico: R.ico, faction: "frontier",
     cargo: { weapons: rint(2, 4 + lv), fuel: rint(3, 8) },
     credits: rint(100, 250) * lv,
     strength: str, def: prof.def, wtype: prof.wtype,
-    bounty: Math.round(R.bounty * (0.85 + Math.random() * 0.3)),
+    bounty: Math.round(R.bounty * (0.85 + Math.random() * 0.3) * foeStrengthMult()),
     wantedGain: 0,
   };
+  return maybeElite(foe);
 }
 function huntPirates() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
@@ -1621,8 +1671,8 @@ function huntPirates() {
     return afterAction();
   }
   S.prey = genPirate(pirateOpposition(lvl));
-  log(`🎯 Pirate contact: a ${S.prey.ico} <span class="c">${S.prey.name}</span> — bounty ${fmt(S.prey.bounty)} cr on its head.`, "event");
-  toast(`Pirate sighted: ${S.prey.name}`, "event");
+  if (S.prey.elite) { log(`💀 ELITE contact: <span class="c">${S.prey.name}</span>${(S.prey.escorts || 0) > 0 ? ` and ${S.prey.escorts} escort(s)` : ""} — bounty ${fmt(S.prey.bounty)} cr. A dangerous mark.`, "event"); toast(`Elite raider: ${S.prey.name}!`, "event"); }
+  else { log(`🎯 Pirate contact: a ${S.prey.ico} <span class="c">${S.prey.name}</span> — bounty ${fmt(S.prey.bounty)} cr on its head.`, "event"); toast(`Pirate sighted: ${S.prey.name}`, "event"); }
   afterAction();
 }
 function pirateKillRewards(prey) {
@@ -1686,7 +1736,7 @@ function encounterFight(wkey) {
   wkey = wkey && WEAPONS[wkey] && weaponAvailable(wkey) && weaponAffordable(wkey) ? wkey : "kinetic";
   if (!weaponAffordable(wkey)) return toast(`No ammo for ${WEAPONS[wkey].name}.`, "bad");
   if (!e._engaged) { e._engaged = true; S.pirate.raids++; }
-  foeHp(e); payAmmo(wkey);
+  foeHp(e); payAmmo(wkey); noteWeaponUse(wkey);
   const ps = playerStrikes(e, wkey);
   const etgt = applyTargetedDamage(e, ps.dmg);
   if (e.hp <= 0) {
@@ -1698,7 +1748,7 @@ function encounterFight(wkey) {
     toast(`Ambusher destroyed — ${fmt(e.bounty)} cr!`, "good");
     return afterAction();
   }
-  const fs = foeStrikes(e, 0.3);
+  const fs = foeStrikes(e, 0.24);
   const hpPct = Math.max(0, Math.round(e.hp / e.maxhp * 100));
   const etgtNote = etgt === "weapons" ? " (blunted its guns)" : etgt === "defense" ? " (stripped its defenses)" : "";
   log(`⚔️ You hit the ${e.name} for ${ps.dmg}${etgtNote} (hull ${hpPct}%); it fires back — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
@@ -1727,7 +1777,7 @@ function genPrey() {
   const cargo = {};
   const picks = A.goods.slice().sort(() => Math.random() - 0.5).slice(0, rint(1, 2));
   picks.forEach(c => cargo[c] = rint(A.bulk[0], A.bulk[1]));
-  let strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5)); // lawful escorts tough but beatable
+  let strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5) * foeStrengthMult()); // lawful escorts tough but beatable
   if (S.crises && S.crises[p.id]) strength = Math.round(strength * 0.85);                 // escorts thinned by the crisis
   const prof = genFoeProfile(key, strength, law);
   return {
@@ -1827,11 +1877,11 @@ function combatStrike(noQuarter, wkey) {
   wkey = wkey && WEAPONS[wkey] && weaponAvailable(wkey) && weaponAffordable(wkey) ? wkey : "kinetic";
   if (!weaponAffordable(wkey)) return toast(`No ammo for ${WEAPONS[wkey].name}.`, "bad");
   if (!prey._engaged) { prey._engaged = true; S.pirate.raids++; }
-  foeHp(prey); payAmmo(wkey);
+  foeHp(prey); payAmmo(wkey); noteWeaponUse(wkey);
   const ps = playerStrikes(prey, wkey);
   const tgt = applyTargetedDamage(prey, ps.dmg);
   if (prey.hp <= 0) return prey.isPirate ? raidWinPirate(prey) : raidWinMerchant(prey, noQuarter);
-  const fs = foeStrikes(prey, noQuarter ? 0.34 : 0.28);    // pressing hard exposes you
+  const fs = foeStrikes(prey, noQuarter ? 0.27 : 0.22);    // pressing hard exposes you
   const hpPct = Math.max(0, Math.round(prey.hp / prey.maxhp * 100));
   const tgtNote = tgt === "weapons" ? " (blunted its guns)" : tgt === "defense" ? " (stripped its defenses)" : "";
   log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${ps.dmg}${tgtNote} (its hull ${hpPct}%); it returns fire — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
@@ -1889,8 +1939,8 @@ function repairShip() {
 }
 function subsysRepairCost(sub) {
   const c = shipCond(sub); if (c >= 100) return null;
-  const miss = 100 - c, rate = atHaven() ? 14 : 24;
-  return { credits: Math.round(miss * rate), mat: SUBSYS_META[sub].mat, matQ: Math.ceil(miss / 18) };
+  const miss = 100 - c, rate = atHaven() ? 9 : 15;
+  return { credits: Math.round(miss * rate), mat: SUBSYS_META[sub].mat, matQ: Math.ceil(miss / 35) };
 }
 function repairSubsys(sub) {
   if (combatLocked()) return;
@@ -4498,7 +4548,8 @@ function tacticalHTML(t, attackFn) {
   const _hp = t.hp != null ? t.hp : _max;
   const _pct = Math.max(0, Math.min(100, _hp / _max * 100));
   const _hpCol = _pct >= 60 ? "var(--good)" : _pct >= 30 ? "var(--warn)" : "var(--bad)";
-  const hullBar = `<div class="ship-stat" style="margin-top:4px"><span class="k">Foe hull</span><span class="v" style="color:${_hpCol}">${Math.max(0, Math.round(_hp))}/${_max}</span></div>
+  const badges = `${t.elite ? '<span class="pill bad" title="Elite captain — tougher, hardened against your favourite weapon">💀 ELITE</span> ' : ""}${(t.escorts || 0) > 0 ? `<span class="pill" title="Fights with ${t.escorts} escort(s) — more hull, heavier fire">🛰️ ${t.escorts} escort${t.escorts > 1 ? "s" : ""}</span> ` : ""}`;
+  const hullBar = `${badges ? `<div style="margin-top:4px">${badges}</div>` : ""}<div class="ship-stat" style="margin-top:4px"><span class="k">Foe hull</span><span class="v" style="color:${_hpCol}">${Math.max(0, Math.round(_hp))}/${_max}</span></div>
     <div class="bar"><span style="width:${_pct}%;background:${_hpCol}"></span></div>`;
   const profile = t.scanned
     ? `<div class="hint">🛡️ armor ${t.def.armor} · 🔰 shields ${t.def.shield} · 📡 point-def ${t.def.pd} · fires <b>${t.wtype}</b> — counter with <b>${bestWeaponHint(t).ico} ${bestWeaponHint(t).name}</b></div>`
@@ -5133,7 +5184,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.2.1";
+const APP_VERSION = "1.2.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -5508,6 +5559,7 @@ function init() {
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
   if (S.pirate.commissionsDone == null) S.pirate.commissionsDone = 0;
   initSubsys();
+  if (!S.pirate.wuse) S.pirate.wuse = {};
   if (!S.combat) S.combat = { posture: "balanced", offense: 50, target: "hull", advanced: false };
   if (S.prey === undefined) S.prey = null;
   if (S.interdiction === undefined) S.interdiction = null;
