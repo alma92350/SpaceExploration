@@ -1384,8 +1384,9 @@ function estPlayerDPS() {
 }
 function foeHp(foe) {
   if (foe.hp == null) {
-    const base = foe.strength * FOE_HP_MULT;
-    const scaled = estPlayerDPS() * COMBAT_ROUNDS_TARGET;     // rubber-band: never a one-shot for a strong ship
+    const hm = foe.hullMult || 1;
+    const base = foe.strength * FOE_HP_MULT * hm;               // hull class drives the length of big-ship fights
+    const scaled = estPlayerDPS() * COMBAT_ROUNDS_TARGET;       // rubber-band floor so nothing is one-shot (class-independent)
     foe.maxhp = Math.max(8, Math.round(Math.max(base, scaled) * (1 + 0.4 * (foe.escorts || 0))));
     foe.hp = foe.maxhp;
   }
@@ -1434,6 +1435,7 @@ const COMBAT_TARGETS = {
   hull:    { ico: "🎯", name: "Hull",     hint: "full damage — destroy it fastest" },
   weapons: { ico: "🔫", name: "Weapons",  hint: "half damage, but blunts its return fire" },
   defense: { ico: "🛡️", name: "Defenses", hint: "half damage, but strips armor/shields" },
+  engines: { ico: "🚀", name: "Engines",  hint: "half damage, but cripples its drive so it can't jump away" },
 };
 function combatState() {
   if (!S.combat) S.combat = { posture: "balanced", offense: 50, target: "hull", advanced: false };
@@ -1473,9 +1475,24 @@ function applyTargetedDamage(foe, dmg) {
     if ((foe.def[layer] || 0) > 0) { const b = foe.def[layer]; foe.def[layer] -= 1; return { hullDmg, note: ` · ${DEF_LAYER_NAME[layer]} breached ${b}→${foe.def[layer]} — your hits now bite deeper` }; }
     return { hullDmg, note: " · its defenses are already stripped" };
   }
+  if (c.target === "engines") {
+    const hullDmg = Math.max(1, Math.round(dmg * 0.5));
+    foe.hp = foeHp(foe) - hullDmg;
+    if ((foe.engines || 0) > 0) { const b = foe.engines; foe.engines = Math.max(0, foe.engines - 1); return { hullDmg, note: foe.engines === 0 ? " · 🚀 drive knocked out — it's pinned, no escape" : ` · 🚀 drive hit ${b}→${foe.engines} — cripple it fully to pin it` }; }
+    return { hullDmg, note: " · 🚀 its drive is already dead" };
+  }
   const hullDmg = Math.max(1, Math.round(dmg));
   foe.hp = foeHp(foe) - hullDmg;
   return { hullDmg, note: "" };
+}
+/* a foe with working engines tries to jump away when it's losing badly */
+function foeFleeCheck(foe) {
+  if ((foe.engines || 0) <= 0) return false;                    // pinned
+  foeHp(foe);
+  if (foe.hp / foe.maxhp > 0.4) return false;                   // only runs when hurt
+  const cls = SHIP_CLASSES[foe.cls] || SHIP_CLASSES.corvette;
+  const chance = cls.flee * (foe.engines / (foe.enginesMax || 1));
+  return Math.random() < chance;
 }
 /* ---------- Combat lockdown ----------
    An ambush or interdiction is a STANDOFF: until it's resolved you can't
@@ -1652,6 +1669,40 @@ function maybeElite(foe) {
   foe.escorts = 1 + (veterancy() >= 25 ? rint(0, 1) : 0);
   return foe;
 }
+/* ---------- Ship size classes ----------
+   Every vessel you meet (pirate or coalition) has a hull class. Bigger ships
+   hit harder, soak far more punishment, carry stronger defenses and richer
+   bounties — and they'll try to JUMP AWAY when losing unless you knock out
+   their engines first. Players learn the classes by their names. */
+const SHIP_CLASSES = {
+  scout:       { name: "Scout",       ico: "🛰️", hull: 0.7, str: 0.75, defBonus: 0, bounty: 0.6,  engines: 1, escort: 0, flee: 0.30 },
+  corvette:    { name: "Corvette",    ico: "🚤", hull: 1.0, str: 1.0,  defBonus: 0, bounty: 1.0,  engines: 1, escort: 0, flee: 0.18 },
+  frigate:     { name: "Frigate",     ico: "🚢", hull: 1.6, str: 1.3,  defBonus: 1, bounty: 2.0,  engines: 2, escort: 0, flee: 0.16 },
+  cruiser:     { name: "Cruiser",     ico: "🛳️", hull: 2.0, str: 1.7,  defBonus: 1, bounty: 3.6,  engines: 2, escort: 0, flee: 0.20 },
+  battleship:  { name: "Battleship",  ico: "⛴️", hull: 2.8, str: 2.3,  defBonus: 2, bounty: 6.5,  engines: 3, escort: 1, flee: 0.24 },
+  dreadnought: { name: "Dreadnought", ico: "🦑", hull: 3.6, str: 3.0,  defBonus: 3, bounty: 11.0, engines: 3, escort: 1, flee: 0.28 },
+};
+const CLASS_ORDER = ["scout", "corvette", "frigate", "cruiser", "battleship", "dreadnought"];
+function rollShipClass(bias) {
+  let lvl = 1 + (bias || 0);                                   // corvette baseline
+  const pUp = Math.min(0.5, 0.10 + veterancy() * 0.005);       // veterans meet bigger hulls
+  while (lvl < CLASS_ORDER.length - 1 && Math.random() < pUp) lvl++;
+  if (Math.random() < 0.18) lvl -= 1;                          // some run smaller
+  return CLASS_ORDER[Math.max(0, Math.min(CLASS_ORDER.length - 1, lvl))];
+}
+// stamp a class onto a freshly-built foe, scaling its stats
+function applyShipClass(foe, clsId) {
+  const cls = SHIP_CLASSES[clsId] || SHIP_CLASSES.corvette;
+  foe.cls = clsId;
+  foe.strength = Math.max(4, Math.round(foe.strength * cls.str));
+  foe.hullMult = cls.hull;
+  foe.bounty = Math.round((foe.bounty || 0) * cls.bounty);
+  foe.enginesMax = cls.engines; foe.engines = cls.engines;
+  if (cls.defBonus) ["armor", "shield", "pd"].forEach(k => { foe.def[k] = Math.min(3, (foe.def[k] || 0) + cls.defBonus); });
+  if (cls.escort) foe.escorts = (foe.escorts || 0) + cls.escort;
+  return foe;
+}
+function classLabel(foe) { const c = SHIP_CLASSES[foe.cls] || SHIP_CLASSES.corvette; return `${c.ico} ${c.name}`; }
 function genPirate(level) {
   const lv = Math.max(1, Math.min(5, level));
   const R = PIRATE_RANKS[lv];
@@ -1666,6 +1717,7 @@ function genPirate(level) {
     bounty: Math.round(R.bounty * (0.85 + Math.random() * 0.3) * foeStrengthMult()),
     wantedGain: 0,
   };
+  applyShipClass(foe, rollShipClass());
   return maybeElite(foe);
 }
 function huntPirates() {
@@ -1748,7 +1800,7 @@ function encounterFight(wkey) {
   wkey = wkey && WEAPONS[wkey] && weaponAvailable(wkey) && weaponAffordable(wkey) ? wkey : "kinetic";
   if (!weaponAffordable(wkey)) return toast(`No ammo for ${WEAPONS[wkey].name}.`, "bad");
   if (!e._engaged) { e._engaged = true; S.pirate.raids++; }
-  foeHp(e); payAmmo(wkey); noteWeaponUse(wkey);
+  foeHp(e); payAmmo(wkey); noteWeaponUse(wkey); combatState().lastWeapon = wkey;
   const ps = playerStrikes(e, wkey);
   const etgt = applyTargetedDamage(e, ps.dmg);
   if (e.hp <= 0) {
@@ -1765,6 +1817,11 @@ function encounterFight(wkey) {
   log(`⚔️ You hit the ${e.name} for ${etgt.hullDmg} hull (now ${hpPct}%)${etgt.note}; it fires back — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
   toast(`Foe hull ${hpPct}%`, "");
   if (S.pirate.hull <= 0) { S.encounter = null; return afterAction(); }   // crippled; they let you limp off
+  if (foeFleeCheck(e)) {
+    log(`🏃 The ${e.ico} ${e.name} broke off and jumped away — its 🚀 drive was still live. The bounty's gone.`, "bad");
+    toast(`${e.name} escaped!`, "bad");
+    S.encounter = null; return afterAction();
+  }
   afterAction();
 }
 
@@ -1791,37 +1848,68 @@ function genPrey() {
   let strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5) * foeStrengthMult()); // lawful escorts tough but beatable
   if (S.crises && S.crises[p.id]) strength = Math.round(strength * 0.85);                 // escorts thinned by the crisis
   const prof = genFoeProfile(key, strength, law);
-  return {
+  const foe = {
     type: key, name: A.name, ico: A.ico,
     faction: A.faction || p.faction,
     cargo, credits: rint(A.credits[0], A.credits[1]),
     strength, def: prof.def, wtype: prof.wtype,
+    bounty: 0,
     wantedGain: Math.round(A.wanted * (1 + law * 0.6)),
   };
+  applyShipClass(foe, rollShipClass(law >= 0.5 ? 1 : 0));     // lawful lanes run bigger hulls
+  return foe;
 }
+/* unified sweep: one scan turns up a handful of contacts — pirates AND coalition
+   traffic together — shown by faction + hull class only. Pick one to engage. */
 function prowl() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   if (S.interdiction) return toast("There's a navy cutter on your tail — deal with it first.", "bad");
   if (S.encounter) return toast("A pirate has you in its sights — deal with it first.", "bad");
   if (S.prey) return toast("You're already shadowing a target.", "bad");
-  if (S.res.fuel < PROWL_FUEL) return toast(`Need ${PROWL_FUEL} fuel to prowl the lanes.`, "bad");
+  if (S.preyChoices && S.preyChoices.length) return toast("You already have contacts on the scope — engage one or stand down.", "bad");
+  if (S.res.fuel < PROWL_FUEL) return toast(`Need ${PROWL_FUEL} fuel to sweep the lanes.`, "bad");
   S.res.fuel -= PROWL_FUEL; useAction();
   const p = currentPlanet();
-  // hunting in lawful space while notorious can flush out a patrol instead of prey
+  // sweeping lawful space while notorious can flush out a patrol instead
   if (S.pirate.wanted >= 30 && Math.random() < (S.pirate.wanted / 100) * p.enforce * 0.7) {
     startInterdiction(p, "patrol");
     return afterAction();
   }
-  if (Math.random() < 0.15) {
-    log("🔭 You prowled the lanes but found no prey worth the powder.", "");
-    toast("No prey found.", "");
+  if (Math.random() < 0.12) {
+    log("🔭 You swept the lanes but turned up nothing worth the powder.", "");
+    toast("No contacts.", "");
     return afterAction();
   }
-  S.prey = genPrey();
-  log(`🔭 Prey sighted: a ${S.prey.ico} <span class="c">${S.prey.name}</span> (${FACTIONS[S.prey.faction].name}).`, "event");
-  toast(`Target sighted: ${S.prey.name}`, "event");
+  const lvl = pirateLevel(p.id);
+  const n = rint(2, 4);
+  const pirateChance = Math.min(0.85, 0.12 + lvl * 0.15 - p.enforce * 0.18);
+  const choices = [];
+  for (let i = 0; i < n; i++) {
+    if (lvl > 0 && Math.random() < pirateChance) choices.push(genPirate(pirateOpposition(lvl)));
+    else choices.push(genPrey());
+  }
+  S.preyChoices = choices;
+  const pirates = choices.filter(c => c.isPirate).length;
+  log(`🔭 Sweep complete: <b>${choices.length}</b> contact(s) on the scope${pirates ? ` — ${pirates} flagged as pirates` : ""}. Read their class before you commit.`, "event");
+  toast(`${choices.length} contacts on the scope`, "event");
   afterAction();
 }
+function engageTarget(i) {
+  if (!S.preyChoices || !S.preyChoices[i]) return;
+  S.prey = S.preyChoices[i];
+  S.preyChoices = null;
+  const prey = S.prey;
+  if (prey.elite) { log(`💀 You bear down on the ELITE <span class="c">${prey.name}</span> — ${classLabel(prey)}${(prey.escorts || 0) > 0 ? `, ${prey.escorts} escort(s)` : ""}.`, "event"); toast(`Engaging elite ${prey.name}!`, "event"); }
+  else { log(`🎯 You bear down on the ${classLabel(prey)} <span class="c">${prey.name}</span> (${prey.isPirate ? "🏴 pirate" : FACTIONS[prey.faction].name}).`, "event"); toast(`Engaging ${prey.name}`, "event"); }
+  afterAction();
+}
+function standDown() {
+  if (!S.preyChoices) return;
+  S.preyChoices = null;
+  log("🔭 You let the contacts disperse and stood down.", "");
+  afterAction();
+}
+function huntPirates() { return prowl(); }   // unified — pirates show up as contacts in the sweep
 function takeHullDamage(amount) {
   amount = Math.max(0, Math.round(amount * (1 - dmgReduction())));
   S.pirate.hull -= amount;
@@ -1888,15 +1976,20 @@ function combatStrike(noQuarter, wkey) {
   wkey = wkey && WEAPONS[wkey] && weaponAvailable(wkey) && weaponAffordable(wkey) ? wkey : "kinetic";
   if (!weaponAffordable(wkey)) return toast(`No ammo for ${WEAPONS[wkey].name}.`, "bad");
   if (!prey._engaged) { prey._engaged = true; S.pirate.raids++; }
-  foeHp(prey); payAmmo(wkey); noteWeaponUse(wkey);
+  foeHp(prey); payAmmo(wkey); noteWeaponUse(wkey); combatState().lastWeapon = wkey;
   const ps = playerStrikes(prey, wkey);
   const tgt = applyTargetedDamage(prey, ps.dmg);
   if (prey.hp <= 0) return prey.isPirate ? raidWinPirate(prey) : raidWinMerchant(prey, noQuarter);
   const fs = foeStrikes(prey, noQuarter ? 0.27 : 0.22);    // pressing hard exposes you
   const hpPct = Math.max(0, Math.round(prey.hp / prey.maxhp * 100));
   log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${tgt.hullDmg} hull (now ${hpPct}%)${tgt.note}; it returns fire — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
-  toast(`Foe hull ${hpPct}%${tgt.note ? " · " + tgt.note.replace(/ ·.*/, "").replace(/[^a-zA-Z ].*/, "").trim() : ""}`, "");
+  toast(`Foe hull ${hpPct}%`, "");
   if (S.pirate.hull <= 0) { S.prey = null; return afterAction(); }   // crippled mid-fight; shipCrippled already fired
+  if (foeFleeCheck(prey)) {
+    log(`🏃 The ${prey.ico} ${prey.name} lit its drive and jumped clear — you never crippled its 🚀 engines. The ${prey.isPirate ? "bounty" : "haul"} got away.`, "bad");
+    toast(`${prey.name} escaped!`, "bad");
+    S.prey = null; return afterAction();
+  }
   afterAction();
 }
 function raidAttack(wkey) { if (!S.prey) return; combatStrike(false, wkey); }
@@ -1923,6 +2016,16 @@ function raidExtort() {
   if (S.commission && prey.faction === S.commission.patron) revokeCommission(true);
   S.prey = null;
   afterAction();
+}
+function raidVolley(n) {
+  n = Math.max(1, Math.min(8, n || 5));
+  const wkey = (combatState().lastWeapon) || "kinetic";
+  for (let i = 0; i < n; i++) {
+    const foe = S.encounter || S.prey;
+    if (!foe) break;                                   // foe destroyed or fled
+    if (!weaponAffordable(wkey)) break;                // out of ammo for the chosen weapon
+    if (S.encounter) encounterFight(wkey); else combatStrike(false, wkey);
+  }
 }
 function raidDisengage() {
   if (!S.prey) return;
@@ -3123,6 +3226,7 @@ function travel(destId) {
   const cost = fuelCost(destId);
   if (S.res.fuel < cost) return toast(`Not enough fuel (need ${cost}).`, "bad");
   if (S.prey) { log(`Your quarry, the ${S.prey.ico} ${S.prey.name}, slipped away as you left the system.`, ""); S.prey = null; }
+  if (S.preyChoices) S.preyChoices = null;
   S.res.fuel -= cost; S.location = destId; S.visited[destId] = true; S.stats.jumps++;
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
   toast(`Arrived at ${dest.name}`, "event");
@@ -4587,9 +4691,13 @@ function tacticalHTML(t, attackFn) {
   // live tactical stats: revealed by a scan, or learned once you've traded fire —
   // so you can watch Weapons-targeting drop its strength and Defenses-targeting strip its layers
   const known = t.scanned || t._engaged;
+  const engDots = (t.enginesMax || 0) > 0 ? Array.from({ length: t.enginesMax }, (_, i) => i < (t.engines || 0) ? "●" : "○").join("") : "";
   const profile = known
-    ? `<div class="hint">💥 strength <b>${Math.round(t.strength)}</b> · 🛡️ armor <b>${t.def.armor}</b> · 🔰 shields <b>${t.def.shield}</b> · 📡 point-def <b>${t.def.pd}</b>${t.scanned ? ` · fires <b>${t.wtype}</b> — counter with <b>${bestWeaponHint(t).ico} ${bestWeaponHint(t).name}</b>` : ""}</div>`
+    ? `<div class="hint">💥 strength <b>${Math.round(t.strength)}</b> · 🛡️ <b>${t.def.armor}</b> 🔰 <b>${t.def.shield}</b> 📡 <b>${t.def.pd}</b>${engDots ? ` · 🚀 drive <b>${engDots}</b>` : ""}${t.scanned ? ` · fires <b>${t.wtype}</b> — counter <b>${bestWeaponHint(t).ico} ${bestWeaponHint(t).name}</b>` : ""}</div>`
     : `<div class="hint">Capabilities unknown — a 🔍 Deep Scan reveals its defenses and the best counter.</div>`;
+  // warn when a hurt foe with live engines may bolt
+  const fleeWarn = (t.engines || 0) > 0 && t.hp != null && t.hp / t.maxhp < 0.55
+    ? `<div class="hint" style="color:var(--warn)">⚠️ Drive still live — it may jump away. Target 🚀 Engines to pin it.</div>` : "";
   const weapons = Object.keys(WEAPONS).filter(weaponAvailable).map(w => {
     const W = WEAPONS[w];
     const ammoStr = Object.entries(W.ammo).map(([c, q]) => `${q}${COM[c].ico}`).join("") || "free";
@@ -4621,12 +4729,34 @@ function tacticalHTML(t, attackFn) {
     : `🔧 Field Repair (+${FIELD_REPAIR.hull} hull · ${frMatsPlain})`;
   const frBtn = `<button class="btn btn-sm ${frUsable ? "btn-good" : ""}" ${frUsable ? "" : "disabled"} title="Emergency patch: +${FIELD_REPAIR.hull} hull and shore up your worst subsystem for ${frMatsPlain} — but you hold fire this round and the foe attacks" onclick="fieldRepair()">${frLabel}</button>`;
   const ownHullCol = S.pirate.hull >= 60 ? "var(--good)" : S.pirate.hull >= 30 ? "var(--warn)" : "var(--bad)";
-  return `${hullBar}${profile}${droneLine}
+  return `${hullBar}${profile}${fleeWarn}${droneLine}
     <div class="row" style="margin-top:8px;align-items:center"><span class="hint">Posture:</span> ${postureBtns} ${advBtn}${budgetNote}</div>
     ${advRow}
     <div class="row" style="margin-top:4px;align-items:center"><span class="hint">Target:</span> ${targetBtns}</div>
-    <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Fire:</span> ${weapons}</div>
+    <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Fire:</span> ${weapons}${t._engaged && combatState().lastWeapon ? ` <button class="btn btn-sm" title="Repeat your last attack (${WEAPONS[combatState().lastWeapon] ? WEAPONS[combatState().lastWeapon].name : ""}) for up to 5 rounds — handy for grinding down big hulls" onclick="raidVolley(5)">⏩ Volley ×5</button>` : ""}</div>
     <div class="row" style="margin-top:6px;align-items:center"><span class="hint">🛡️ Your hull <b style="color:${ownHullCol}">${S.pirate.hull}/${HULL_MAX}</b> ·</span> ${frBtn}</div>`;
+}
+function preyCombatCard(prey, al) {
+  const isPirate = prey.isPirate;
+  const who = isPirate ? `<span class="pill bad">🏴 Pirate</span>` : `<span class="pill">${FACTIONS[prey.faction].ico} ${FACTIONS[prey.faction].name}</span>`;
+  const reward = isPirate
+    ? `<span class="pill good">🎯 bounty ${fmt(prey.bounty)} 💰</span>`
+    : `<span class="hint">Hold: ${Object.keys(prey.cargo).map(c => `${prey.cargo[c]}${COM[c].ico}`).join(" ") || "scant"} · ${fmt(prey.credits)} 💰</span>`;
+  const pinned = (prey.engines || 0) <= 0;
+  const lawNote = isPirate
+    ? `A <b>lawful kill</b> — bounty, salvage, faction goodwill, no Wanted.`
+    : `Raiding coalition shipping earns <b>Wanted</b>. ${pinned ? "" : "Cripple its 🚀 engines so it can't run."}`;
+  const buttons = isPirate
+    ? `<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
+    : `<button class="btn btn-bad" ${al > 0 ? "" : "disabled"} title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
+       <button class="btn btn-sm" ${al > 0 ? "" : "disabled"} title="Spend Dread to extort tribute — no fight (Dread −12)" onclick="raidExtort()">💀 Extort</button>
+       <button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>`;
+  return `<div class="card" style="border-color:${isPirate ? "var(--good)" : "var(--warn)"}">
+    <h4>${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>
+    <div class="hint">${lawNote}</div>
+    ${tacticalHTML(prey, "raidAttack")}
+    <div class="row" style="margin-top:6px">${buttons}</div>
+  </div>`;
 }
 function renderRaid() {
   const el = document.getElementById("panel-raid");
@@ -4663,8 +4793,8 @@ function renderRaid() {
     const oddsCol = odds === "favorable" ? "var(--good)" : odds === "even" ? "var(--warn)" : "var(--bad)";
     const fleeOdds = Math.round(Math.max(5, Math.min(95, (0.45 + S.upgrades.engine * 0.15 + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * 100)));
     action = `<div class="card" style="border-color:var(--bad)">
-      <h4>🏴‍☠️ Ambush: ${e.ico} ${e.name} <span class="pill bad">level ${e.level}</span></h4>
-      <div class="hint">It demands <b>${fmt(e.toll)} 💰</b> to let you pass. Strength ~${e.strength} · bounty on its head ${fmt(e.bounty)} cr.</div>
+      <h4>🏴‍☠️ Ambush: ${classLabel(e)} <span class="hint">— ${e.name}</span> <span class="pill bad">🏴 Pirate</span></h4>
+      <div class="hint">It demands <b>${fmt(e.toll)} 💰</b> to let you pass. Bounty on its head ${fmt(e.bounty)} cr. ${(e.engines||0)>0 ? "Cripple its 🚀 engines if you mean to stop it running." : ""}</div>
       <div class="meta"><span class="hint">Fight odds</span><span class="cost" style="color:${oddsCol}">${odds} — power ${Math.round(rp)} vs ~${e.strength}</span></div>
       ${tacticalHTML(e, "encounterFight")}
       <div class="row" style="margin-top:6px">
@@ -4690,55 +4820,33 @@ function renderRaid() {
         <button class="btn btn-sm" title="Stand down: cargo seized, fined and jailed, but warrants mostly cleared" onclick="navySurrender()">🏳️ Surrender</button>
       </div>
     </div>`;
-  } else if (S.prey && S.prey.isPirate) {
-    const prey = S.prey;
-    const rp2 = raidPower();
-    const odds2 = rp2 >= prey.strength * 1.2 ? "favorable" : rp2 >= prey.strength * 0.8 ? "even" : "risky";
-    const oddsCol2 = odds2 === "favorable" ? "var(--good)" : odds2 === "even" ? "var(--warn)" : "var(--bad)";
-    action = `<div class="card" style="border-color:var(--good)">
-      <h4>${prey.ico} ${prey.name} <span class="pill good">🎯 bounty ${fmt(prey.bounty)} 💰</span></h4>
-      <div class="hint">A wanted raider — bringing it down is a <b>lawful kill</b>: bounty, salvage, faction goodwill, no Wanted.</div>
-      <div class="meta"><span class="hint">Your odds</span><span class="cost" style="color:${oddsCol2}">${odds2} — power ${Math.round(rp2)} vs ~${prey.strength}</span></div>
-      ${tacticalHTML(prey, "raidAttack")}
-      <div class="row" style="margin-top:6px">
-        <button class="btn btn-sm" onclick="raidDisengage()">Let it go</button>
-      </div>
-    </div>`;
   } else if (S.prey) {
-    const prey = S.prey;
-    const cargoStr = Object.keys(prey.cargo).map(c => `${prey.cargo[c]} ${COM[c].ico} ${COM[c].name}`).join(", ") || "scant cargo";
-    const rp = raidPower();
-    const odds = rp >= prey.strength * 1.2 ? "favorable" : rp >= prey.strength * 0.8 ? "even" : "risky";
-    const oddsCol = odds === "favorable" ? "var(--good)" : odds === "even" ? "var(--warn)" : "var(--bad)";
-    action = `<div class="card" style="border-color:var(--warn)">
-      <h4>${prey.ico} ${prey.name} <span class="pill">${FACTIONS[prey.faction].ico} ${FACTIONS[prey.faction].name}</span></h4>
-      <div class="hint">Hold: ${cargoStr} · ${fmt(prey.credits)} 💰 · escort strength ~${prey.strength}</div>
-      <div class="meta"><span class="hint">Your odds</span><span class="cost" style="color:${oddsCol}">${odds} — power ${Math.round(rp)} vs ~${prey.strength}</span></div>
-      ${tacticalHTML(prey, "raidAttack")}
-      <div class="row" style="margin-top:6px">
-        <button class="btn btn-bad" ${al > 0 ? "" : "disabled"} title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
-        <button class="btn btn-sm" ${al > 0 ? "" : "disabled"} title="Use your Dread to extort tribute — no fight" onclick="raidExtort()">💀 Extort</button>
-        <button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>
-      </div>
+    action = preyCombatCard(S.prey, al);
+  } else if (S.preyChoices && S.preyChoices.length) {
+    const rows = S.preyChoices.map((c, i) => {
+      const who = c.isPirate ? `<span class="pill bad">🏴 Pirate</span>` : `<span class="pill">${FACTIONS[c.faction].ico} ${FACTIONS[c.faction].name}</span>`;
+      const eliteTag = c.elite ? ` <span class="pill bad">💀 elite</span>` : "";
+      const escTag = (c.escorts || 0) > 0 ? ` <span class="pill">🛰️ ${c.escorts} escort${c.escorts > 1 ? "s" : ""}</span>` : "";
+      return `<div class="card" style="padding:10px">
+        <h4 style="margin:0">${classLabel(c)} <span class="hint">— ${c.name}</span></h4>
+        <div style="margin:6px 0">${who}${eliteTag}${escTag}</div>
+        <button class="btn btn-primary btn-sm" ${al >= 0 ? "" : "disabled"} onclick="engageTarget(${i})">⚔️ Engage</button>
+      </div>`;
+    }).join("");
+    action = `<div class="card"><h4>🔭 Contacts on the scope <span class="pill">${S.preyChoices.length}</span></h4>
+      <div class="hint">Read the <b>hull class</b> and allegiance, then commit. Bigger classes hit harder, soak more, and run when losing — knock out their 🚀 engines to pin them. Coalition ships carry cargo (raiding earns Wanted); 🏴 pirates carry bounties (a lawful kill).</div>
+      <div class="cards" style="margin-top:8px">${rows}</div>
+      <button class="btn btn-sm" style="margin-top:8px" onclick="standDown()">Stand down</button>
     </div>`;
   } else {
     const armed = S.upgrades.cannons >= 1;
-    const richness = p.enforce >= 0.5 ? "fat, well-escorted lawful traffic" : p.enforce >= 0.25 ? "mixed traffic" : "lean rim runners & smugglers";
-    action = `<div class="card">
-      <h4>🔭 Prowl the lanes near ${p.name}</h4>
-      <div class="desc">Hunt for prey on the shipping lanes (${richness}). Lawful space carries richer cargo but heavier escorts and stiffer bounties; the lawless rim is leaner but safer. Costs ${PROWL_FUEL} ⛽ and one action.</div>
-      ${armed ? "" : `<div class="hint" style="color:var(--warn)">Install 🔫 Weapon Systems (Ship tab) to raid with any real teeth.</div>`}
-      <button class="btn btn-primary" ${al > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="prowl()">Prowl (1 action)</button>
-    </div>`;
     const lvl = pirateLevel(p.id);
-    action += `<div class="card" ${lvl > 0 ? 'style="border-color:var(--good)"' : ""}>
-      <h4>🎯 Hunt Pirates ${lvl > 0 ? `<span class="pill ${lvl >= 2 ? "bad" : ""}">activity level ${lvl}</span>` : '<span class="pill good">lanes clear</span>'}</h4>
-      <div class="desc">${lvl > 0
-        ? (() => { const _t = playerCombatTier(), _tilt = lvl >= 4 ? 1 : 0;
-            const _lo = Math.max(1, Math.min(5, _t + _tilt - 1)), _hi = Math.max(1, Math.min(5, _t + _tilt + 1));
-            return `Against a captain of your calibre, expect <b>${PIRATE_RANKS[_lo].name}</b> to <b>${PIRATE_RANKS[_hi].name}</b> rank${_tilt ? " — infested space runs hot" : ""}. Bounties scale with rank — and every kill suppresses pirate raids on your colonies and convoys for a while. A <b>lawful</b> trade: no Wanted.${pirateCalm() ? " <i>(Lanes currently calm.)</i>" : ""}`; })()
-        : "No pirate activity here right now — check ⚠️ flagged systems on the lawless rim."} Costs ${PROWL_FUEL} ⛽ and one action.</div>
-      <button class="btn btn-primary" ${al > 0 && lvl > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="huntPirates()">Hunt (1 action)</button>
+    const richness = p.enforce >= 0.5 ? "fat, well-escorted lawful traffic — and bigger hulls" : p.enforce >= 0.25 ? "mixed traffic" : "lean rim runners, smugglers & pirates";
+    action = `<div class="card">
+      <h4>🔭 Sweep the lanes near ${p.name} ${lvl > 0 ? `<span class="pill ${lvl >= 2 ? "bad" : ""}">pirate activity ${lvl}</span>` : '<span class="pill good">lanes quiet</span>'}</h4>
+      <div class="desc">One sweep turns up several contacts — coalition traffic and pirates alike (${richness}). You'll see each one's faction and <b>hull class</b>; pick your mark. Lawful space runs richer and heavier; the lawless rim is leaner. Costs ${PROWL_FUEL} ⛽ and one action.</div>
+      ${armed ? "" : `<div class="hint" style="color:var(--warn)">Install 🔫 Weapon Systems (Ship tab) to raid with any real teeth.</div>`}
+      <button class="btn btn-primary" ${al > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="prowl()">Sweep (1 action)</button>
     </div>`;
   }
   // ---- Pirate haven ----
@@ -5255,7 +5363,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.2.8";
+const APP_VERSION = "1.3.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -5633,6 +5741,7 @@ function init() {
   if (!S.pirate.wuse) S.pirate.wuse = {};
   if (!S.combat) S.combat = { posture: "balanced", offense: 50, target: "hull", advanced: false };
   if (S.prey === undefined) S.prey = null;
+  if (S.preyChoices === undefined) S.preyChoices = null;
   if (S.interdiction === undefined) S.interdiction = null;
   if (S.haven === undefined) S.haven = null;
   if (S.commission === undefined) S.commission = null;
@@ -5673,7 +5782,7 @@ Object.assign(window, {
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
-  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, repairShip,
+  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, repairShip,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
@@ -5681,6 +5790,6 @@ Object.assign(window, {
   exportSave, importSave, importSaveText, parseSaveText, buildSaveText,
   alignColony, colonyIndependence,
   setSubView,
-  huntPirates, encounterPay, encounterFlee, encounterFight, deepScan, repairSubsys, repairAll,
+  huntPirates, engageTarget, standDown, encounterPay, encounterFlee, encounterFight, deepScan, repairSubsys, repairAll,
   setCombatPosture, setCombatOffense, setCombatTarget, fieldRepair,
 });

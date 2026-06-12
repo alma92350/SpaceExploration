@@ -1,5 +1,5 @@
 {
-  "version": "1.2.8",
+  "version": "1.3.0",
   "saveVersion": "v2",
-  "notes": "Bugfix: the in-fight Field Repair button did nothing when clicked \u2014 the materials list (HTML with quotes) was being placed inside the button's tooltip attribute, which broke the tag and dropped its click handler. Fixed; Field Repair now works."
+  "notes": "Raiding overhaul: ships now come in six hull classes from Scout to Dreadnought \u2014 bigger ones hit harder, soak far more, and JUMP AWAY with the loot when losing unless you cripple their Engines (a new target) to pin them. One unified Sweep lists several contacts (pirates and coalition together) by faction + class; pick your mark. Volley \u00d75 grinds big hulls fast. Raider interface redesigned."
 }
