@@ -4702,7 +4702,7 @@ function tacticalHTML(t, attackFn) {
     const W = WEAPONS[w];
     const ammoStr = Object.entries(W.ammo).map(([c, q]) => `${q}${COM[c].ico}`).join("") || "free";
     const eff = t.scanned ? ` ×${weaponEff(w, t).toFixed(2)}` : "";
-    const ok = al > 0 && weaponAffordable(w);
+    const ok = weaponAffordable(w);   // combat is a free sub-loop — attacking costs no cycle-actions (the sweep paid)
     return `<button class="btn btn-sm ${t.scanned && bestWeaponHint(t) === W ? "btn-primary" : ""}" ${ok ? "" : "disabled"}
       title="${W.name} — ammo: ${ammoStr}${t.scanned ? ` · effectiveness vs this target${eff}` : ""}"
       onclick="${attackFn}('${w}')">${W.ico}${eff}</button>`;
@@ -4748,8 +4748,8 @@ function preyCombatCard(prey, al) {
     : `Raiding coalition shipping earns <b>Wanted</b>. ${pinned ? "" : "Cripple its 🚀 engines so it can't run."}`;
   const buttons = isPirate
     ? `<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
-    : `<button class="btn btn-bad" ${al > 0 ? "" : "disabled"} title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
-       <button class="btn btn-sm" ${al > 0 ? "" : "disabled"} title="Spend Dread to extort tribute — no fight (Dread −12)" onclick="raidExtort()">💀 Extort</button>
+    : `<button class="btn btn-bad" title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
+       <button class="btn btn-sm" title="Spend Dread to extort tribute — no fight (Dread −12)" onclick="raidExtort()">💀 Extort</button>
        <button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>`;
   return `<div class="card" style="border-color:${isPirate ? "var(--good)" : "var(--warn)"}">
     <h4>${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>
@@ -5363,7 +5363,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.3.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

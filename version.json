@@ -1,5 +1,5 @@
 {
-  "version": "1.3.0",
+  "version": "1.3.1",
   "saveVersion": "v2",
-  "notes": "Raiding overhaul: ships now come in six hull classes from Scout to Dreadnought \u2014 bigger ones hit harder, soak far more, and JUMP AWAY with the loot when losing unless you cripple their Engines (a new target) to pin them. One unified Sweep lists several contacts (pirates and coalition together) by faction + class; pick your mark. Volley \u00d75 grinds big hulls fast. Raider interface redesigned."
+  "notes": "Bugfix: after sweeping with your last action, the engaged target's weapons (and No Quarter / Extort) showed as disabled. Combat rounds are free \u2014 the action is spent on the sweep, not on fighting \u2014 so those buttons no longer require an action."
 }
