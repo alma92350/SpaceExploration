@@ -1,5 +1,5 @@
 {
-  "version": "1.4.0",
+  "version": "1.4.1",
   "saveVersion": "v2",
-  "notes": "Fleet combat: a crippled ship now also loses the rest of the cycle to the tow. Coalition victims call same-faction ships from the area for rescue (you must beat them all); you can call loitering pirates to your side, splitting the loot evenly. Every vessel fires independently with its own result."
+  "notes": "Repairs are now cheaper at a world where you have a base (25% off), and that stacks with a haven dry-dock (40% off) \u2014 both together is 55% off hull and subsystem repairs."
 }

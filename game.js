@@ -2125,17 +2125,16 @@ function raidDisengage() {
 function repairShip() {
   if (combatLocked()) return;
   if (S.pirate.hull >= HULL_MAX) return toast("Hull is already pristine.", "bad");
-  const rate = atHaven() ? 18 : 30;          // your own dry-dock patches up cheap
-  const cost = Math.round((HULL_MAX - S.pirate.hull) * rate);
+  const cost = Math.round((HULL_MAX - S.pirate.hull) * 30 * repairDiscount());   // your own dry-dock & base workshop patch up cheap
   if (S.res.credits < cost) return toast(`Repairs cost ${fmt(cost)} credits.`, "bad");
   S.res.credits -= cost; S.pirate.hull = HULL_MAX;
-  log(`🔧 Hull fully repaired at ${currentPlanet().name}${atHaven() ? " (haven dry-dock)" : ""} for ${fmt(cost)} credits.`, "good");
+  log(`🔧 Hull fully repaired at ${currentPlanet().name}${repairVenueNote()} for ${fmt(cost)} credits.`, "good");
   toast("Hull repaired.", "good");
   afterAction();
 }
 function subsysRepairCost(sub) {
   const c = shipCond(sub); if (c >= 100) return null;
-  const miss = 100 - c, rate = atHaven() ? 9 : 15;
+  const miss = 100 - c, rate = 15 * repairDiscount();
   return { credits: Math.round(miss * rate), mat: SUBSYS_META[sub].mat, matQ: Math.ceil(miss / 35) };
 }
 function repairSubsys(sub) {
@@ -2153,7 +2152,7 @@ function repairAll() {
   if (combatLocked()) return;
   let spent = 0; const did = [];
   if (S.pirate.hull < HULL_MAX) {
-    const cost = Math.round((HULL_MAX - S.pirate.hull) * (atHaven() ? 18 : 30));
+    const cost = Math.round((HULL_MAX - S.pirate.hull) * 30 * repairDiscount());
     if (S.res.credits >= cost) { S.res.credits -= cost; S.pirate.hull = HULL_MAX; spent += cost; did.push("hull"); }
   }
   SUBSYS.forEach(sub => {
@@ -2319,6 +2318,15 @@ function settleWarrants() {
 const HAVEN_COST = 6000, HAVEN_METALS = 30, HAVEN_STASH_BASE = 120, HAVEN_MAX_TIER = 3;
 function canHaven(p) { return p.enforce <= 0.2 && p.faction !== "core"; } // only the lawless deep rim hides a den
 function atHaven() { return S.haven && S.haven.planet === S.location; }
+/* repair venues stack: a haven dry-dock (40% off) and/or a base workshop (25% off) */
+function atBase() { return !!(S.bases && S.bases[S.location]); }
+function repairDiscount() { return (atHaven() ? 0.6 : 1) * (atBase() ? 0.75 : 1); }
+function repairVenueNote() {
+  const v = [];
+  if (atHaven()) v.push("haven dry-dock");
+  if (atBase()) v.push("base workshop");
+  return v.length ? ` (${v.join(" + ")}, ${Math.round((1 - repairDiscount()) * 100)}% off)` : "";
+}
 function havenStashCap() { return S.haven ? HAVEN_STASH_BASE * S.haven.tier : 0; }
 function havenStashUsed() { return S.haven ? Object.values(S.haven.stash).reduce((s, q) => s + q, 0) : 0; }
 function havenTributeRate() { return S.haven ? Math.round(S.pirate.dread * S.haven.tier * 1.2) : 0; }
@@ -5071,7 +5079,7 @@ function repairBayHTML() {
   const hullCol = P.hull >= 60 ? "var(--good)" : P.hull >= 30 ? "var(--warn)" : "var(--bad)";
   const anyDamage = P.hull < HULL_MAX || SUBSYS.some(k => shipCond(k) < 100);
   const hullBtn = P.hull < HULL_MAX
-    ? `<button class="btn btn-good btn-sm" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * (atHaven() ? 18 : 30)))} 💰${atHaven() ? ", haven rate" : ""})</button>`
+    ? `<button class="btn btn-good btn-sm" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * 30 * repairDiscount()))} 💰${repairDiscount() < 1 ? ", " + Math.round((1 - repairDiscount()) * 100) + "% off" : ""})</button>`
     : "";
   const subRows = SUBSYS.map(k => {
     const c = shipCond(k), col = c >= 60 ? "var(--good)" : c >= 30 ? "var(--warn)" : "var(--bad)", m = SUBSYS_META[k], q = subsysRepairCost(k);
@@ -5463,7 +5471,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.4.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
