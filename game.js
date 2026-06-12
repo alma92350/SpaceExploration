@@ -1756,8 +1756,8 @@ function pirateKillRewards(prey) {
   const p = currentPlanet();
   if (!S.pirates) S.pirates = {};
   S.pirate.bountyKills = (S.pirate.bountyKills || 0) + 1;
-  S.pirate.bountyEarned = (S.pirate.bountyEarned || 0) + prey.bounty;
-  S.res.credits += prey.bounty;
+  S.pirate.bountyEarned = (S.pirate.bountyEarned || 0) + Math.round(prey.bounty * lootShare());
+  S.res.credits += Math.round(prey.bounty * lootShare());
   S.res.influence = (S.res.influence || 0) + 2 + prey.level;
   addRep("core", 3 + prey.level); addRep(p.faction, 4 + prey.level);
   S.pirates[p.id] = Math.max(0, pirateLevel(p.id) - 1);
@@ -1829,7 +1829,7 @@ function encounterFight(wkey) {
   const hpPct = Math.max(0, Math.round(e.hp / e.maxhp * 100));
   log(`⚔️ You hit the ${e.name} for ${etgt.hullDmg} hull (now ${hpPct}%)${etgt.note}; it fires back — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
   toast(`Foe hull ${hpPct}%`, "");
-  if (S.pirate.hull <= 0) { S.encounter = null; return afterAction(); }   // crippled; they let you limp off
+  if (!S.encounter) return afterAction();   // crippled & towed off (shipCrippled cleared it)
   if (foeFleeCheck(e)) {
     log(`🏃 The ${e.ico} ${e.name} broke off and jumped away — its 🚀 drive was still live. The bounty's gone.`, "bad");
     toast(`${e.name} escaped!`, "bad");
@@ -1910,6 +1910,8 @@ function prowl() {
 function engageTarget(i) {
   if (!S.preyChoices || !S.preyChoices[i]) return;
   S.prey = S.preyChoices[i];
+  S.prey._others = S.preyChoices.filter((c, idx) => idx !== i);   // the other ships in the area
+  S.prey.pack = []; S.allies = null;
   S.preyChoices = null;
   const prey = S.prey;
   if (prey.elite) { log(`💀 You bear down on the ELITE <span class="c">${prey.name}</span> — ${classLabel(prey)}${(prey.escorts || 0) > 0 ? `, ${prey.escorts} escort(s)` : ""}.`, "event"); toast(`Engaging elite ${prey.name}!`, "event"); }
@@ -1938,21 +1940,68 @@ function shipCrippled() {
   S.res.credits -= tow;
   S.pirate.hull = 30; clampPirate();
   SUBSYS.forEach(k => damageSubsys(k, 15 + Math.random() * 20));   // a wreck damages everything
-  log(`💥 Your hull buckled! You limp away — lost ${jettisoned.join(" ") || "no cargo"} and paid ${fmt(tow)} cr for a tow. Systems are battered.`, "bad");
-  toast("Ship crippled!", "bad");
-  jot(`Ship crippled near ${currentPlanet().name} — hull gave out, cargo jettisoned.`, "outlaw");
-  if (typeof announce === "function") announce("💥 Ship Crippled", "Your hull gave out under fire. Cargo jettisoned and a tow paid — patch up before you raid again.", true);
+  S.prey = null; S.encounter = null; S.allies = null;             // the fight is over — you're towed off
+  S.actionsUsed = ACTIONS_PER_CYCLE;                               // the tow eats the rest of the cycle
+  log(`💥 Your hull buckled! A tow drags you off — lost ${jettisoned.join(" ") || "no cargo"}, paid ${fmt(tow)} cr, systems battered, and the cycle is gone. End the cycle to limp on.`, "bad");
+  toast("Ship crippled — cycle lost!", "bad");
+  jot(`Ship crippled near ${currentPlanet().name} — hull gave out, cargo jettisoned, a cycle lost to the tow.`, "outlaw");
+  if (typeof announce === "function") announce("💥 Ship Crippled", "Your hull gave out under fire. Towed off — cargo jettisoned, a tow paid, and the cycle lost. Patch up before you raid again.", true);
+}
+/* ---------- Multi-vessel engagements ----------
+   A coalition victim can call SAME-faction ships in the area to its rescue (you
+   must then beat them all); you can call PIRATES in the area to your side (they
+   fire independently, but the loot splits evenly). Every vessel fires on its
+   own with its own result. The pool of "ships in the area" is the other
+   contacts your sweep turned up but you didn't engage. */
+function lootShare() { return 1 / (1 + ((S.allies && S.allies.length) || 0)); }
+function allHostiles(prey) { return [prey].concat((prey && prey.pack) || []); }
+function clearEngagement() { S.prey = null; S.encounter = null; S.allies = null; }
+// an allied pirate pours fire onto your current target
+function allyStrike(target, ally) {
+  const dmg = Math.max(1, Math.round(ally.strength * 0.45 + Math.random() * 6));
+  target.hp = foeHp(target) - dmg;
+  return dmg;
+}
+// a coalition victim may summon a same-faction vessel from the area
+function maybeRescue(prey) {
+  if (!prey || prey.isPirate) return;
+  prey.pack = prey.pack || [];
+  if (prey.pack.length >= 2) return;
+  const others = prey._others || [];
+  const idx = others.findIndex(o => !o.isPirate);
+  if (idx < 0) return;
+  if (Math.random() < 0.20) {
+    const r = others.splice(idx, 1)[0];
+    prey.pack.push(r); foeHp(r);
+    log(`🆘 The ${prey.name} sent a distress call — a ${classLabel(r)} ${FACTIONS[r.faction] ? "(" + FACTIONS[r.faction].name + ")" : ""} answers! You now face ${prey.pack.length + 1} vessels, each firing on its own.`, "bad");
+    toast(`Reinforcement: ${r.name}!`, "bad");
+  }
+}
+function raidCallAllies() {
+  if (!S.prey) return toast("No engagement.", "bad");
+  S.allies = S.allies || [];
+  if (S.allies.length >= 2) return toast("Your pirate band is already full.", "bad");
+  const others = S.prey._others || [];
+  const pirates = others.filter(o => o.isPirate);
+  if (!pirates.length) return toast("No pirates in the area to call to your side.", "bad");
+  const take = pirates.slice(0, 2 - S.allies.length);
+  take.forEach(a => { S.allies.push(a); foeHp(a); S.prey._others = (S.prey._others || []).filter(o => o !== a); });
+  log(`📣 ${take.length} pirate(s) rally to your guns against the ${S.prey.name} — they fire independently, but the loot now splits <b>${S.allies.length + 1} ways</b>.`, "event");
+  toast(`${take.length} pirate ally(ies) joined — loot shared!`, "event");
+  afterAction();
 }
 function plunder(prey) {
+  const share = lootShare();
   const taken = [];
   Object.keys(prey.cargo).forEach(c => {
     const room = cargoFree();
-    const q = Math.min(prey.cargo[c], room);
+    const q = Math.min(Math.floor(prey.cargo[c] * share), room);
     if (q > 0) { S.res[c] = (S.res[c] || 0) + q; taken.push(`${q} ${COM[c].ico}`); }
   });
-  S.res.credits += prey.credits;
-  let value = prey.credits;
-  Object.keys(prey.cargo).forEach(c => value += (prey.cargo[c]) * COM[c].base);
+  const cr = Math.round(prey.credits * share);
+  S.res.credits += cr;
+  let value = cr;
+  Object.keys(prey.cargo).forEach(c => value += Math.floor(prey.cargo[c] * share) * COM[c].base);
   S.pirate.plundered += Math.round(value);
   return taken;
 }
@@ -1965,9 +2014,9 @@ function raidWinPirate(prey) {
   const taken = plunder(prey);
   S.pirate.dread += 3; clampPirate();
   pirateKillRewards(prey);
-  log(`🎯 You destroyed the ${prey.ico} ${prey.name}! Bounty ${fmt(prey.bounty)} cr + salvage ${taken.join(" ") || "none"} + ${fmt(prey.credits)} cr. (a lawful kill — no Wanted)`, "good");
-  toast(`Bounty collected: ${fmt(prey.bounty)} cr!`, "good");
-  S.prey = null; afterAction();
+  const share = lootShare();
+  log(`🎯 You destroyed the ${prey.ico} ${prey.name}! Bounty ${fmt(Math.round(prey.bounty * share))} cr + salvage ${taken.join(" ") || "none"}${share < 1 ? ` <span class="hint">(loot split ${1 / share} ways)</span>` : ""}. (a lawful kill — no Wanted)`, "good");
+  toast(`Bounty: ${fmt(Math.round(prey.bounty * share))} cr!`, "good");
 }
 function raidWinMerchant(prey, noQuarter) {
   const betray = S.commission && prey.faction === S.commission.patron;
@@ -1979,10 +2028,17 @@ function raidWinMerchant(prey, noQuarter) {
   addRep(prey.faction, noQuarter ? -14 : -8);
   if (!sanctioned) addRep("core", -(prey.faction === "core" ? 8 : 5));
   addRep("frontier", 3); clampPirate();
-  log(`🏴‍☠️ You took the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"} + ${fmt(prey.credits)} cr.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Dread +${dread}, Wanted +${wanted})`, "good");
+  log(`🏴‍☠️ You took the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"}${lootShare() < 1 ? ` <span class="hint">(split ${1 / lootShare()} ways)</span>` : ""}.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Dread +${dread}, Wanted +${wanted})`, "good");
   toast(`Plundered ${prey.name}!`, "good");
   if (betray) revokeCommission(true);
-  S.prey = null; afterAction();
+}
+function promoteOrEnd(prey) {
+  if (prey.pack && prey.pack.length) {
+    const next = prey.pack.shift();
+    next.pack = prey.pack; next._others = prey._others; next._engaged = true; foeHp(next);
+    S.prey = next;
+    log(`Now engaging the ${classLabel(next)} <span class="c">${next.name}</span> — ${next.pack.length + 1} hostile(s) remain.`, "bad");
+  } else { clearEngagement(); }
 }
 function combatStrike(noQuarter, wkey) {
   const prey = S.prey; if (!prey) return;
@@ -1992,16 +2048,30 @@ function combatStrike(noQuarter, wkey) {
   foeHp(prey); payAmmo(wkey); noteWeaponUse(wkey); combatState().lastWeapon = wkey;
   const ps = playerStrikes(prey, wkey);
   const tgt = applyTargetedDamage(prey, ps.dmg);
-  if (prey.hp <= 0) return prey.isPirate ? raidWinPirate(prey) : raidWinMerchant(prey, noQuarter);
-  const fs = foeStrikes(prey, noQuarter ? 0.27 : 0.22);    // pressing hard exposes you
+  let allyDmg = 0;
+  (S.allies || []).forEach(a => { allyDmg += allyStrike(prey, a); });
+  if (prey.hp <= 0) {
+    if (prey.isPirate) raidWinPirate(prey); else raidWinMerchant(prey, noQuarter);
+    promoteOrEnd(prey);
+    return afterAction();
+  }
   const hpPct = Math.max(0, Math.round(prey.hp / prey.maxhp * 100));
-  log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${tgt.hullDmg} hull (now ${hpPct}%)${tgt.note}; it returns fire — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
-  toast(`Foe hull ${hpPct}%`, "");
-  if (S.pirate.hull <= 0) { S.prey = null; return afterAction(); }   // crippled mid-fight; shipCrippled already fired
+  const incoming = [];
+  const hostiles = allHostiles(prey);
+  for (let idx = 0; idx < hostiles.length; idx++) {
+    const fs = foeStrikes(hostiles[idx], idx === 0 ? (noQuarter ? 0.27 : 0.22) : 0.20);
+    incoming.push(`${idx === 0 ? "" : hostiles[idx].ico + " "}−${fs.dmg}${subsysHitLog(fs.subHit)}`);
+    if (!S.prey) break;   // shipCrippled ended the engagement
+  }
+  log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${tgt.hullDmg} hull (now ${hpPct}%)${tgt.note}${allyDmg > 0 ? ` · 🤝 allies +${allyDmg}` : ""}; return fire — Hull ${incoming.join(", ")}.`, "");
+  toast(`Foe hull ${hpPct}%${prey.pack && prey.pack.length ? ` · +${prey.pack.length} more` : ""}`, "");
+  if (!S.prey) return afterAction();
+  maybeRescue(prey);
   if (foeFleeCheck(prey)) {
     log(`🏃 The ${prey.ico} ${prey.name} lit its drive and jumped clear — you never crippled its 🚀 engines. The ${prey.isPirate ? "bounty" : "haul"} got away.`, "bad");
     toast(`${prey.name} escaped!`, "bad");
-    S.prey = null; return afterAction();
+    promoteOrEnd(prey);
+    return afterAction();
   }
   afterAction();
 }
@@ -2027,7 +2097,7 @@ function raidExtort() {
     toast("They called your bluff. (Dread −5)", "bad");
   }
   if (S.commission && prey.faction === S.commission.patron) revokeCommission(true);
-  S.prey = null;
+  clearEngagement();
   afterAction();
 }
 function raidVolley(n) {
@@ -2043,14 +2113,14 @@ function raidVolley(n) {
 function raidDisengage() {
   if (!S.prey) return;
   if (S.prey._engaged) {
-    const fs = foeStrikes(S.prey, 0.2);
-    log(`You break off from the ${S.prey.name}; it rakes you as you run — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "bad");
+    allHostiles(S.prey).forEach(f => { if (S.prey) foeStrikes(f, 0.2); });   // every hostile takes a parting shot
+    log(`You break off from the ${S.prey ? S.prey.name : "engagement"}${S.prey && (S.prey.pack || []).length ? " and its consorts" : ""} under fire.`, "bad");
     toast("Broke off under fire.", "bad");
   } else {
     log("You let the target slip past, unmolested.", "");
   }
-  S.prey = null;
-  if (S.pirate.hull > 0) afterAction(); else afterAction();
+  clearEngagement();
+  afterAction();
 }
 function repairShip() {
   if (combatLocked()) return;
@@ -3240,6 +3310,7 @@ function travel(destId) {
   if (S.res.fuel < cost) return toast(`Not enough fuel (need ${cost}).`, "bad");
   if (S.prey) { log(`Your quarry, the ${S.prey.ico} ${S.prey.name}, slipped away as you left the system.`, ""); S.prey = null; }
   if (S.preyChoices) S.preyChoices = null;
+  S.allies = null;
   S.res.fuel -= cost; S.location = destId; S.visited[destId] = true; S.stats.jumps++;
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
   toast(`Arrived at ${dest.name}`, "event");
@@ -4763,14 +4834,25 @@ function preyCombatCard(prey, al) {
   const lawNote = isPirate
     ? `A <b>lawful kill</b> — bounty, salvage, faction goodwill, no Wanted.`
     : `Raiding coalition shipping earns <b>Wanted</b>. ${pinned ? "" : "Cripple its 🚀 engines so it can't run."}`;
+  // pirates loitering in the area you can recruit (loot shared); rescuers already engaged
+  const areaPirates = (prey._others || []).filter(o => o.isPirate).length;
+  const allyN = (S.allies && S.allies.length) || 0;
+  const packN = (prey.pack || []).length;
+  const callBtn = (areaPirates > 0 && allyN < 2)
+    ? `<button class="btn btn-sm" title="Call ${areaPirates} pirate(s) in the area to your side — they fire independently, loot splits evenly" onclick="raidCallAllies()">📣 Call pirate allies (${areaPirates})</button>`
+    : "";
+  const squadLine = (packN > 0 || allyN > 0)
+    ? `<div class="hint">${packN > 0 ? `<span class="pill bad">⚔️ ${packN + 1} hostiles</span> ` : ""}${allyN > 0 ? `<span class="pill good">🤝 ${allyN} ally${allyN > 1 ? "ies" : ""} · loot split ${allyN + 1} ways</span>` : ""}</div>`
+    : "";
   const buttons = isPirate
-    ? `<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
+    ? `${callBtn}<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
     : `<button class="btn btn-bad" title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
        <button class="btn btn-sm" title="Spend Dread to extort tribute — no fight (Dread −12)" onclick="raidExtort()">💀 Extort</button>
-       <button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>`;
+       ${callBtn}<button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>`;
   return `<div class="card" style="border-color:${isPirate ? "var(--good)" : "var(--warn)"}">
     <h4>${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>
     <div class="hint">${lawNote}</div>
+    ${squadLine}
     ${tacticalHTML(prey, "raidAttack")}
     <div class="row" style="margin-top:6px">${buttons}</div>
   </div>`;
@@ -5381,7 +5463,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.3.3";
+const APP_VERSION = "1.4.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -5760,6 +5842,7 @@ function init() {
   if (!S.combat) S.combat = { posture: "balanced", offense: 50, target: "hull", advanced: false };
   if (S.prey === undefined) S.prey = null;
   if (S.preyChoices === undefined) S.preyChoices = null;
+  if (S.allies === undefined) S.allies = null;
   if (S.interdiction === undefined) S.interdiction = null;
   if (S.haven === undefined) S.haven = null;
   if (S.commission === undefined) S.commission = null;
@@ -5800,7 +5883,7 @@ Object.assign(window, {
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
-  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, repairShip,
+  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, repairShip,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,

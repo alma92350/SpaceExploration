@@ -1,5 +1,5 @@
 {
-  "version": "1.3.3",
+  "version": "1.4.0",
   "saveVersion": "v2",
-  "notes": "Raider tweaks: the attack/contacts area is now double-width (letters of marque and other tools move to a second row), so the contact list shows two columns \u2014 more targets at a glance. Deep-scanning a ship with a live drive now risks it bolting (or priming it to jump sooner) \u2014 cripple its engines first. Field Repair restores +15 hull (was +35)."
+  "notes": "Fleet combat: a crippled ship now also loses the rest of the cycle to the tow. Coalition victims call same-faction ships from the area for rescue (you must beat them all); you can call loitering pirates to your side, splitting the loot evenly. Every vessel fires independently with its own result."
 }
