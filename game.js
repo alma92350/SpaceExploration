@@ -5157,7 +5157,11 @@ function applyTabVisibility() {
     const id = btn.dataset.tab;
     if (!btn.dataset.label) btn.dataset.label = btn.textContent;
     const base = btn.dataset.label;
-    if (tabUnlocked(id)) { btn.style.display = ""; btn.style.opacity = ""; btn.title = ""; btn.textContent = base; btn.classList.remove("locked"); }
+    if (tabUnlocked(id)) {
+      btn.style.display = ""; btn.textContent = base; btn.classList.remove("locked");
+      if (inCombat() && id !== "raid") { btn.style.opacity = "0.4"; btn.title = "⚔️ Resolve the current engagement first"; btn.classList.add("combat-lock"); }
+      else { btn.style.opacity = ""; btn.title = ""; btn.classList.remove("combat-lock"); }
+    }
     else if (teasers.has(id)) { btn.style.display = ""; btn.style.opacity = "0.45"; btn.title = "🔒 " + tabHint(id); btn.textContent = "🔒 " + base; btn.classList.add("locked"); }
     else { btn.style.display = "none"; }
   });
@@ -5168,6 +5172,8 @@ function toggleShowAllTabs() {
   applyTabVisibility(); saveGame();
 }
 function setTab(name) {
+  // surface the combat lock early: while engaged you can't leave the Raider tab
+  if (typeof document !== "undefined" && name !== "raid" && combatLocked()) return;
   if (typeof document !== "undefined" && !tabUnlocked(name)) {
     if (typeof toast === "function") toast("🔒 " + (tabHint(name) || "Not available yet."), "bad");
     return;
@@ -5184,7 +5190,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.2.3";
+const APP_VERSION = "1.2.4";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

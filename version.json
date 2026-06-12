@@ -1,5 +1,5 @@
 {
-  "version": "1.2.3",
+  "version": "1.2.4",
   "saveVersion": "v2",
-  "notes": "Combat fix: a normal prowl/hunt fight is now a real engagement too \u2014 you can't slip off to the market or end the cycle mid-fight to re-arm against the foe in front of you. Disengage or jump away (the quarry escapes) to break off."
+  "notes": "Combat UX: the engagement lock now surfaces the moment you click another sidebar tab (and those tabs dim during a fight), instead of only failing when you finally press an action. Stay on the Raider tab to resolve the fight."
 }
