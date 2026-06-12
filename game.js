@@ -1470,11 +1470,11 @@ function applyTargetedDamage(foe, dmg) {
    shop, refit, repair, produce, research, move goods or end the cycle —
    no slipping away to re-arm against the threat. You can always resolve it
    without resources (flee/fight are free; complying needs no purchase). */
-function inCombat() { return !!(S.encounter || S.interdiction); }
+function inCombat() { return !!(S.encounter || S.interdiction || S.prey); }
 function combatLocked() {
   if (!inCombat()) return false;
-  const foe = S.encounter ? `the ${S.encounter.name}` : "the navy patrol";
-  toast(`⚔️ You're locked in a standoff with ${foe} — resolve it first.`, "bad");
+  const foe = S.encounter ? `the ${S.encounter.name}` : S.prey ? `the ${S.prey.name}` : "the navy patrol";
+  toast(`⚔️ You're in the middle of an engagement with ${foe} — finish it or disengage first.`, "bad");
   return true;
 }
 /* how hard the law is hunting you, by Wanted level */
@@ -5184,7 +5184,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.2.2";
+const APP_VERSION = "1.2.3";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

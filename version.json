@@ -1,5 +1,5 @@
 {
-  "version": "1.2.2",
+  "version": "1.2.3",
   "saveVersion": "v2",
-  "notes": "Combat overhaul (3/3): opponents now scale with your veterancy and the cycle count, elite NAMED captains with escorts appear for seasoned hunters (hardened against your favourite weapon), and foe hull rubber-bands to your true firepower with an unblockable damage floor \u2014 so raiding stays challenging and costs real repairs even with a fully maxed ship."
+  "notes": "Combat fix: a normal prowl/hunt fight is now a real engagement too \u2014 you can't slip off to the market or end the cycle mid-fight to re-arm against the foe in front of you. Disengage or jump away (the quarry escapes) to break off."
 }
