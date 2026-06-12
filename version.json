@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.2",
   "saveVersion": "v2",
-  "notes": ""
+  "notes": "Spaceport logistics overhaul: every spaceport colony now exports its surplus automatically, and the network carries raw materials and intermediates \u2014 mining colonies can feed factory colonies."
 }

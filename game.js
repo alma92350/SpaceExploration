@@ -1462,6 +1462,21 @@ function pirateLevel(pid) {
   return S.pirates[pid];
 }
 function pirateCalm() { return (S.pirateCalm || 0) > S.turn; }
+/* ---------- Adversary matchmaking ----------
+   Pirate opposition tracks the CAPTAIN's strength, not the system's raw
+   activity: wherever you are in the game there are corsairs a rank below you
+   and captains a rank above. System activity only tilts the extremes —
+   infested space (4+) breeds bolder names. Activity still gates WHETHER
+   pirates appear (and how often); matchmaking decides WHO shows up. */
+function playerCombatTier() {
+  const pw = raidPower();                               // ~6 green .. ~55 maxed
+  return Math.max(1, Math.min(5, 1 + Math.floor((pw - 8) / 10)));
+}
+function pirateOpposition(systemLvl, bias) {
+  const tier = playerCombatTier();
+  const tilt = systemLvl >= 4 ? 1 : 0;                  // infested space runs a rank hotter
+  return Math.max(1, Math.min(5, tier + tilt + rint(-1, 1) + (bias || 0)));
+}
 function genPirate(level) {
   const lv = Math.max(1, Math.min(5, level));
   const R = PIRATE_RANKS[lv];
@@ -1491,7 +1506,7 @@ function huntPirates() {
     toast("No pirates found.", "");
     return afterAction();
   }
-  S.prey = genPirate(Math.max(1, lvl + rint(-1, 1)));
+  S.prey = genPirate(pirateOpposition(lvl));
   log(`🎯 Pirate contact: a ${S.prey.ico} <span class="c">${S.prey.name}</span> — bounty ${fmt(S.prey.bounty)} cr on its head.`, "event");
   toast(`Pirate sighted: ${S.prey.name}`, "event");
   afterAction();
@@ -1520,7 +1535,7 @@ function maybeAmbush(dest) {
   const lvl = pirateLevel(dest.id);
   if (lvl <= 0) return;
   if (Math.random() < 0.05 + lvl * 0.045) {
-    const pirate = genPirate(Math.max(1, lvl + rint(-1, 0)));
+    const pirate = genPirate(pirateOpposition(lvl, -1));
     pirate.toll = Math.round(300 * pirate.level + Math.min(2500, (S.res.credits + cargoValue()) * 0.04));
     S.encounter = pirate;
     log(`🏴‍☠️ Ambush! A ${pirate.ico} <span class="c">${pirate.name}</span> drops out of the dark off ${dest.name} and demands ${fmt(pirate.toll)} cr — or your cargo.`, "bad");
@@ -3464,7 +3479,17 @@ function processColonies() {
 /* ============================================================
    LOGISTICS NETWORK  (automated colony supply via Spaceports)
    ============================================================ */
-const COLONY_SUPPLY = ["biomass", "energy", "alloys", "medicine", "goods", "luxury"];
+const COLONY_SUPPLY = ["biomass", "energy", "alloys", "medicine", "goods", "luxury"];  // staples every colony can order by default
+// everything the network will carry for a given cycle: staples, plus anything
+// any networked colony stores or has ordered — so mines feed factories too
+function networkGoods(nets) {
+  const set = new Set(COLONY_SUPPLY);
+  nets.forEach(([, c]) => {
+    Object.entries(c.orders || {}).forEach(([k, v]) => { if (v > 0) set.add(k); });
+    Object.entries(c.storage || {}).forEach(([k, v]) => { if (v > 0) set.add(k); });
+  });
+  return CARGO_IDS.filter(c => set.has(c));
+}
 function spaceportTier(col) { return col.buildings.spaceport || 0; }
 function colonyNetworked(col) { return spaceportTier(col) > 0; }
 function logisticsFee(col) {
@@ -3488,7 +3513,7 @@ function setOrder(c) {
 function processLogistics() {
   // pirate convoy ambush: an active logistics network draws raiders unless the lanes are calm
   if (!pirateCalm()) {
-    const nets0 = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c) && c.orders && Object.keys(c.orders).length);
+    const nets0 = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c));
     if (nets0.length) {
       const threat = PLANETS.reduce((s2, p) => s2 + pirateLevel(p.id), 0) / PLANETS.length;
       if (Math.random() < 0.04 + threat * 0.03) {
@@ -3501,13 +3526,14 @@ function processLogistics() {
       }
     }
   }
-  const nets = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c) && c.orders && Object.keys(c.orders).length);
-  if (!nets.length) return;
+  const nets = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c));
+  if (nets.length < 1) return;
   const used = {};
-  nets.forEach(([id]) => { used[id] = {}; COLONY_SUPPLY.forEach(c => used[id][c] = 0); });
+  nets.forEach(([id]) => { used[id] = {}; });
   let spent = 0, moved = false;
 
-  COLONY_SUPPLY.forEach(c => {
+  networkGoods(nets).forEach(c => {
+    nets.forEach(([id]) => { used[id][c] = used[id][c] || 0; });
     const parties = nets.map(([id, col]) => ({ id, col, planet: PLANETS.find(p => p.id === id) }));
     const receivers = parties.filter(p => (p.col.orders[c] || 0) > (p.col.storage[c] || 0));
     if (!receivers.length) return;
@@ -4430,7 +4456,9 @@ function renderRaid() {
     action += `<div class="card" ${lvl > 0 ? 'style="border-color:var(--good)"' : ""}>
       <h4>🎯 Hunt Pirates ${lvl > 0 ? `<span class="pill ${lvl >= 2 ? "bad" : ""}">activity level ${lvl}</span>` : '<span class="pill good">lanes clear</span>'}</h4>
       <div class="desc">${lvl > 0
-        ? `Raiders of about <b>${PIRATE_RANKS[Math.min(5, Math.max(1, lvl))].name}</b> rank work this system. Bounties scale with rank — and every kill suppresses pirate raids on your colonies and convoys for a while. A <b>lawful</b> trade: no Wanted.${pirateCalm() ? " <i>(Lanes currently calm.)</i>" : ""}`
+        ? (() => { const _t = playerCombatTier(), _tilt = lvl >= 4 ? 1 : 0;
+            const _lo = Math.max(1, Math.min(5, _t + _tilt - 1)), _hi = Math.max(1, Math.min(5, _t + _tilt + 1));
+            return `Against a captain of your calibre, expect <b>${PIRATE_RANKS[_lo].name}</b> to <b>${PIRATE_RANKS[_hi].name}</b> rank${_tilt ? " — infested space runs hot" : ""}. Bounties scale with rank — and every kill suppresses pirate raids on your colonies and convoys for a while. A <b>lawful</b> trade: no Wanted.${pirateCalm() ? " <i>(Lanes currently calm.)</i>" : ""}`; })()
         : "No pirate activity here right now — check ⚠️ flagged systems on the lawless rim."} Costs ${PROWL_FUEL} ⛽ and one action.</div>
       <button class="btn btn-primary" ${al > 0 && lvl > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="huntPirates()">Hunt (1 action)</button>
     </div>`;
@@ -4751,14 +4779,26 @@ function renderColonies() {
         <div class="hint">Build a 🛰️ Spaceport to automate supply: set target stock levels and each cycle the network redistributes surplus from your other colonies (free), then imports the rest from market. No more ferrying food by hand.</div>`;
     } else {
       const fee = Math.round(logisticsFee(col) * 100);
-      const orderRows = COLONY_SUPPLY.map(c => {
+      // orderable here: the staples, anything stored or already ordered, and the
+      // inputs of every industry building standing in this colony — so a factory
+      // world can order ore without you ferrying the first batch by hand
+      const orderable = (() => {
+        const set = new Set(COLONY_SUPPLY);
+        Object.entries(col.orders || {}).forEach(([k, v]) => { if (v > 0) set.add(k); });
+        Object.entries(col.storage || {}).forEach(([k, v]) => { if (v > 0) set.add(k); });
+        colonyBuildingList(planet).forEach(b => {
+          if ((col.buildings[b.id] || 0) > 0 && b.recipe) Object.keys(b.recipe.in).forEach(i => set.add(i));
+        });
+        return CARGO_IDS.filter(c2 => set.has(c2));
+      })();
+      const orderRows = orderable.map(c => {
         const tgt = (col.orders && col.orders[c]) || 0;
         return `<tr><td>${COM[c].ico} ${COM[c].name}</td><td class="num">${fmt(col.storage[c] || 0)}</td>
           <td><div class="trade-controls"><input class="qty" id="auto-${c}" type="number" min="0" value="${tgt}" />
           <button class="btn btn-sm" onclick="setOrder('${c}')">Set auto</button></div></td></tr>`;
       }).join("");
       logi = `<div class="section-title">🚚 Logistics — Spaceport ${sp} · fee ${fee}% · ${logisticsCap(col)}/cycle</div>
-        <div class="hint" style="margin-bottom:8px">Each cycle the network keeps these topped to target: first from surplus on your other colonies (free), then bought from market at +${fee}%. Set a target to 0 to stop importing it.</div>
+        <div class="hint" style="margin-bottom:8px">Each cycle the network keeps these topped to target: <b>first from surplus on your other spaceport colonies (free)</b> — every spaceport colony donates anything above its own targets automatically — then bought from market at +${fee}%. Set a target to 0 to stop importing it. Rows cover staples plus your industry's inputs.</div>
         <table><thead><tr><th>Commodity</th><th class="num">In colony</th><th>Keep stocked to</th></tr></thead><tbody>${orderRows}</tbody></table>`;
     }
     // ---- faction diplomacy card (Overview tab) ----
@@ -4903,10 +4943,12 @@ function setTab(name) {
 /* ============================================================
    VERSION CHECK — poll the server for a newer build and tell the player
    whether refreshing will keep their saved game (credits, colonies, …).
-   On each release, bump APP_VERSION here AND version.json to match. Bump
-   SAVE_VERSION (and the SAVE_KEY suffix) ONLY when a release breaks old saves.
+   On each release, bump APP_VERSION here AND version.json to match — AND the
+   ?v= query on game.js / style.css in index.html, so browsers fetch the new
+   build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
+   ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.1.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
