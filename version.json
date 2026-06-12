@@ -1,5 +1,5 @@
 {
-  "version": "1.2.7",
+  "version": "1.2.8",
   "saveVersion": "v2",
-  "notes": "Combat fixes: extortion now spends Dread (so you can't coast on intimidation alone \u2014 back it with real raids), the foe-hull readout shows the true value from first sight (no jump after your first shot), and the in-fight Field Repair button is clearer (shows your hull, and says why it's unavailable)."
+  "notes": "Bugfix: the in-fight Field Repair button did nothing when clicked \u2014 the materials list (HTML with quotes) was being placed inside the button's tooltip attribute, which broke the tag and dropped its click handler. Fixed; Field Repair now works."
 }

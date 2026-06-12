@@ -4615,10 +4615,11 @@ function tacticalHTML(t, attackFn) {
   const targetBtns = Object.entries(COMBAT_TARGETS).map(([k, tg]) =>
     `<button class="btn btn-sm ${c.target === k ? "btn-primary" : ""}" title="${tg.hint}" onclick="setCombatTarget('${k}')">${tg.ico} ${tg.name}</button>`).join(" ");
   const frWorth = fieldRepairWorthwhile(), frHasMat = canFieldRepair(), frUsable = frWorth && frHasMat;
+  const frMatsPlain = Object.entries(FIELD_REPAIR.mats).map(([c, q]) => `${q}${COM[c].ico}`).join(" + ");   // plain text — safe inside the title attribute
   const frLabel = !frWorth ? "🔧 Field Repair — hull & systems sound"
-    : !frHasMat ? `🔧 Field Repair — need ${matsString(FIELD_REPAIR.mats)} aboard`
-    : `🔧 Field Repair (+${FIELD_REPAIR.hull} hull · ${matsString(FIELD_REPAIR.mats)})`;
-  const frBtn = `<button class="btn btn-sm ${frUsable ? "btn-good" : ""}" ${frUsable ? "" : "disabled"} title="Emergency patch: +${FIELD_REPAIR.hull} hull and shore up your worst subsystem for ${matsString(FIELD_REPAIR.mats)} — but you hold fire this round and the foe attacks" onclick="fieldRepair()">${frLabel}</button>`;
+    : !frHasMat ? `🔧 Field Repair — need ${frMatsPlain} aboard`
+    : `🔧 Field Repair (+${FIELD_REPAIR.hull} hull · ${frMatsPlain})`;
+  const frBtn = `<button class="btn btn-sm ${frUsable ? "btn-good" : ""}" ${frUsable ? "" : "disabled"} title="Emergency patch: +${FIELD_REPAIR.hull} hull and shore up your worst subsystem for ${frMatsPlain} — but you hold fire this round and the foe attacks" onclick="fieldRepair()">${frLabel}</button>`;
   const ownHullCol = S.pirate.hull >= 60 ? "var(--good)" : S.pirate.hull >= 30 ? "var(--warn)" : "var(--bad)";
   return `${hullBar}${profile}${droneLine}
     <div class="row" style="margin-top:8px;align-items:center"><span class="hint">Posture:</span> ${postureBtns} ${advBtn}${budgetNote}</div>
@@ -5254,7 +5255,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.2.7";
+const APP_VERSION = "1.2.8";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
