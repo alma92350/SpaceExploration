@@ -1454,16 +1454,28 @@ function setCombatOffense(v) {
 }
 function setCombatTarget(t) { if (COMBAT_TARGETS[t]) { combatState().target = t; renderRaid(); saveGame(); } }
 // apply a strike to the foe per the chosen target; returns what was hit
+const DEF_LAYER_NAME = { armor: "🛡️ armor", shield: "🔰 shields", pd: "📡 point-defense" };
+// returns { hullDmg, note } — note describes the special effect with before→after numbers
 function applyTargetedDamage(foe, dmg) {
   const c = combatState();
-  if (c.target === "weapons") { foe.hp = foeHp(foe) - dmg * 0.5; foe.strength = Math.max(4, Math.round(foe.strength - dmg * 0.18)); return "weapons"; }
-  if (c.target === "defense") {
-    foe.hp = foeHp(foe) - dmg * 0.5;
-    const layer = ["shield", "armor", "pd"].reduce((m, k) => ((foe.def[k] || 0) > (foe.def[m] || 0) ? k : m), "shield");
-    if ((foe.def[layer] || 0) > 0) foe.def[layer] -= 1;
-    return "defense";
+  if (c.target === "weapons") {
+    const hullDmg = Math.max(1, Math.round(dmg * 0.5));
+    foe.hp = foeHp(foe) - hullDmg;
+    const before = foe.strength;
+    foe.strength = Math.max(4, Math.round(foe.strength - dmg * 0.3));
+    const drop = before - foe.strength;
+    return { hullDmg, note: drop > 0 ? ` · 🔫 crippled its guns — strength ${before}→${foe.strength}, its fire weakens` : "" };
   }
-  foe.hp = foeHp(foe) - dmg; return "hull";
+  if (c.target === "defense") {
+    const hullDmg = Math.max(1, Math.round(dmg * 0.5));
+    foe.hp = foeHp(foe) - hullDmg;
+    const layer = ["shield", "armor", "pd"].reduce((m, k) => ((foe.def[k] || 0) > (foe.def[m] || 0) ? k : m), "shield");
+    if ((foe.def[layer] || 0) > 0) { const b = foe.def[layer]; foe.def[layer] -= 1; return { hullDmg, note: ` · ${DEF_LAYER_NAME[layer]} breached ${b}→${foe.def[layer]} — your hits now bite deeper` }; }
+    return { hullDmg, note: " · its defenses are already stripped" };
+  }
+  const hullDmg = Math.max(1, Math.round(dmg));
+  foe.hp = foeHp(foe) - hullDmg;
+  return { hullDmg, note: "" };
 }
 /* ---------- Combat lockdown ----------
    An ambush or interdiction is a STANDOFF: until it's resolved you can't
@@ -1750,9 +1762,8 @@ function encounterFight(wkey) {
   }
   const fs = foeStrikes(e, 0.24);
   const hpPct = Math.max(0, Math.round(e.hp / e.maxhp * 100));
-  const etgtNote = etgt === "weapons" ? " (blunted its guns)" : etgt === "defense" ? " (stripped its defenses)" : "";
-  log(`⚔️ You hit the ${e.name} for ${ps.dmg}${etgtNote} (hull ${hpPct}%); it fires back — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
-  toast(`Foe at ${hpPct}%`, "");
+  log(`⚔️ You hit the ${e.name} for ${etgt.hullDmg} hull (now ${hpPct}%)${etgt.note}; it fires back — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
+  toast(`Foe hull ${hpPct}%`, "");
   if (S.pirate.hull <= 0) { S.encounter = null; return afterAction(); }   // crippled; they let you limp off
   afterAction();
 }
@@ -1883,9 +1894,8 @@ function combatStrike(noQuarter, wkey) {
   if (prey.hp <= 0) return prey.isPirate ? raidWinPirate(prey) : raidWinMerchant(prey, noQuarter);
   const fs = foeStrikes(prey, noQuarter ? 0.27 : 0.22);    // pressing hard exposes you
   const hpPct = Math.max(0, Math.round(prey.hp / prey.maxhp * 100));
-  const tgtNote = tgt === "weapons" ? " (blunted its guns)" : tgt === "defense" ? " (stripped its defenses)" : "";
-  log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${ps.dmg}${tgtNote} (its hull ${hpPct}%); it returns fire — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
-  toast(`Hit for ${ps.dmg} — foe at ${hpPct}%`, "");
+  log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${tgt.hullDmg} hull (now ${hpPct}%)${tgt.note}; it returns fire — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
+  toast(`Foe hull ${hpPct}%${tgt.note ? " · " + tgt.note.replace(/ ·.*/, "").replace(/[^a-zA-Z ].*/, "").trim() : ""}`, "");
   if (S.pirate.hull <= 0) { S.prey = null; return afterAction(); }   // crippled mid-fight; shipCrippled already fired
   afterAction();
 }
@@ -4574,8 +4584,11 @@ function tacticalHTML(t, attackFn) {
   const badges = `${t.elite ? '<span class="pill bad" title="Elite captain — tougher, hardened against your favourite weapon">💀 ELITE</span> ' : ""}${(t.escorts || 0) > 0 ? `<span class="pill" title="Fights with ${t.escorts} escort(s) — more hull, heavier fire">🛰️ ${t.escorts} escort${t.escorts > 1 ? "s" : ""}</span> ` : ""}`;
   const hullBar = `${badges ? `<div style="margin-top:4px">${badges}</div>` : ""}<div class="ship-stat" style="margin-top:4px"><span class="k">Foe hull</span><span class="v" style="color:${_hpCol}">${Math.max(0, Math.round(_hp))}/${_max}</span></div>
     <div class="bar"><span style="width:${_pct}%;background:${_hpCol}"></span></div>`;
-  const profile = t.scanned
-    ? `<div class="hint">🛡️ armor ${t.def.armor} · 🔰 shields ${t.def.shield} · 📡 point-def ${t.def.pd} · fires <b>${t.wtype}</b> — counter with <b>${bestWeaponHint(t).ico} ${bestWeaponHint(t).name}</b></div>`
+  // live tactical stats: revealed by a scan, or learned once you've traded fire —
+  // so you can watch Weapons-targeting drop its strength and Defenses-targeting strip its layers
+  const known = t.scanned || t._engaged;
+  const profile = known
+    ? `<div class="hint">💥 strength <b>${Math.round(t.strength)}</b> · 🛡️ armor <b>${t.def.armor}</b> · 🔰 shields <b>${t.def.shield}</b> · 📡 point-def <b>${t.def.pd}</b>${t.scanned ? ` · fires <b>${t.wtype}</b> — counter with <b>${bestWeaponHint(t).ico} ${bestWeaponHint(t).name}</b>` : ""}</div>`
     : `<div class="hint">Capabilities unknown — a 🔍 Deep Scan reveals its defenses and the best counter.</div>`;
   const weapons = Object.keys(WEAPONS).filter(weaponAvailable).map(w => {
     const W = WEAPONS[w];
@@ -5237,7 +5250,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.2.5";
+const APP_VERSION = "1.2.6";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

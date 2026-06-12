@@ -1,5 +1,5 @@
 {
-  "version": "1.2.5",
+  "version": "1.2.6",
   "saveVersion": "v2",
-  "notes": "Combat repairs split: full hull & subsystem repairs are now a dockside job in the Ship tab's Repair Bay (locked during a fight). Mid-fight you can only jury-rig a limited Field Repair with materials on hand \u2014 and you hold fire to do it, so the enemy gets a free strike."
+  "notes": "Combat clarity: targeting now shows its effect \u2014 the log reports actual hull damage plus the special result (foe strength dropping when you hit its Weapons, a defense layer breaking when you hit its Defenses), and a live readout of the foe's strength and armor/shield/point-defense updates each round so you can watch it change."
 }
