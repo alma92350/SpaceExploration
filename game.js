@@ -4698,14 +4698,18 @@ function tacticalHTML(t, attackFn) {
   // warn when a hurt foe with live engines may bolt
   const fleeWarn = (t.engines || 0) > 0 && t.hp != null && t.hp / t.maxhp < 0.55
     ? `<div class="hint" style="color:var(--warn)">⚠️ Drive still live — it may jump away. Target 🚀 Engines to pin it.</div>` : "";
+  const lastW = combatState().lastWeapon;
+  const recW = t.scanned ? bestWeaponHint(t) : null;
   const weapons = Object.keys(WEAPONS).filter(weaponAvailable).map(w => {
     const W = WEAPONS[w];
     const ammoStr = Object.entries(W.ammo).map(([c, q]) => `${q}${COM[c].ico}`).join("") || "free";
     const eff = t.scanned ? ` ×${weaponEff(w, t).toFixed(2)}` : "";
     const ok = weaponAffordable(w);   // combat is a free sub-loop — attacking costs no cycle-actions (the sweep paid)
-    return `<button class="btn btn-sm ${t.scanned && bestWeaponHint(t) === W ? "btn-primary" : ""}" ${ok ? "" : "disabled"}
-      title="${W.name} — ammo: ${ammoStr}${t.scanned ? ` · effectiveness vs this target${eff}` : ""}"
-      onclick="${attackFn}('${w}')">${W.ico}${eff}</button>`;
+    const isSel = lastW === w;        // the weapon you last fired — the active one
+    const isRec = recW === W;         // the recommended counter (a hint, not a selection)
+    return `<button class="btn btn-sm ${isSel ? "btn-primary" : ""}" ${ok ? "" : "disabled"}
+      title="${W.name} — ammo: ${ammoStr}${isRec ? " · ★ recommended counter" : ""}${t.scanned ? ` · effectiveness vs this target${eff}` : ""}"
+      onclick="${attackFn}('${w}')">${W.ico}${isRec ? "★" : ""}${eff}</button>`;
   }).join(" ");
   const dr = dronesDeployable();
   const droneLine = (S.upgrades.dronebay || 0) > 0
@@ -5363,7 +5367,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.3.1";
+const APP_VERSION = "1.3.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
