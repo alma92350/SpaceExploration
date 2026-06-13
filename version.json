@@ -1,5 +1,5 @@
 {
-  "version": "1.6.0",
+  "version": "1.6.1",
   "saveVersion": "v2",
-  "notes": "Pirate intel: buy Local / Regional / Sector charts in the Raider tab to reveal pirate activity by world for a while (also shown on the Galaxy map). The Sector Marshal's hardest objective \u2014 pacify every world to activity 1 or below \u2014 now tracks how many worlds are still hot."
+  "notes": "Pirate activity from an active chart is now tagged on the Galaxy map like other events: a header badge summarises hotspots and cycles left, and each charted world shows a live activity pill that updates as the lanes heat up or calm during the chart's validity."
 }

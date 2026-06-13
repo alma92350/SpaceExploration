@@ -4353,7 +4353,14 @@ function renderGalaxy() {
   const cl = Math.round(S.climate || 0);
   const climateBadge = cl >= 40 ? `<span class="pill bad" title="Sector-wide climate stress from industrial pollution">🌡️ climate stress ${cl}</span>`
     : cl >= 12 ? `<span class="pill" title="Sector-wide climate stress from industrial pollution">🌡️ climate ${cl}</span>` : "";
-  el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}</h2>
+  // pirate-chart summary, like the crisis badge — live for the chart's validity window
+  let intelBadge = "";
+  if (pirateIntelActive()) {
+    const left = S.pirateIntel.until - S.turn;
+    const hot = S.pirateIntel.worlds.filter(id => pirateLevel(id) >= 2).length;
+    intelBadge = `<span class="pill ${hot ? "bad" : "good"}" title="Active pirate chart — ${left} cycle(s) left. Activity updates live on the map.">🏴 ${hot ? hot + " pirate hotspot" + (hot > 1 ? "s" : "") : "lanes charted"} · ${left}cyc</span>`;
+  }
+  el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}${intelBadge}</h2>
     <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Travelling costs fuel and advances a cycle.</div>
     <div class="planet-grid">${cards}</div>
     <div class="section-title">🔭 Exploration</div>
@@ -5596,7 +5603,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.6.0";
+const APP_VERSION = "1.6.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
