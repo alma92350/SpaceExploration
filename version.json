@@ -1,5 +1,5 @@
 {
-  "version": "1.8.1",
+  "version": "1.8.2",
   "saveVersion": "v2",
-  "notes": "Economy fix: the black-market fence no longer pays more than the open market charges to buy a good, killing the risk-free buy-public / fence-black arbitrage. Plundered goods and genuine cross-world fencing stay profitable."
+  "notes": "Colonies: you can now pause/resume any manufacturing or extraction process (Buildings tab) without demolishing it \u2014 a paused process consumes no inputs and produces nothing, so you can re-tool a colony when your strategy changes."
 }

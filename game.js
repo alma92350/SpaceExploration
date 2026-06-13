@@ -3972,7 +3972,7 @@ function colonize() {
   if (S.res.credits < COLONY_FOUNDATION_COST) return toast("Not enough credits.", "bad");
   if (!canAfford(COLONY_FOUNDATION_MATS)) return toast("Need materials in your hold: metals & goods.", "bad");
   S.res.credits -= COLONY_FOUNDATION_COST; pay(COLONY_FOUNDATION_MATS);
-  S.colonies[pid] = { pop: 5, happiness: 70, tax: 10, buildings: {}, storage: {}, orders: {}, unrest: 0, faction: null };
+  S.colonies[pid] = { pop: 5, happiness: 70, tax: 10, buildings: {}, storage: {}, orders: {}, unrest: 0, faction: null, idle: {} };
   log(`🌍 Founded a colony on <span class="c">${planet.name}</span>! It will grow as you develop it.`, "event");
   toast("Colony founded!", "event");
   afterAction();
@@ -4038,6 +4038,7 @@ function processColonies() {
     // 1a) raw producers (farm, extractors) + passive research run first
     colonyBuildingList(planet).forEach(b => {
       const t = col.buildings[b.id] || 0; if (t <= 0) return;
+      if (col.idle && col.idle[b.id]) return;                             // paused by the governor — no inputs consumed, no output
       if (b.id === "lab") { S.res.tech += t * 3; return; }                 // passive research
       if (b.id === "datacenter") { S.res.tech += t * 2; }                    // machine minds crunch data too (recipe still runs below)
       if (b.id === "scrubber") { if (S.pollution && S.pollution[pid]) S.pollution[pid] = Math.max(0, S.pollution[pid] - t * 1.2); return; }
@@ -4061,6 +4062,7 @@ function processColonies() {
     //     so a full ore→metals→alloys→goods line can cascade within a single cycle
     colonyBuildingList(planet).filter(b => b.recipe).sort((a, b) => a.recipe.stage - b.recipe.stage).forEach(b => {
       const t = col.buildings[b.id] || 0; if (t <= 0) return;
+      if (col.idle && col.idle[b.id]) return;                             // paused — the line is idle this cycle
       const r = b.recipe;
       let batches = t * r.rate;                                            // throughput scales with tier
       Object.entries(r.in).forEach(([c, q]) => { batches = Math.min(batches, Math.floor((col.storage[c] || 0) / q)); });
@@ -5532,6 +5534,18 @@ function renderBases() {
 }
 
 /* ----- Colonies ----- */
+/* a building counts as a pausable "process" if it produces or refines anything */
+function buildingPausable(b) { return !!(b.recipe || b.produces || ["lab", "datacenter", "scrubber"].includes(b.id)); }
+function toggleColonyProcess(bid) {
+  const col = S.colonies[S.location]; if (!col) return;
+  if (!(col.buildings[bid] > 0)) return toast("That process isn't built here.", "bad");
+  if (!col.idle) col.idle = {};
+  col.idle[bid] = !col.idle[bid];
+  const b = colonyBuildingList(currentPlanet()).find(x => x.id === bid) || { name: bid, ico: "" };
+  log(`${col.idle[bid] ? "⏸️ Paused" : "▶️ Resumed"} ${b.ico} ${b.name} on <span class="c">${currentPlanet().name}</span>.`, "");
+  toast(`${b.name} ${col.idle[bid] ? "paused" : "resumed"}`, col.idle[bid] ? "" : "good");
+  afterAction();
+}
 function colonyHealthPill(col) {
   const h = col.happiness;
   return h >= 70 ? '<span class="pill good">thriving</span>'
@@ -5605,14 +5619,19 @@ function renderColonies() {
       const locked = b.req && !S.techs[b.req];
       const ok = !locked && S.res.credits >= cost && canAfford(mats);
       const dots = Array.from({ length: b.tiers }, (_, i) => `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
-      return `<div class="card ${tier > 0 ? (maxed ? "maxed" : "owned") : ""}">
-        <h4>${b.ico} ${b.name} <span class="tier-dots">${dots}</span></h4>
+      const paused = !!(col.idle && col.idle[b.id]);
+      const pauseCtl = (tier > 0 && buildingPausable(b))
+        ? `<button class="btn btn-sm ${paused ? "btn-good" : "btn-bad"}" style="margin-top:4px" title="${paused ? "Resume this process — it runs again next cycle" : "Stop this process — it consumes no inputs and produces nothing until resumed (strategy change, no demolition)"}" onclick="toggleColonyProcess('${b.id}')">${paused ? "▶️ Resume" : "⏸️ Pause"}</button>`
+        : "";
+      return `<div class="card ${paused ? "" : tier > 0 ? (maxed ? "maxed" : "owned") : ""}" ${paused ? 'style="opacity:.7"' : ""}>
+        <h4>${b.ico} ${b.name} <span class="tier-dots">${dots}</span> ${paused ? '<span class="pill bad">⏸️ paused</span>' : ""}</h4>
         <div class="desc">${b.desc}</div>
         ${b.recipe ? `<div class="hint">⚙️ ${colonyRecipeStr(b.recipe)}</div>` : ""}
         ${maxed ? '<div class="pill good">◉ Fully built</div>'
           : locked ? `<div class="pill bad">🔒 needs ${(TECHS.find(t => t.id === b.req) || {}).name || b.req}</div>`
           : `<div class="meta"><span class="hint">Tier ${tier + 1}</span><span class="cost">${fmt(cost)} 💰 + ${matsString(mats)}</span></div>
              <button class="btn btn-primary" ${ok ? "" : "disabled"} onclick="buildColonyBuilding('${b.id}')">${tier > 0 ? "Upgrade" : "Build"}</button>`}
+        ${pauseCtl}
       </div>`;
     }).join("");
     const sids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 || (col.storage[c] || 0) > 0);
@@ -5807,7 +5826,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.8.1";
+const APP_VERSION = "1.8.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6154,7 +6173,7 @@ function init() {
   if (!S.prices || !S.prices[S.location]) rollPrices();
   if (!S.bases) S.bases = {};   // backfill for older saves
   if (!S.colonies) S.colonies = {};
-  Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; });
+  Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
   if (!S.discovered) S.discovered = {};
   if (!S.contracts) { S.contracts = []; S.contractSeq = S.contractSeq || 0; }
   if (!S.pol) S.pol = { popularity: 0, legitimacy: 0, heat: 0, slush: 0 };  // backfill politics meters
@@ -6240,7 +6259,7 @@ Object.assign(window, {
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
   exportSave, importSave, importSaveText, parseSaveText, buildSaveText, toggleBaseTrade,
   sfx, toggleSound,
-  alignColony, colonyIndependence,
+  alignColony, colonyIndependence, toggleColonyProcess,
   setSubView,
   huntPirates, engageTarget, standDown, encounterPay, encounterFlee, encounterFight, deepScan, repairSubsys, repairAll, buyPirateMap,
   setCombatPosture, setCombatOffense, setCombatTarget, fieldRepair,
