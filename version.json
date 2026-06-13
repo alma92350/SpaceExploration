@@ -1,5 +1,5 @@
 {
-  "version": "1.8.2",
+  "version": "1.8.3",
   "saveVersion": "v2",
-  "notes": "Colonies: you can now pause/resume any manufacturing or extraction process (Buildings tab) without demolishing it \u2014 a paused process consumes no inputs and produces nothing, so you can re-tool a colony when your strategy changes."
+  "notes": "Fix: base trade routes now actually import colonies' finished goods (consumer goods, weapons, luxury...). Bases get first claim on freshly-manufactured output before the colony sells the remainder to market."
 }

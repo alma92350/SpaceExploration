@@ -3694,21 +3694,25 @@ function colonyFinishedReserve(col, c) {
   return 0;
 }
 function baseTradeActive(b) { return !!(b && b.trade && (b.modules.warehouse || 0) > 0); }
+let _trade = null;
+function tradeBegin() { _trade = { freight: 0, importedVal: 0, exportedVal: 0, ambushLoss: 0, imp: {}, exp: {}, seized: {} }; }
+function tradeSeizeCheck(c, bid, cid) { return (isIllegalAt(c, bid) || isIllegalAt(c, cid)) && Math.random() < TRADE_SEIZE_CHANCE; }
+function tradeFine(c, q) {
+  const f = Math.min(S.res.credits, Math.round(q * COM[c].base * 1.5));
+  S.res.credits -= f; S.pirate.wanted = Math.min(100, (S.pirate.wanted || 0) + 4);
+  _trade.seized[c] = (_trade.seized[c] || 0) + q; if (typeof clampPirate === "function") clampPirate();
+}
+// EXPORT pass: bases ship raw stock to fill colony orders (runs before colonies manufacture)
 function processBaseTrade() {
+  tradeBegin();
   const bases = Object.entries(S.bases || {}).filter(([id, b]) => baseTradeActive(b));
   const cols = Object.entries(S.colonies || {});
   if (!bases.length || !cols.length) return;
-  let freight = 0, importedVal = 0, exportedVal = 0, ambushLoss = 0;
-  const imp = {}, exp = {}, seized = {};
-  const seizeCheck = (c, bid, cid) => (isIllegalAt(c, bid) || isIllegalAt(c, cid)) && Math.random() < TRADE_SEIZE_CHANCE;
-  const fine = (c, q) => { const f = Math.min(S.res.credits, Math.round(q * COM[c].base * 1.5)); S.res.credits -= f; S.pirate.wanted = Math.min(100, (S.pirate.wanted || 0) + 4); seized[c] = (seized[c] || 0) + q; clampPirate && clampPirate(); };
   bases.forEach(([bid, b]) => {
-    const cap = baseStorageCap(bid);
     cols.forEach(([cid, col]) => {
       const cp = PLANETS.find(p => p.id === cid);
       const dist = worldDist(bid, cid);
       const tariff = col.faction ? 1.25 : 1;
-      // EXPORT raws to fill the colony's orders
       RAW_IDS.forEach(c => {
         const need = (col.orders[c] || 0) - (col.storage[c] || 0);
         if (need <= 0) return;
@@ -3716,45 +3720,61 @@ function processBaseTrade() {
         const move = Math.min(need, b.storage[c] || 0, BASE_TRADE_THROUGHPUT, room);
         if (move <= 0) return;
         b.storage[c] -= move;
-        if (seizeCheck(c, bid, cid)) { fine(c, move); return; }
+        if (tradeSeizeCheck(c, bid, cid)) { tradeFine(c, move); return; }
         col.storage[c] = (col.storage[c] || 0) + move;
-        freight += Math.ceil(dist * move * FREIGHT_RATE * tariff);
-        exp[c] = (exp[c] || 0) + move; exportedVal += move * COM[c].base;
-      });
-      // IMPORT finished-goods surplus into the base
-      CARGO_IDS.filter(isFinishedGood).forEach(c => {
-        const reserve = colonyFinishedReserve(col, c) + (col.orders[c] || 0);
-        const surplus = (col.storage[c] || 0) - reserve;
-        if (surplus <= 0) return;
-        const move = Math.min(surplus, BASE_TRADE_THROUGHPUT, cap - baseStorageUsed(b));
-        if (move <= 0) return;
-        col.storage[c] -= move;
-        if (seizeCheck(c, bid, cid)) { fine(c, move); return; }
-        b.storage[c] = (b.storage[c] || 0) + move;
-        freight += Math.ceil(dist * move * FREIGHT_RATE * tariff);
-        imp[c] = (imp[c] || 0) + move; importedVal += move * COM[c].base;
+        _trade.freight += Math.ceil(dist * move * FREIGHT_RATE * tariff);
+        _trade.exp[c] = (_trade.exp[c] || 0) + move; _trade.exportedVal += move * COM[c].base;
       });
     });
   });
-  // pirate convoy ambush — distance is already priced into freight; activity drives the risk
+}
+// IMPORT pass: called per colony during processColonies, BEFORE its market export, so
+// your bases get first claim on freshly-manufactured finished goods (the colony sells the rest).
+function runBaseImport(col, cid, cp) {
+  if (!_trade) tradeBegin();
+  const bases = Object.entries(S.bases || {}).filter(([id, b]) => baseTradeActive(b));
+  if (!bases.length) return;
+  bases.forEach(([bid, b]) => {
+    const cap = baseStorageCap(bid);
+    const dist = worldDist(bid, cid);
+    const tariff = col.faction ? 1.25 : 1;
+    CARGO_IDS.filter(isFinishedGood).forEach(c => {
+      const reserve = colonyFinishedReserve(col, c) + (col.orders[c] || 0);
+      const surplus = (col.storage[c] || 0) - reserve;
+      if (surplus <= 0) return;
+      const move = Math.min(surplus, BASE_TRADE_THROUGHPUT, cap - baseStorageUsed(b));
+      if (move <= 0) return;
+      col.storage[c] -= move;
+      if (tradeSeizeCheck(c, bid, cid)) { tradeFine(c, move); return; }
+      b.storage[c] = (b.storage[c] || 0) + move;
+      _trade.freight += Math.ceil(dist * move * FREIGHT_RATE * tariff);
+      _trade.imp[c] = (_trade.imp[c] || 0) + move; _trade.importedVal += move * COM[c].base;
+    });
+  });
+}
+// settle the cycle's trade: pirate ambush, freight charge, ledger + log
+function finalizeBaseTrade() {
+  const t = _trade; _trade = null;
+  if (!t) return;
   const threat = PLANETS.reduce((s2, p) => s2 + pirateLevel(p.id), 0) / PLANETS.length;
-  if (!pirateCalm() && (importedVal + exportedVal) > 0 && Math.random() < 0.05 + threat * 0.03) {
-    ambushLoss = Math.min(S.res.credits, 150 + Math.round(threat * 350));
-    S.res.credits -= ambushLoss;
-    log(`🏴‍☠️ Pirates raided a base-supply convoy — ${fmt(ambushLoss)} cr lost. Calm the lanes to protect your routes.`, "bad");
+  if (!pirateCalm() && (t.importedVal + t.exportedVal) > 0 && Math.random() < 0.05 + threat * 0.03) {
+    t.ambushLoss = Math.min(S.res.credits, 150 + Math.round(threat * 350));
+    S.res.credits -= t.ambushLoss;
+    log(`🏴‍☠️ Pirates raided a base-supply convoy — ${fmt(t.ambushLoss)} cr lost. Calm the lanes to protect your routes.`, "bad");
   }
-  if (freight > 0) S.res.credits = Math.max(0, S.res.credits - freight);
-  const net = Math.round(importedVal - exportedVal - freight - ambushLoss);
-  S.tradeNet = (S.tradeNet || 0) + net;
-  S.tradeLastCycle = { imp, exp, freight, net, seized, ambushLoss };
-  if (Object.keys(seized).length) log(`🚔 Customs seized contraband from your trade route: ${Object.entries(seized).map(([c, q]) => q + COM[c].ico).join(" ")} — fined, Wanted up. Don't route illegal goods.`, "bad");
-  if (importedVal + exportedVal > 0) {
-    const impStr = Object.entries(imp).map(([c, q]) => q + COM[c].ico).join(" ") || "—";
-    const expStr = Object.entries(exp).map(([c, q]) => q + COM[c].ico).join(" ") || "—";
-    log(`🔄 Base trade: exported ${expStr} → colonies, imported ${impStr} → bases; freight/tariffs ${fmt(freight)} cr → net ${net >= 0 ? "+" : ""}${fmt(net)} cr/cyc.`, net >= 0 ? "good" : "bad");
+  if (t.freight > 0) S.res.credits = Math.max(0, S.res.credits - t.freight);
+  const net = Math.round(t.importedVal - t.exportedVal - t.freight - t.ambushLoss);
+  if (t.importedVal + t.exportedVal > 0 || Object.keys(t.seized).length) {
+    S.tradeNet = (S.tradeNet || 0) + net;
+    S.tradeLastCycle = { imp: t.imp, exp: t.exp, freight: t.freight, net, seized: t.seized, ambushLoss: t.ambushLoss };
+  }
+  if (Object.keys(t.seized).length) log(`🚔 Customs seized contraband from your trade route: ${Object.entries(t.seized).map(([c, q]) => q + COM[c].ico).join(" ")} — fined, Wanted up. Don't route illegal goods.`, "bad");
+  if (t.importedVal + t.exportedVal > 0) {
+    const impStr = Object.entries(t.imp).map(([c, q]) => q + COM[c].ico).join(" ") || "—";
+    const expStr = Object.entries(t.exp).map(([c, q]) => q + COM[c].ico).join(" ") || "—";
+    log(`🔄 Base trade: exported ${expStr} → colonies, imported ${impStr} → bases; freight/tariffs ${fmt(t.freight)} cr → net ${net >= 0 ? "+" : ""}${fmt(net)} cr/cyc.`, net >= 0 ? "good" : "bad");
   }
 }
-
 /* ============================================================
    RANDOM CONTRACTS  (time-bounded, faction-posted)
    ============================================================ */
@@ -4121,6 +4141,8 @@ function processColonies() {
     if (income > 0) S.res.credits += income;
     if (col.faction && S.turn % 5 === 0) addRep(col.faction, 1);   // loyal colonies endear you to their bloc
 
+    // 5a-bis) your bases get first claim on finished goods before the colony sells the rest
+    runBaseImport(col, pid, planet);
     // 5b) the spaceport exports surplus manufactured goods for credits (keeping happiness reserves)
     const sp = spaceportTier(col);
     if (sp > 0) {
@@ -4350,7 +4372,7 @@ function endTurn(fromTravel = false) {
   if (!fromTravel && combatLocked()) return;
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -5826,7 +5848,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.8.2";
+const APP_VERSION = "1.8.3";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
