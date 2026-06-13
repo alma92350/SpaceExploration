@@ -2671,14 +2671,73 @@ function produce(recipeId) {
 /* ============================================================
    RESEARCH & POLITICS actions
    ============================================================ */
+/* ---------- Research economy ----------
+   Running experiments burns lab power (energy) and pays off most at high-tech
+   worlds. Unlocking a tech also costs domain-themed MATERIALS — and a world
+   that specialises in that domain halves the bill (local expertise), while
+   the most advanced tech can only be cracked on a sufficiently advanced world. */
+const RESEARCH_ENERGY = 4;   // ⚡ to power one round of experiments
+const TECH_DOMAINS = {
+  mining: "⛏️ mining", bio: "🌿 bio", gas: "🎈 gas", industry: "🏭 industry",
+  energy: "⚡ energy", computing: "🖥️ computing", military: "⚔️ military", civic: "🏛️ civic",
+};
+const TECH_RESEARCH = {
+  deepcore:    { domain: "mining",    mats: { ore: 8 } },
+  xenobio:     { domain: "bio",       mats: { biomass: 8 } },
+  gasharvest:  { domain: "gas",       mats: { gas: 6 } },
+  salvaging:   { domain: "mining",    mats: { metals: 5 } },
+  metallurgy:  { domain: "industry",  mats: { ore: 10, metals: 4 } },
+  electronics: { domain: "computing", mats: { crystals: 6, metals: 4 } },
+  reactors:    { domain: "energy",    mats: { radioactives: 6 } },
+  gasfuel:     { domain: "energy",    mats: { gas: 6 } },
+  biotech:     { domain: "bio",       mats: { spice: 4, chemicals: 4 } },
+  markets:     { domain: "civic",     mats: { goods: 6 } },
+  weapontech:  { domain: "military",  mats: { metals: 8, electronics: 4 } },
+  diplomacy:   { domain: "civic",     mats: { goods: 8, luxury: 3 } },
+  colonial:    { domain: "civic",     mats: { goods: 10, alloys: 4 } },
+  energyweapons: { domain: "military", mats: { electronics: 6, crystals: 4 } },
+  torpedoes:   { domain: "military",  mats: { radioactives: 6, metals: 6 } },
+  dronetech:   { domain: "computing", mats: { electronics: 8, alloys: 4 } },
+  aicores:     { domain: "computing", mats: { electronics: 10, relics: 2 }, minTech: 5 },
+  antimatter:  { domain: "energy",    mats: { radioactives: 10, electronics: 6 }, minTech: 5 },
+  terraform:   { domain: "bio",       mats: { biomass: 10, ice: 8, energy: 10 }, minTech: 4 },
+};
+function worldAffinity(p, domain) {
+  const dep = p.deposits || {};
+  switch (domain) {
+    case "mining":    return effIndustry(p) >= 4 || ["ore", "crystals", "radioactives"].some(c => dep[c]);
+    case "bio":       return p.faction === "agri" || ["biomass", "spice", "ice"].some(c => dep[c]);
+    case "gas":       return !!dep.gas;
+    case "industry":  return effIndustry(p) >= 4;
+    case "energy":    return effIndustry(p) >= 4 || !!dep.radioactives || !!dep.gas;
+    case "computing": return effTech(p) >= 5;
+    case "military":  return effIndustry(p) >= 4;
+    case "civic":     return effTech(p) >= 5 || p.faction === "core";
+    default:          return false;
+  }
+}
+function techMatCost(t) {
+  const r = TECH_RESEARCH[t.id]; if (!r || !r.mats) return {};
+  const affine = worldAffinity(currentPlanet(), r.domain);
+  const out = {};
+  Object.entries(r.mats).forEach(([k, v]) => { out[k] = affine ? Math.max(1, Math.ceil(v * 0.5)) : v; });
+  return out;
+}
+function techMinTechMet(t) {
+  const r = TECH_RESEARCH[t.id];
+  return !(r && r.minTech) || effTech(currentPlanet()) >= r.minTech;
+}
+function matsPlain(mats) { return Object.entries(mats).map(([c, q]) => `${q}${COM[c].ico}`).join(" + "); }
 function research() {
   if (combatLocked()) return;
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  if ((S.res.energy || 0) < RESEARCH_ENERGY) return toast(`Experiments need ${RESEARCH_ENERGY} ⚡ energy to power the lab — refine or buy some.`, "bad");
   const p = currentPlanet();
+  S.res.energy -= RESEARCH_ENERGY;
   const pts = Math.round((2 + effTech(p)) * (1 + S.upgrades.lab * 0.40));
   S.res.tech += pts; useAction();
-  log(`Generated <span class="c">${pts}</span> tech points on ${p.name}.`, "good");
-  toast(`+${pts} 🔬 tech`, "good");
+  log(`Generated <span class="c">${pts}</span> tech points on ${p.name} (−${RESEARCH_ENERGY}⚡, Tech ${effTech(p)}).`, "good");
+  toast(`+${pts} 🔬 (−${RESEARCH_ENERGY}⚡)`, "good");
   afterAction();
 }
 /* One-click political career entry — replaces the old "Politics" new-game
@@ -3463,8 +3522,14 @@ function researchTech(tid) {
   const t = TECHS.find(x => x.id === tid);
   if (!techAvailable(t)) return;
   if (S.res.tech < t.cost) return toast("Not enough tech points.", "bad");
-  S.res.tech -= t.cost; S.techs[tid] = true;
-  log(`Researched ${t.ico} <span class="c">${t.name}</span>!`, "event");
+  const r = TECH_RESEARCH[tid];
+  if (r && r.minTech && effTech(currentPlanet()) < r.minTech)
+    return toast(`${t.name} can only be cracked on a Tech ${r.minTech}+ world (here: ${effTech(currentPlanet())}).`, "bad");
+  const mats = techMatCost(t);
+  if (!canAfford(mats)) return toast(`Need materials in your hold: ${matsPlain(mats)}.`, "bad");
+  S.res.tech -= t.cost; pay(mats); S.techs[tid] = true;
+  const affine = r && worldAffinity(currentPlanet(), r.domain);
+  log(`Researched ${t.ico} <span class="c">${t.name}</span>! (−${t.cost}🔬${Object.keys(mats).length ? " + " + matsPlain(mats) : ""}${affine ? " · local expertise halved the bill" : ""})`, "event");
   toast(`Unlocked: ${t.name}`, "event");
   afterAction();
 }
@@ -4560,21 +4625,33 @@ function renderResearch() {
     const done = techUnlocked(t), avail = techAvailable(t);
     const cls = done ? "card owned" : avail ? "card" : "card locked";
     const reqTxt = t.req.length ? `Requires: ${t.req.map(r => TECHS.find(x => x.id === r).name).join(", ")}` : "";
+    const r = TECH_RESEARCH[t.id];
+    const mats = techMatCost(t);
+    const affine = r && worldAffinity(p, r.domain);
+    const gateOk = techMinTechMet(t);
+    const canPts = S.res.tech >= t.cost, canMat = canAfford(mats);
+    const domainLine = r ? `<div class="hint">${TECH_DOMAINS[r.domain] || r.domain} research${affine ? ' · <span style="color:var(--good)">local expertise (materials halved)</span>' : '<span style="opacity:.7"> · no local expertise here</span>'}</div>` : "";
+    const matLine = (!done && Object.keys(mats).length) ? `<div class="hint">Materials: ${matsString(mats)}</div>` : "";
+    const gateLine = (!done && r && r.minTech && !gateOk) ? `<div class="hint" style="color:var(--bad)">🔒 needs a Tech ${r.minTech}+ world (here: ${effTech(p)})</div>` : "";
     return `<div class="${cls}">
       <h4>${t.ico} ${t.name} ${done ? '<span class="pill good">researched</span>' : ""}</h4>
       <div class="desc">${t.desc}</div>
       ${reqTxt ? `<div class="hint">${reqTxt}</div>` : ""}
-      <div class="meta"><span class="cost">${t.cost} 🔬</span>
-        ${done ? "" : `<button class="btn btn-primary" ${avail && S.res.tech >= t.cost ? "" : "disabled"} onclick="researchTech('${t.id}')">Research</button>`}</div>
+      ${done ? "" : domainLine + matLine + gateLine}
+      <div class="meta"><span class="cost">${t.cost} 🔬${Object.keys(mats).length ? " + materials" : ""}</span>
+        ${done ? "" : `<button class="btn btn-primary" ${avail && canPts && canMat && gateOk ? "" : "disabled"} onclick="researchTech('${t.id}')">Research</button>`}</div>
     </div>`;
   }).join("");
   const researched = TECHS.filter(techUnlocked).length;
   const RES_VIEWS = [["lab", "🔬 Laboratory"], ["tree", `🌳 Tech Tree (${researched}/${TECHS.length})`]];
+  const expPts = Math.round((2 + effTech(p)) * (1 + S.upgrades.lab * 0.40));
+  const haveEnergy = (S.res.energy || 0) >= RESEARCH_ENERGY;
   const labBody = `<div class="cards"><div class="card">
       <h4>🔬 Run Experiments</h4>
-      <div class="desc">Output scales with this world's tech level (${p.tech}/10) and your Research Lab.</div>
-      <div class="meta"><span class="hint">Est. output</span><span class="cost">+${Math.round((2 + p.tech) * (1 + S.upgrades.lab * 0.40))} 🔬</span></div>
-      <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="research()">Research (1 action)</button>
+      <div class="desc">Burns <b>${RESEARCH_ENERGY} ⚡ energy</b> to power the lab. Output scales with this world's tech level (${effTech(p)}/10) and your Research Lab — research at a tech hub for far more.</div>
+      <div class="meta"><span class="hint">Est. output</span><span class="cost">+${expPts} 🔬 · −${RESEARCH_ENERGY}⚡</span></div>
+      ${haveEnergy ? "" : `<div class="hint" style="color:var(--bad)">Not enough energy (have ${fmt(S.res.energy || 0)}⚡) — refine or buy some.</div>`}
+      <button class="btn btn-primary" ${al > 0 && haveEnergy ? "" : "disabled"} onclick="research()">Research (1 action)</button>
     </div>
     <div class="card"><h4>📈 Knowledge</h4>
       <div class="ship-stat"><span class="k">🔬 Tech points</span><span class="v">${fmt(S.res.tech)}</span></div>
@@ -5616,7 +5693,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.6.2";
+const APP_VERSION = "1.7.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

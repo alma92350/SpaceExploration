@@ -1,5 +1,5 @@
 {
-  "version": "1.6.2",
+  "version": "1.7.0",
   "saveVersion": "v2",
-  "notes": "Repairing at your own haven or base now tops off your fuel tank for free, as part of the service."
+  "notes": "Research economy: running experiments now burns energy (no more free point-grinding) and pays off most at high-tech worlds. Unlocking a tech costs domain-themed materials (mining\u2192ore, bio\u2192biomass, computing\u2192electronics...), a world that specialises in that domain halves the material bill, and the most advanced tech can only be cracked on an advanced enough world."
 }
