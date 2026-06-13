@@ -3670,6 +3670,86 @@ function processBases() {
   const keys = Object.keys(summary);
   if (keys.length) log(`🏗️ Your bases produced ${keys.map(c => summary[c] + COM[c].ico).join(" ")}.`, "good");
 }
+/* ============================================================
+   BASE <-> COLONY TRADE NETWORK
+   A base with a Storage Depot can run a trade route: each cycle it exports its
+   raw-material stock to fill your colonies' raw orders, and imports colonies'
+   finished-goods surplus into base storage. Costs: distance-scaled freight,
+   a tariff on faction-aligned colonies, customs seizure when routing goods
+   that are contraband at either end, and pirate convoy ambushes by distance
+   and activity. Watch the per-cycle net balance for deficits.
+   ============================================================ */
+const FREIGHT_RATE = 0.5;            // credits per unit per light-year
+const BASE_TRADE_THROUGHPUT = 30;    // units per commodity per route per cycle
+const TRADE_SEIZE_CHANCE = 0.18;     // per-cycle customs risk for routing contraband
+function worldDist(a, b) { const pa = PLANETS.find(p => p.id === a); return (pa && pa.distances[b]) || 1; }
+function isFinishedGood(c) { return ["Finished", "Luxury", "Strategic"].includes(COM[c].tier) || c === "medicine"; }
+function colonyFinishedReserve(col, c) {
+  if (c === "goods") return col.pop;                       // mirror the colony's own happiness reserve
+  if (c === "luxury" || c === "medicine") return Math.ceil(col.pop / 3);
+  return 0;
+}
+function baseTradeActive(b) { return !!(b && b.trade && (b.modules.warehouse || 0) > 0); }
+function processBaseTrade() {
+  const bases = Object.entries(S.bases || {}).filter(([id, b]) => baseTradeActive(b));
+  const cols = Object.entries(S.colonies || {});
+  if (!bases.length || !cols.length) return;
+  let freight = 0, importedVal = 0, exportedVal = 0, ambushLoss = 0;
+  const imp = {}, exp = {}, seized = {};
+  const seizeCheck = (c, bid, cid) => (isIllegalAt(c, bid) || isIllegalAt(c, cid)) && Math.random() < TRADE_SEIZE_CHANCE;
+  const fine = (c, q) => { const f = Math.min(S.res.credits, Math.round(q * COM[c].base * 1.5)); S.res.credits -= f; S.pirate.wanted = Math.min(100, (S.pirate.wanted || 0) + 4); seized[c] = (seized[c] || 0) + q; clampPirate && clampPirate(); };
+  bases.forEach(([bid, b]) => {
+    const cap = baseStorageCap(bid);
+    cols.forEach(([cid, col]) => {
+      const cp = PLANETS.find(p => p.id === cid);
+      const dist = worldDist(bid, cid);
+      const tariff = col.faction ? 1.25 : 1;
+      // EXPORT raws to fill the colony's orders
+      RAW_IDS.forEach(c => {
+        const need = (col.orders[c] || 0) - (col.storage[c] || 0);
+        if (need <= 0) return;
+        const room = colonyStorageCap(col, cp) - colonyStorageUsed(col);
+        const move = Math.min(need, b.storage[c] || 0, BASE_TRADE_THROUGHPUT, room);
+        if (move <= 0) return;
+        b.storage[c] -= move;
+        if (seizeCheck(c, bid, cid)) { fine(c, move); return; }
+        col.storage[c] = (col.storage[c] || 0) + move;
+        freight += Math.ceil(dist * move * FREIGHT_RATE * tariff);
+        exp[c] = (exp[c] || 0) + move; exportedVal += move * COM[c].base;
+      });
+      // IMPORT finished-goods surplus into the base
+      CARGO_IDS.filter(isFinishedGood).forEach(c => {
+        const reserve = colonyFinishedReserve(col, c) + (col.orders[c] || 0);
+        const surplus = (col.storage[c] || 0) - reserve;
+        if (surplus <= 0) return;
+        const move = Math.min(surplus, BASE_TRADE_THROUGHPUT, cap - baseStorageUsed(b));
+        if (move <= 0) return;
+        col.storage[c] -= move;
+        if (seizeCheck(c, bid, cid)) { fine(c, move); return; }
+        b.storage[c] = (b.storage[c] || 0) + move;
+        freight += Math.ceil(dist * move * FREIGHT_RATE * tariff);
+        imp[c] = (imp[c] || 0) + move; importedVal += move * COM[c].base;
+      });
+    });
+  });
+  // pirate convoy ambush — distance is already priced into freight; activity drives the risk
+  const threat = PLANETS.reduce((s2, p) => s2 + pirateLevel(p.id), 0) / PLANETS.length;
+  if (!pirateCalm() && (importedVal + exportedVal) > 0 && Math.random() < 0.05 + threat * 0.03) {
+    ambushLoss = Math.min(S.res.credits, 150 + Math.round(threat * 350));
+    S.res.credits -= ambushLoss;
+    log(`🏴‍☠️ Pirates raided a base-supply convoy — ${fmt(ambushLoss)} cr lost. Calm the lanes to protect your routes.`, "bad");
+  }
+  if (freight > 0) S.res.credits = Math.max(0, S.res.credits - freight);
+  const net = Math.round(importedVal - exportedVal - freight - ambushLoss);
+  S.tradeNet = (S.tradeNet || 0) + net;
+  S.tradeLastCycle = { imp, exp, freight, net, seized, ambushLoss };
+  if (Object.keys(seized).length) log(`🚔 Customs seized contraband from your trade route: ${Object.entries(seized).map(([c, q]) => q + COM[c].ico).join(" ")} — fined, Wanted up. Don't route illegal goods.`, "bad");
+  if (importedVal + exportedVal > 0) {
+    const impStr = Object.entries(imp).map(([c, q]) => q + COM[c].ico).join(" ") || "—";
+    const expStr = Object.entries(exp).map(([c, q]) => q + COM[c].ico).join(" ") || "—";
+    log(`🔄 Base trade: exported ${expStr} → colonies, imported ${impStr} → bases; freight/tariffs ${fmt(freight)} cr → net ${net >= 0 ? "+" : ""}${fmt(net)} cr/cyc.`, net >= 0 ? "good" : "bad");
+  }
+}
 
 /* ============================================================
    RANDOM CONTRACTS  (time-bounded, faction-posted)
@@ -4264,7 +4344,7 @@ function endTurn(fromTravel = false) {
   if (!fromTravel && combatLocked()) return;
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
+  processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); expireContracts(); maybeGenContract(); maybeEvent();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -5335,6 +5415,14 @@ function renderShipPanel() {
 }
 
 /* ----- Bases ----- */
+function toggleBaseTrade(pid) {
+  const b = S.bases[pid]; if (!b) return;
+  if (!(b.modules.warehouse || 0)) return toast("Build a Storage Depot first to run a trade route.", "bad");
+  if (!Object.keys(S.colonies || {}).length) return toast("You need at least one colony to trade with.", "bad");
+  b.trade = !b.trade;
+  toast(b.trade ? "Trade route enabled — raws out, goods in each cycle." : "Trade route disabled.", b.trade ? "good" : "");
+  saveGame(); renderAll();
+}
 function renderBases() {
   const el = document.getElementById("panel-bases");
   const pid = S.location, planet = currentPlanet(), b = S.bases[pid];
@@ -5403,8 +5491,30 @@ function renderBases() {
         <button class="btn btn-sm" onclick="withdrawQty('${c}')">◂ Take</button>
       </div></td></tr>`).join("")
       : '<tr><td colspan="4" class="hint">Nothing in your hold or this base yet.</td></tr>';
+    // ---- Trade route card ----
+    const hasWarehouse = (b.modules.warehouse || 0) > 0;
+    const hasColonies = Object.keys(S.colonies || {}).length > 0;
+    const lc = S.tradeLastCycle;
+    const contrabandHeld = CARGO_IDS.filter(c => (b.storage[c] || 0) > 0 && isIllegalAt(c, pid));
+    let tradeBody;
+    if (!hasWarehouse) {
+      tradeBody = `<div class="hint">Build a 🏬 <b>Storage Depot</b> to turn this base into a trade hub.</div>`;
+    } else if (!hasColonies) {
+      tradeBody = `<div class="hint">Found a colony to trade with — your base will ship it raw materials and import its manufactured goods.</div>`;
+    } else {
+      tradeBody = `<div class="hint" style="margin-bottom:6px">Each cycle: export this base's <b>raw stock</b> to fill colony orders, and import colonies' <b>finished-goods surplus</b> back here. Freight scales with distance; faction-aligned colonies add a tariff; routing contraband risks customs; pirates ambush convoys.</div>
+        <button class="btn ${b.trade ? "btn-bad" : "btn-primary"} btn-sm" onclick="toggleBaseTrade('${pid}')">${b.trade ? "⏹ Disable trade route" : "🔄 Enable trade route"}</button>
+        ${b.trade && lc ? `<div class="ship-stat" style="margin-top:8px"><span class="k">Last cycle net</span><span class="v" style="color:${lc.net >= 0 ? "var(--good)" : "var(--bad)"}">${lc.net >= 0 ? "+" : ""}${fmt(lc.net)} cr</span></div>
+          <div class="ship-stat"><span class="k">Freight/tariffs</span><span class="v">${fmt(lc.freight)} cr</span></div>
+          ${Object.keys(lc.imp || {}).length ? `<div class="ship-stat"><span class="k">Imported</span><span class="v">${Object.entries(lc.imp).map(([c, q]) => q + COM[c].ico).join(" ")}</span></div>` : ""}
+          ${Object.keys(lc.seized || {}).length ? `<div class="ship-stat"><span class="k" style="color:var(--bad)">🚔 Seized</span><span class="v">${Object.entries(lc.seized).map(([c, q]) => q + COM[c].ico).join(" ")}</span></div>` : ""}` : ""}
+        ${typeof S.tradeNet === "number" && S.tradeNet !== 0 ? `<div class="ship-stat"><span class="k">Lifetime trade balance</span><span class="v" style="color:${S.tradeNet >= 0 ? "var(--good)" : "var(--bad)"}">${S.tradeNet >= 0 ? "+" : ""}${fmt(S.tradeNet)} cr</span></div>` : ""}
+        ${contrabandHeld.length ? `<div class="hint" style="color:var(--warn);margin-top:6px">⚠️ Contraband in stock here (${contrabandHeld.map(c => COM[c].ico).join(" ")}) — routing it risks customs seizure.</div>` : ""}`;
+    }
     here = `<div class="section-title">🛠️ Modules — ${planet.name}</div>
       <div class="cards">${modCards}</div>
+      <div class="section-title">🔄 Trade Route</div>
+      <div class="card">${tradeBody}</div>
       <div class="section-title">📦 Storage (${baseStorageUsed(b)}/${baseStorageCap(pid)})</div>
       <div class="row" style="margin-bottom:8px"><button class="btn btn-sm" onclick="storeAllCargo()">Store all cargo ▸</button></div>
       <table><thead><tr><th>Commodity</th><th class="num">In ship</th><th class="num">In base</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
@@ -5693,7 +5803,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.8.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6124,7 +6234,7 @@ Object.assign(window, {
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
-  exportSave, importSave, importSaveText, parseSaveText, buildSaveText,
+  exportSave, importSave, importSaveText, parseSaveText, buildSaveText, toggleBaseTrade,
   sfx, toggleSound,
   alignColony, colonyIndependence,
   setSubView,
