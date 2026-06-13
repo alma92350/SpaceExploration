@@ -930,6 +930,7 @@ function freshState(opts = {}) {
     journal: [],               // captain's log: persistent narrative chronicle
     unlocked: {},              // progressive disclosure: which tabs have been revealed
     showAllTabs: false,        // veteran toggle: reveal every tab at once
+    sound: true,               // procedural SFX on/off
     achieved: {},
     won: false,
   };
@@ -1089,7 +1090,75 @@ function jot(msg, cat) {
   S.journal.push({ turn: S.turn, cat: cat || "", text });
   if (S.journal.length > 2000) S.journal.shift();
 }
+/* ============================================================
+   SOUND — procedural SFX via the Web Audio API. No asset files: every sound
+   is synthesized from oscillators/noise, gated behind a mute toggle. Fully
+   headless-safe (no-ops where AudioContext is unavailable, e.g. tests).
+   ============================================================ */
+let _audio = null, _lastSfx = 0;
+function soundOn() { return !(typeof S !== "undefined" && S && S.sound === false); }   // default on
+function audioCtx() {
+  if (typeof window === "undefined") return null;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (!_audio) { try { _audio = new AC(); } catch (e) { return null; } }
+  return _audio;
+}
+function _tone(ac, t0, o) {
+  const osc = ac.createOscillator(), g = ac.createGain();
+  osc.type = o.type || "sine";
+  osc.frequency.setValueAtTime(o.f0, t0);
+  if (o.f1) osc.frequency.exponentialRampToValueAtTime(Math.max(1, o.f1), t0 + o.dur);
+  const vol = o.gain == null ? 0.2 : o.gain;
+  g.gain.setValueAtTime(0.0001, t0);
+  g.gain.exponentialRampToValueAtTime(vol, t0 + 0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + o.dur);
+  osc.connect(g).connect(ac.destination);
+  osc.start(t0); osc.stop(t0 + o.dur + 0.02);
+}
+function _noise(ac, t0, dur, gain) {
+  const n = Math.floor(ac.sampleRate * dur), buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, 2);
+  const src = ac.createBufferSource(); src.buffer = buf;
+  const g = ac.createGain(); g.gain.value = gain == null ? 0.25 : gain;
+  src.connect(g).connect(ac.destination); src.start(t0);
+}
+function sfx(name) {
+  if (!soundOn()) return;
+  const ac = audioCtx(); if (!ac) return;
+  const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  if (now - _lastSfx < 45) return;             // debounce bursts so events don't pile into noise
+  _lastSfx = now;
+  try {
+    if (ac.state === "suspended") ac.resume();
+    const t = ac.currentTime;
+    switch (name) {
+      case "good":    _tone(ac, t, { type: "triangle", f0: 660, f1: 990, dur: 0.12, gain: 0.18 }); break;
+      case "event":   _tone(ac, t, { type: "sine", f0: 880, dur: 0.12, gain: 0.16 }); break;
+      case "bad":     _tone(ac, t, { type: "sawtooth", f0: 200, f1: 90, dur: 0.22, gain: 0.18 }); break;
+      case "buy":     _tone(ac, t, { type: "square", f0: 520, dur: 0.05, gain: 0.12 }); _tone(ac, t + 0.06, { type: "square", f0: 780, dur: 0.07, gain: 0.12 }); break;
+      case "sell":    _tone(ac, t, { type: "square", f0: 780, dur: 0.05, gain: 0.12 }); _tone(ac, t + 0.06, { type: "square", f0: 1040, dur: 0.07, gain: 0.12 }); break;
+      case "fire":    _tone(ac, t, { type: "sawtooth", f0: 900, f1: 180, dur: 0.14, gain: 0.15 }); break;
+      case "explode": _noise(ac, t, 0.35, 0.30); _tone(ac, t, { type: "sawtooth", f0: 160, f1: 50, dur: 0.35, gain: 0.16 }); break;
+      case "travel":  _tone(ac, t, { type: "sine", f0: 220, f1: 660, dur: 0.4, gain: 0.14 }); break;
+      case "repair":  _tone(ac, t, { type: "square", f0: 300, dur: 0.04, gain: 0.1 }); _tone(ac, t + 0.07, { type: "square", f0: 300, dur: 0.04, gain: 0.1 }); _tone(ac, t + 0.14, { type: "square", f0: 380, dur: 0.06, gain: 0.1 }); break;
+      case "win":     [523, 659, 784, 1047].forEach((f, i) => _tone(ac, t + i * 0.1, { type: "triangle", f0: f, dur: 0.18, gain: 0.18 })); break;
+      case "click":   _tone(ac, t, { type: "square", f0: 440, dur: 0.03, gain: 0.08 }); break;
+      default:        _tone(ac, t, { type: "sine", f0: 660, dur: 0.08, gain: 0.12 });
+    }
+  } catch (e) {}
+}
+function soundLabel() { return (typeof S !== "undefined" && S && S.sound === false) ? "🔇 Sound" : "🔊 Sound"; }
+function toggleSound() {
+  S.sound = S.sound === false ? true : false;
+  if (S.sound) { _lastSfx = 0; sfx("event"); }
+  const btn = typeof document !== "undefined" && document.getElementById("soundToggleBtn");
+  if (btn) btn.textContent = soundLabel();
+  if (typeof toast === "function") toast(S.sound ? "🔊 Sound on" : "🔇 Sound off", "");
+  if (typeof saveGame === "function") saveGame();
+}
 function toast(msg, type = "") {
+  if (type === "good") sfx("good"); else if (type === "bad") sfx("bad"); else if (type === "event") sfx("event");
   if (typeof document === "undefined") return;
   const c = document.getElementById("toast-container");
   if (!c) return;
@@ -1154,6 +1223,7 @@ function fireworks(duration = 2500, big = false) {
   _fxRAF = requestAnimationFrame(tick);
 }
 function announce(title, sub, finale = false) {
+  sfx("win");
   if (typeof document === "undefined") return;
   const el = document.getElementById("announce");
   if (!el) return;
@@ -1210,6 +1280,7 @@ function reserveOf(pid, c) {
   if (S.encounter === undefined) S.encounter = null;
   if (!S.unlocked) { S.unlocked = {}; checkUnlocks(true); }   // veterans keep everything they've earned, silently
   if (S.showAllTabs == null) S.showAllTabs = false;
+  if (S.sound == null) S.sound = true;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   if (S.res && S.res.drones == null) S.res.drones = 0;
   if (S.res && S.res.ai == null) S.res.ai = 0;
@@ -1817,6 +1888,7 @@ function encounterFight(wkey) {
   const ps = playerStrikes(e, wkey);
   const etgt = applyTargetedDamage(e, ps.dmg);
   if (e.hp <= 0) {
+    sfx("explode");
     const taken = plunder(e);
     S.pirate.dread += 3; clampPirate();
     pirateKillRewards(e);
@@ -1825,6 +1897,7 @@ function encounterFight(wkey) {
     toast(`Ambusher destroyed — ${fmt(e.bounty)} cr!`, "good");
     return afterAction();
   }
+  sfx("fire");
   const fs = foeStrikes(e, 0.24);
   const hpPct = Math.max(0, Math.round(e.hp / e.maxhp * 100));
   log(`⚔️ You hit the ${e.name} for ${etgt.hullDmg} hull (now ${hpPct}%)${etgt.note}; it fires back — Hull −${fs.dmg}${subsysHitLog(fs.subHit)}.`, "");
@@ -2051,10 +2124,12 @@ function combatStrike(noQuarter, wkey) {
   let allyDmg = 0;
   (S.allies || []).forEach(a => { allyDmg += allyStrike(prey, a); });
   if (prey.hp <= 0) {
+    sfx("explode");
     if (prey.isPirate) raidWinPirate(prey); else raidWinMerchant(prey, noQuarter);
     promoteOrEnd(prey);
     return afterAction();
   }
+  sfx("fire");
   const hpPct = Math.max(0, Math.round(prey.hp / prey.maxhp * 100));
   const incoming = [];
   const hostiles = allHostiles(prey);
@@ -2129,7 +2204,7 @@ function repairShip() {
   if (S.res.credits < cost) return toast(`Repairs cost ${fmt(cost)} credits.`, "bad");
   S.res.credits -= cost; S.pirate.hull = HULL_MAX;
   log(`🔧 Hull fully repaired at ${currentPlanet().name}${repairVenueNote()} for ${fmt(cost)} credits.`, "good");
-  toast("Hull repaired.", "good");
+  sfx("repair"); toast("Hull repaired.", "good");
   afterAction();
 }
 function subsysRepairCost(sub) {
@@ -2164,7 +2239,7 @@ function repairAll() {
   });
   if (!did.length) return toast("Nothing to refit, or you can't afford it.", "bad");
   log(`🔧 Refit at ${currentPlanet().name}: ${did.join(", ")} — ${fmt(spent)} cr + materials.`, "good");
-  toast("Ship refitted.", "good");
+  sfx("repair"); toast("Ship refitted.", "good");
   afterAction();
 }
 /* ---------- Field repair (combat only) ----------
@@ -3167,7 +3242,7 @@ function buy(c, qty) {
   applyMarketMove(S.location, c, slip, false); // bulk buying drains supply → price up
   addRep(currentPlanet().faction, 1);
   log(`Bought ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(cost)}</span> cr${slip > 0.05 ? " (price rose)" : ""}.`);
-  toast(`Bought ${qty} ${COM[c].name}`, "good");
+  sfx("buy"); toast(`Bought ${qty} ${COM[c].name}`, "good");
   afterAction();
 }
 function sell(c, qty) {
@@ -3186,7 +3261,7 @@ function sell(c, qty) {
   applyMarketMove(S.location, c, slip, true);  // flooding the market → price down
   addRep(currentPlanet().faction, 1);
   log(`Sold ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(revenue)}</span> cr${slip > 0.05 ? " (price fell)" : ""}.`, "good");
-  toast(`Sold ${qty} ${COM[c].name} (+${fmt(revenue)} cr)`, "good");
+  sfx("sell"); toast(`Sold ${qty} ${COM[c].name} (+${fmt(revenue)} cr)`, "good");
   afterAction();
 }
 
@@ -3320,6 +3395,7 @@ function travel(destId) {
   if (S.preyChoices) S.preyChoices = null;
   S.allies = null;
   S.res.fuel -= cost; S.location = destId; S.visited[destId] = true; S.stats.jumps++;
+  sfx("travel");
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
   toast(`Arrived at ${dest.name}`, "event");
   scanOnArrival(dest);
@@ -5471,7 +5547,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.4.1";
+const APP_VERSION = "1.5.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -5555,6 +5631,8 @@ function helpHTML() {
     </p>
     <h4>Save &amp; Load</h4>
     <p style="margin:0 0 6px">Your game autosaves in this browser. Use <b>💾 Save</b> (top bar) to download a save file you own — a backup, or to carry your run to another browser or machine — and <b>📂 Load</b> to restore one.</p>
+    <h4>Sound</h4>
+    <p style="margin:0 0 6px">Procedural sound effects play on trades, combat, travel and big moments. Toggle them with <b>🔊 Sound</b> in the Captain's Console (bottom-left).</p>
     <h4>Display</h4>
     <p style="margin:0"><button class="btn btn-sm" onclick="toggleShowAllTabs();toggleHelp();toggleHelp()">${typeof S!=="undefined"&&S.showAllTabs?"Use guided disclosure (hide advanced tabs until earned)":"Show all tabs now (reveal every feature)"}</button></p>
     <p style="opacity:.6;font-size:12px;margin-top:10px">Stellar Frontier v${typeof APP_VERSION!=="undefined"?APP_VERSION:""} · made with Claude. Tip: press <b>Esc</b> to close.</p>
@@ -5838,6 +5916,7 @@ function init() {
   if (S.encounter === undefined) S.encounter = null;
   if (!S.unlocked) { S.unlocked = {}; checkUnlocks(true); }   // veterans keep everything they've earned, silently
   if (S.showAllTabs == null) S.showAllTabs = false;
+  if (S.sound == null) S.sound = true;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   if (S.res && S.res.drones == null) S.res.drones = 0;
   if (S.res && S.res.ai == null) S.res.ai = 0;
@@ -5868,10 +5947,12 @@ function init() {
     { label: "📖 Log",      title: "Download your captain's log — a narrative dossier you can hand to an AI to write your biography or a novel", fn: () => downloadJournal() },
     { label: "💾 Save",     title: "Save this game to a file on your disk (backup, or move between browsers/machines)",                     fn: () => exportSave() },
     { label: "📂 Load",     title: "Load a game from a save file on your disk (replaces the current game)",                                fn: () => importSave() },
+    { label: soundLabel(), title: "Toggle sound effects", fn: () => toggleSound(), id: "soundToggleBtn" },
     { label: "❓ Help",     title: "How to play, and links to the project",                                                                fn: () => toggleHelp() },
   ].forEach(b => {
     const el = document.createElement("button");
     el.className = "btn btn-sm"; el.textContent = b.label; el.title = b.title;
+    if (b.id) el.id = b.id;
     el.addEventListener("click", b.fn); menu.appendChild(el);
   });
   // (No console button for a politics start — careers switch freely in-game; the
@@ -5897,6 +5978,7 @@ Object.assign(window, {
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
   exportSave, importSave, importSaveText, parseSaveText, buildSaveText,
+  sfx, toggleSound,
   alignColony, colonyIndependence,
   setSubView,
   huntPirates, engageTarget, standDown, encounterPay, encounterFlee, encounterFight, deepScan, repairSubsys, repairAll,

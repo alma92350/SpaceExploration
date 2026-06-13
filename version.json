@@ -1,5 +1,5 @@
 {
-  "version": "1.4.1",
+  "version": "1.5.0",
   "saveVersion": "v2",
-  "notes": "Repairs are now cheaper at a world where you have a base (25% off), and that stacks with a haven dry-dock (40% off) \u2014 both together is 55% off hull and subsystem repairs."
+  "notes": "Sound! Procedural sound effects (synthesized in-browser, no downloads) play on trades, combat fire and kills, travel, repairs, and big events. Toggle \ud83d\udd0a/\ud83d\udd07 in the Captain's Console."
 }
