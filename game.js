@@ -931,6 +931,7 @@ function freshState(opts = {}) {
     unlocked: {},              // progressive disclosure: which tabs have been revealed
     showAllTabs: false,        // veteran toggle: reveal every tab at once
     sound: true,               // procedural SFX on/off
+    pirateIntel: null,         // bought pirate-activity chart { worlds, until, scope }
     achieved: {},
     won: false,
   };
@@ -1281,6 +1282,7 @@ function reserveOf(pid, c) {
   if (!S.unlocked) { S.unlocked = {}; checkUnlocks(true); }   // veterans keep everything they've earned, silently
   if (S.showAllTabs == null) S.showAllTabs = false;
   if (S.sound == null) S.sound = true;
+  if (S.pirateIntel === undefined) S.pirateIntel = null;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   if (S.res && S.res.drones == null) S.res.drones = 0;
   if (S.res && S.res.ai == null) S.res.ai = 0;
@@ -1707,6 +1709,28 @@ function pirateLevel(pid) {
   return S.pirates[pid];
 }
 function pirateCalm() { return (S.pirateCalm || 0) > S.turn; }
+/* ---------- Pirate intel charts ----------
+   Buy charts that reveal pirate activity by world for a while — find the
+   hotspots to hunt (toward pacifying the sector) or the lanes to avoid. */
+const PIRATE_MAP = {
+  local:    { name: "Local chart",    ico: "🗺️", ly: 6,        cost: 700 },
+  regional: { name: "Regional chart", ico: "🗺️", ly: 14,       cost: 2200 },
+  global:   { name: "Sector chart",   ico: "🛰️", ly: Infinity, cost: 5500 },
+};
+const PIRATE_INTEL_DURATION = 8;   // cycles of fresh intel per purchase
+function pirateIntelActive() { return !!(S.pirateIntel && S.turn < S.pirateIntel.until); }
+function pirateIntelKnows(pid) { return pid === S.location || (pirateIntelActive() && S.pirateIntel.worlds.indexOf(pid) >= 0); }
+function buyPirateMap(scope) {
+  const m = PIRATE_MAP[scope]; if (!m) return;
+  if (S.res.credits < m.cost) return toast(`The ${m.name} costs ${fmt(m.cost)} cr.`, "bad");
+  const here = currentPlanet();
+  const worlds = PLANETS.filter(p => isActive(p) && !p.hidden && (p.id === here.id || (here.distances[p.id] || 0) <= m.ly)).map(p => p.id);
+  S.res.credits -= m.cost;
+  S.pirateIntel = { worlds, until: S.turn + PIRATE_INTEL_DURATION, scope };
+  log(`${m.ico} Bought a ${m.name} — pirate activity across <b>${worlds.length}</b> world(s) revealed for ${PIRATE_INTEL_DURATION} cycles.`, "event");
+  toast(`${m.name}: ${worlds.length} worlds charted`, "event");
+  afterAction();
+}
 /* ---------- Adversary matchmaking ----------
    Pirate opposition tracks the CAPTAIN's strength, not the system's raw
    activity: wherever you are in the game there are corsairs a rank below you
@@ -2553,7 +2577,7 @@ function marshalCriteria() {
     { label: `Hunt down ${MARSHAL_KILLS} pirates`, ok: (P.bountyKills || 0) >= MARSHAL_KILLS },
     { label: `Collect ${fmt(MARSHAL_EARNED)} cr in bounties`, ok: (P.bountyEarned || 0) >= MARSHAL_EARNED },
     { label: `Win the law's trust — Core rep ${MARSHAL_REP}+`, ok: (S.rep.core || 0) >= MARSHAL_REP },
-    { label: `Pacify the sector — no world above activity 1`, ok: actives.every(p => pirateLevel(p.id) <= 1) },
+    { label: (() => { const hot = actives.filter(p => pirateLevel(p.id) > 1).length; return `Pacify the sector — no world above activity 1${hot ? ` (${hot} still hot)` : ""}`; })(), ok: actives.every(p => pirateLevel(p.id) <= 1) },
   ];
 }
 function marshalReady() {
@@ -4292,6 +4316,10 @@ function renderGalaxy() {
       : pol >= 25 ? '<span class="pill" title="Rising industrial pollution">☁️ smoggy</span>' : '';
     const _cr = S.crises && S.crises[p.id];
     const crisisPill = _cr ? `<span class="pill bad" title="${CRISES[_cr.type].name} — prices spiking, ${_cr.cyclesLeft} cyc left">${CRISES[_cr.type].ico} ${CRISES[_cr.type].name}</span>` : '';
+    const _plv = pirateLevel(p.id);
+    const piratePill = pirateIntelKnows(p.id)
+      ? (_plv > 0 ? `<span class="pill ${_plv >= 2 ? "bad" : ""}" title="Pirate activity level ${_plv} (from your charts)">🏴 pirates ${_plv}</span>` : `<span class="pill good" title="No pirate activity (from your charts)">🏴 clear</span>`)
+      : '';
     const tag = p.colonizable
       ? `<span class="pill good">${S.colonies[p.id] ? "your colony 🌍" : "colonizable"}</span>`
       : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
@@ -4303,7 +4331,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}
+        ${enf}${polPill}${crisisPill}${piratePill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${here ? `<div class="pill good">◉ You are here</div>`
@@ -5104,10 +5132,31 @@ function renderRaid() {
       ${ready ? `<button class="btn btn-primary" style="margin-top:8px" onclick="marshalLegacy()">⚖️ Claim your badge</button>` : ""}
     </div>`;
   }
+  // ---- Pirate intel charts ----
+  const mapBtns = Object.entries(PIRATE_MAP).map(([k, m]) =>
+    `<button class="btn btn-sm" ${S.res.credits >= m.cost ? "" : "disabled"} title="Reveal pirate activity ${m.ly === Infinity ? "across the whole sector" : "within " + m.ly + " ly"} for ${PIRATE_INTEL_DURATION} cycles" onclick="buyPirateMap('${k}')">${m.ico} ${m.name} (${fmt(m.cost)} 💰)</button>`).join(" ");
+  let intelCard;
+  if (pirateIntelActive()) {
+    const left = S.pirateIntel.until - S.turn;
+    const rows = S.pirateIntel.worlds
+      .map(id => ({ id, pl: PLANETS.find(x => x.id === id), lvl: pirateLevel(id), d: currentPlanet().distances[id] || 0 }))
+      .filter(r => r.pl)
+      .sort((a, b) => b.lvl - a.lvl || a.d - b.d)
+      .map(r => `<div class="ship-stat"><span class="k">${r.pl.name} <span class="hint">${r.id === S.location ? "here" : r.d + " ly"}</span></span><span class="v" style="color:${r.lvl >= 2 ? "var(--bad)" : r.lvl >= 1 ? "var(--warn)" : "var(--good)"}">${r.lvl > 0 ? "🏴 " + r.lvl : "clear"}</span></div>`).join("");
+    const hot = S.pirateIntel.worlds.filter(id => pirateLevel(id) > 1).length;
+    intelCard = `<div class="card"><h4>🗺️ Pirate Intel <span class="pill ${left <= 2 ? "bad" : ""}">${left} cyc left</span></h4>
+      <div class="hint">${hot ? `<b>${hot}</b> charted world(s) above activity 1 — hunt them down to pacify the sector.` : "All charted worlds are pacified (≤1)."}</div>
+      <div style="margin:6px 0">${rows}</div>
+      <div class="row">${mapBtns}</div></div>`;
+  } else {
+    intelCard = `<div class="card"><h4>🗺️ Buy Pirate Intel</h4>
+      <div class="desc">Charts reveal pirate activity by world for ${PIRATE_INTEL_DURATION} cycles — find hotspots to hunt (the path to pacifying the sector) or lanes to avoid. Activity shows on the 🪐 Galaxy map too.</div>
+      <div class="row">${mapBtns}</div></div>`;
+  }
   el.innerHTML = `<h2>⚔️ Raider</h2>
     <div class="subtitle">Two trades, one gun: <b>prey on shipping</b> (build Dread, mind your Wanted — the navy interdicts the notorious; havens and letters of marque are an outlaw&#39;s tools) or <b>hunt pirates</b> for lawful bounties that scale with their rank — every kill calms the lanes, shielding your colonies and convoys. Travel through infested systems and the pirates may find <i>you</i>.</div>
     <div class="cards raid-top">${status}<div class="raid-action">${action}</div></div>
-    <div class="cards" style="margin-top:14px">${commCard}${havenCard}${lordCard}${marshalCard}</div>`;
+    <div class="cards" style="margin-top:14px">${intelCard}${commCard}${havenCard}${lordCard}${marshalCard}</div>`;
 }
 /* ---------- Generic in-panel sub-tabs ----------
    A lightweight tab strip inside a panel. View state is UI-only (not saved);
@@ -5547,7 +5596,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.6.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -5917,6 +5966,7 @@ function init() {
   if (!S.unlocked) { S.unlocked = {}; checkUnlocks(true); }   // veterans keep everything they've earned, silently
   if (S.showAllTabs == null) S.showAllTabs = false;
   if (S.sound == null) S.sound = true;
+  if (S.pirateIntel === undefined) S.pirateIntel = null;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   if (S.res && S.res.drones == null) S.res.drones = 0;
   if (S.res && S.res.ai == null) S.res.ai = 0;
@@ -5981,6 +6031,6 @@ Object.assign(window, {
   sfx, toggleSound,
   alignColony, colonyIndependence,
   setSubView,
-  huntPirates, engageTarget, standDown, encounterPay, encounterFlee, encounterFight, deepScan, repairSubsys, repairAll,
+  huntPirates, engageTarget, standDown, encounterPay, encounterFlee, encounterFight, deepScan, repairSubsys, repairAll, buyPirateMap,
   setCombatPosture, setCombatOffense, setCombatTarget, fieldRepair,
 });

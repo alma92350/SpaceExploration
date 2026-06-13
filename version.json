@@ -1,5 +1,5 @@
 {
-  "version": "1.5.0",
+  "version": "1.6.0",
   "saveVersion": "v2",
-  "notes": "Sound! Procedural sound effects (synthesized in-browser, no downloads) play on trades, combat fire and kills, travel, repairs, and big events. Toggle \ud83d\udd0a/\ud83d\udd07 in the Captain's Console."
+  "notes": "Pirate intel: buy Local / Regional / Sector charts in the Raider tab to reveal pirate activity by world for a while (also shown on the Galaxy map). The Sector Marshal's hardest objective \u2014 pacify every world to activity 1 or below \u2014 now tracks how many worlds are still hot."
 }
