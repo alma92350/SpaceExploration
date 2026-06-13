@@ -1,5 +1,5 @@
 {
-  "version": "1.8.0",
+  "version": "1.8.1",
   "saveVersion": "v2",
-  "notes": "Base-colony trade routes: a base with a Storage Depot can auto-export its raw stock to fill your colonies' orders and import their finished-goods surplus each cycle. Mind the costs \u2014 distance-scaled freight, tariffs on faction-aligned colonies, customs seizure for routing contraband, and pirate convoy ambushes. Watch the per-cycle net balance for deficits."
+  "notes": "Economy fix: the black-market fence no longer pays more than the open market charges to buy a good, killing the risk-free buy-public / fence-black arbitrage. Plundered goods and genuine cross-world fencing stay profitable."
 }

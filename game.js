@@ -3377,7 +3377,11 @@ function fenceMul(c) {
   return (isIllicit(c) ? 1.35 : 0.80) * dreadBonus;
 }
 function fencePrice(pid, c) {
-  return Math.max(1, Math.round(sellPrice(pid, c) * fenceMul(c)));
+  // a fence is no dumber than the open market: it never pays more than you could
+  // buy the same good for here. That kills risk-free buy-public / fence-black
+  // arbitrage, while plunder and genuine cross-world runs stay profitable.
+  const raw = Math.round(sellPrice(pid, c) * fenceMul(c));
+  return Math.max(1, Math.min(raw, buyPrice(pid, c)));
 }
 function fence(c, qty) {
   if (combatLocked()) return;
@@ -5803,7 +5807,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.8.0";
+const APP_VERSION = "1.8.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
