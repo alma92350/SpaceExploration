@@ -2221,6 +2221,16 @@ function raidDisengage() {
   clearEngagement();
   afterAction();
 }
+/* a repair at your own haven or base also tops off the fuel tank, free */
+function topUpFuelAtVenue() {
+  if (!(atHaven() || atBase())) return;
+  const cap = fuelCap();
+  if (S.res.fuel >= cap) return;
+  const added = cap - S.res.fuel;
+  S.res.fuel = cap;
+  const where = atHaven() && atBase() ? "haven & base" : atHaven() ? "haven" : "base";
+  log(`⛽ Topped off fuel (+${added}) at your ${where}.`, "good");
+}
 function repairShip() {
   if (combatLocked()) return;
   if (S.pirate.hull >= HULL_MAX) return toast("Hull is already pristine.", "bad");
@@ -2229,6 +2239,7 @@ function repairShip() {
   S.res.credits -= cost; S.pirate.hull = HULL_MAX;
   log(`🔧 Hull fully repaired at ${currentPlanet().name}${repairVenueNote()} for ${fmt(cost)} credits.`, "good");
   sfx("repair"); toast("Hull repaired.", "good");
+  topUpFuelAtVenue();
   afterAction();
 }
 function subsysRepairCost(sub) {
@@ -2245,6 +2256,7 @@ function repairSubsys(sub) {
   S.res.credits -= q.credits; S.res[q.mat] -= q.matQ; S.pirate.subsys[sub] = 100;
   log(`🔧 ${SUBSYS_META[sub].ico} ${SUBSYS_META[sub].name} repaired for ${fmt(q.credits)} cr + ${q.matQ} ${COM[q.mat].ico}.`, "good");
   toast(`${SUBSYS_META[sub].name} repaired.`, "good");
+  topUpFuelAtVenue();
   afterAction();
 }
 function repairAll() {
@@ -2264,6 +2276,7 @@ function repairAll() {
   if (!did.length) return toast("Nothing to refit, or you can't afford it.", "bad");
   log(`🔧 Refit at ${currentPlanet().name}: ${did.join(", ")} — ${fmt(spent)} cr + materials.`, "good");
   sfx("repair"); toast("Ship refitted.", "good");
+  topUpFuelAtVenue();
   afterAction();
 }
 /* ---------- Field repair (combat only) ----------
@@ -5603,7 +5616,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.6.1";
+const APP_VERSION = "1.6.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

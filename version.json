@@ -1,5 +1,5 @@
 {
-  "version": "1.6.1",
+  "version": "1.6.2",
   "saveVersion": "v2",
-  "notes": "Pirate activity from an active chart is now tagged on the Galaxy map like other events: a header badge summarises hotspots and cycles left, and each charted world shows a live activity pill that updates as the lanes heat up or calm during the chart's validity."
+  "notes": "Repairing at your own haven or base now tops off your fuel tank for free, as part of the service."
 }
