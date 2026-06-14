@@ -1,5 +1,5 @@
 {
-  "version": "1.9.0",
+  "version": "1.9.1",
   "saveVersion": "v2",
-  "notes": "Base UI reorganised into Modules / Inventory / Import-Export sub-tabs. The trade route is now configurable: pick exactly which raws to export and which finished goods to import, and toggle each colony on or off. Amounts stay automatic (colony need for exports, colony excess for imports)."
+  "notes": "Outpost and colony cards now have a Travel button to jump straight to that world, and colony cards show capability icons for what they produce."
 }

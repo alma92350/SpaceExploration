@@ -5450,6 +5450,25 @@ function renderShipPanel() {
 }
 
 /* ----- Bases ----- */
+// a compact "Travel here" button for outpost/colony cards (or a "here" pill)
+function cardTravelBtn(id) {
+  if (id === S.location) return '<span class="pill good">◉ here</span>';
+  const pl = PLANETS.find(p => p.id === id);
+  if (!pl || !isVisible(pl)) return "";
+  const fc = fuelCost(id);
+  const can = S.res.fuel >= fc && !S.encounter && !S.interdiction && S.jail <= 0;
+  return `<button class="btn btn-sm" ${can ? "" : "disabled"} title="Jump to ${pl.name} (⛽ ${fc})" onclick="travel('${id}')">Travel ▸ <span class="hint">⛽${fc}</span></button>`;
+}
+// what a colony can produce (icons only, deduped) — its built producers + recipe outputs
+function colonyOutputs(col, planet) {
+  const set = new Set();
+  colonyBuildingList(planet).forEach(b => {
+    if ((col.buildings[b.id] || 0) <= 0) return;
+    if (b.produces) set.add(b.produces);
+    if (b.recipe && b.recipe.out) set.add(b.recipe.out);
+  });
+  return Array.from(set);
+}
 function ensureTrade(b) { if (!b.trade || typeof b.trade !== "object") b.trade = { on: false, exp: {}, imp: {}, cols: {} }; b.trade.exp = b.trade.exp || {}; b.trade.imp = b.trade.imp || {}; b.trade.cols = b.trade.cols || {}; return b.trade; }
 function toggleBaseTrade(pid) {
   const b = S.bases[pid]; if (!b) return;
@@ -5489,6 +5508,7 @@ function renderBases() {
         <div class="hint">Storage ${baseStorageUsed(bb)}/${baseStorageCap(id)}</div>
         <div class="ship-stat"><span class="k">Produces/cycle</span><span class="v">${prod}</span></div>
         <div class="ship-stat"><span class="k">Stored</span></div><div style="font-size:12px;line-height:1.7">${stored}</div>
+        <div class="row" style="margin-top:6px">${cardTravelBtn(id)}</div>
       </div>`;
     }).join("");
   } else {
@@ -5630,12 +5650,15 @@ function renderColonies() {
   if (ids.length) {
     overview = ids.map(id => {
       const c = S.colonies[id], pl = PLANETS.find(p => p.id === id);
+      const outs = colonyOutputs(c, pl);
       return `<div class="card ${id === pid ? "owned" : ""}">
         <h4>${pl.name} ${c.faction ? `<span class="pill" title="${FACTIONS[c.faction].name}">${FACTIONS[c.faction].ico}</span>` : ""} ${id === pid ? '<span class="pill good">here</span>' : ""} ${colonyHealthPill(c)}</h4>
         <div class="ship-stat"><span class="k">👥 Population</span><span class="v">${fmt(c.pop)}k</span></div>
         <div class="ship-stat"><span class="k">😊 Happiness</span><span class="v">${c.happiness}%</span></div>
         <div class="ship-stat"><span class="k">🏭/🔬 Dev</span><span class="v">Ind ${effIndustry(pl)} · Tech ${effTech(pl)}</span></div>
         <div class="ship-stat"><span class="k">💰 Tax income</span><span class="v">+${fmt(colonyTaxIncome(c))}/cyc</span></div>
+        <div class="ship-stat"><span class="k">🏭 Produces</span><span class="v">${outs.length ? outs.map(x => `<span title="${COM[x].name}">${COM[x].ico}</span>`).join(" ") : "—"}</span></div>
+        <div class="row" style="margin-top:6px">${cardTravelBtn(id)}</div>
       </div>`;
     }).join("");
   } else {
@@ -5895,7 +5918,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.9.0";
+const APP_VERSION = "1.9.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
