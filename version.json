@@ -1,5 +1,5 @@
 {
-  "version": "2.3.1",
+  "version": "2.4.0",
   "saveVersion": "v2",
-  "notes": "Base trade routes can now export ANY product the base stocks to fill colony orders \u2014 not just raw materials. Refined, component and finished goods all flow, so a base can act as a hub: import surplus from one colony and ship it to another that ordered it."
+  "notes": "Progressive disclosure, phase 5: a colony's build menu now reveals in stages \u2014 Survival & Economy first; Industry once you manufacture your first Medicine (or the colony grows); Civic & Logistics as it matures or you run a second colony. Faction alignment and the Spaceport tab appear when they're relevant. Anything already built always stays visible."
 }

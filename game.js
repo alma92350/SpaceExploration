@@ -5707,6 +5707,37 @@ function toggleColonyProcess(bid) {
   toast(`${b.name} ${col.idle[bid] ? "paused" : "resumed"}`, col.idle[bid] ? "" : "good");
   afterAction();
 }
+/* ---------- Colony interface disclosure ----------
+   Building categories reveal as the colony matures, so a fresh colony shows
+   only survival/economy basics, industry opens once you've learned to
+   manufacture, and civic/logistics arrive as the colony grows. */
+const COLONY_BUILD_CAT = {
+  habitat: "survival", farm: "survival", solar: "survival", scrubber: "survival",
+  biomass_gen: "industry", gas_turbine: "industry", reactor: "industry", smelter: "industry",
+  chem_plant: "industry", foundry: "industry", fabricator: "industry", factory: "industry",
+  machine_works: "industry", luxury_atelier: "industry", pharma_lab: "industry",
+  arms_factory: "industry", drone_works: "industry", antimatter_forge: "industry",
+  lab: "civic", datacenter: "civic", spaceport: "civic", garrison: "civic",
+};
+const COLONY_CATS = [["survival", "🏠 Survival & Economy"], ["industry", "🏭 Industry"], ["civic", "🏛️ Civic & Logistics"]];
+function colonyBuildCat(b) { return b.id.indexOf("ext_") === 0 ? "survival" : (COLONY_BUILD_CAT[b.id] || "survival"); }
+function colonyCatRevealed(cat, col) {
+  if (cat === "survival" || S.showAllTabs) return true;
+  if (cat === "industry") return !!(S.disc && S.disc.advMarkets) || col.pop >= 8 || S.turn >= 15;
+  if (cat === "civic") return Object.keys(S.colonies || {}).length >= 2 || col.pop >= 10 || S.turn >= 25;
+  return true;
+}
+function colonyCatHint(cat) {
+  if (cat === "industry") return "unlocks once you manufacture your first Medicine (or the colony grows to 8k)";
+  if (cat === "civic") return "unlocks as the colony grows (10k pop), or once you run a second colony";
+  return "";
+}
+// faction alignment is shown once it's within reach (or already taken)
+function colonyFactionRevealed(col) {
+  if (col.faction || S.showAllTabs) return true;
+  if (Object.keys(S.colonies || {}).length >= 2 || S.turn >= 20) return true;
+  return Object.values(FACTIONS).some((_, i) => (S.rep[Object.keys(FACTIONS)[i]] || 0) >= ALIGN_REP_REQ - 5);
+}
 function colonyHealthPill(col) {
   const h = col.happiness;
   return h >= 70 ? '<span class="pill good">thriving</span>'
@@ -5776,7 +5807,7 @@ function renderColonies() {
       <div class="row"><button class="btn btn-sm" onclick="setTax(-5)">− Tax</button><button class="btn btn-sm" onclick="setTax(5)">+ Tax</button>
         <span class="hint">High tax lowers happiness.</span></div>
     </div>`;
-    const buildCards = colonyBuildingList(planet).map(b => {
+    const buildCard = (b) => {
       const tier = col.buildings[b.id] || 0, maxed = tier >= b.tiers;
       const cost = Math.round(b.baseCost * Math.pow(b.costMul, tier));
       const mats = colonyBuildingMats(b, tier + 1);
@@ -5797,6 +5828,14 @@ function renderColonies() {
              <button class="btn btn-primary" ${ok ? "" : "disabled"} onclick="buildColonyBuilding('${b.id}')">${tier > 0 ? "Upgrade" : "Build"}</button>`}
         ${pauseCtl}
       </div>`;
+    };
+    const buildCards = COLONY_CATS.map(([cat, label]) => {
+      const list = colonyBuildingList(planet).filter(b => colonyBuildCat(b) === cat);
+      if (!list.length) return "";
+      const revealed = colonyCatRevealed(cat, col);
+      const shown = list.filter(b => revealed || (col.buildings[b.id] || 0) > 0);   // always show what's already built
+      if (!shown.length) return `<div class="hint" style="grid-column:1/-1">🔒 <b>${label}</b> — ${colonyCatHint(cat)}.</div>`;
+      return `<div class="section-title" style="grid-column:1/-1">${label}${!revealed ? ' <span class="hint">(more unlocks later)</span>' : ""}</div>` + shown.map(buildCard).join("");
     }).join("");
     const sids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 || (col.storage[c] || 0) > 0);
     const rows = sids.length ? sids.map(c => `<tr>
@@ -5859,13 +5898,15 @@ function renderColonies() {
         return `<div class="meta"><span>${F.ico} <b style="color:${F.color}">${F.name}</b><br><span class="hint">${FACTION_COLONY_PERKS[fid]}</span></span>
           <span style="text-align:right"><span class="hint">${why}</span><br><button class="btn btn-sm" ${ok ? "" : "disabled"} onclick="alignColony('${fid}')">Join</button></span></div>`;
       }).join("");
-      factionCard = `<div class="card">
+      factionCard = colonyFactionRevealed(col) ? `<div class="card">
         <h4>🤝 Faction Alignment <span class="pill">independent</span></h4>
         <div class="desc">Petition a great faction to charter ${planet.name}. Their trade network lifts tax income and export prices and cuts import fees; their patrols bolster defense; their backing steadies morale — and each loyal cycle earns their respect. Costs ${ALIGN_COST_INF} ⚖ influence; rival blocs take offense (−3 rep).</div>
-        ${fRows}</div>`;
+        ${fRows}</div>`
+        : `<div class="card"><h4>🤝 Faction Alignment</h4><div class="hint">Earn a faction's reputation (≥${ALIGN_REP_REQ}) to petition them to charter this colony for trade & protection.</div></div>`;
     }
     // ---- sub-tabs: Overview / Buildings / Supplies / Spaceport ----
-    const views = [["overview", "📊 Overview"], ["buildings", "🏗️ Buildings"], ["supplies", "📦 Supplies"], ["spaceport", "🛰️ Spaceport"]];
+    const views = [["overview", "📊 Overview"], ["buildings", "🏗️ Buildings"], ["supplies", "📦 Supplies"]];
+    if (colonyCatRevealed("civic", col) || spaceportTier(col) > 0) views.push(["spaceport", "🛰️ Spaceport"]);
     const colonyView = subView("colonies", views);
     const subBar = subTabBar("colonies", views);
     let body;
@@ -6016,7 +6057,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.3.1";
+const APP_VERSION = "2.4.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
