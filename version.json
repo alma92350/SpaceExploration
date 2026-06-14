@@ -1,5 +1,5 @@
 {
-  "version": "2.4.0",
+  "version": "2.5.0",
   "saveVersion": "v2",
-  "notes": "Progressive disclosure, phase 5: a colony's build menu now reveals in stages \u2014 Survival & Economy first; Industry once you manufacture your first Medicine (or the colony grows); Civic & Logistics as it matures or you run a second colony. Faction alignment and the Spaceport tab appear when they're relevant. Anything already built always stays visible."
+  "notes": "Progressive disclosure, phase 6 (polish): a true global Guided-mode toggle — \"Show everything now\" reveals every layer at once (market tiers, far galaxy worlds, locked tabs, colony build categories), and \"Guided mode\" hides them again until earned. Find it in Help. Old saves migrate cleanly (sales stat backfilled, veterans auto-reveal what they've earned), and Help now documents how progression works alongside the 🧭 Next Steps panel."
 }
