@@ -1,5 +1,5 @@
 {
-  "version": "2.6.0",
+  "version": "2.6.1",
   "saveVersion": "v2",
-  "notes": "New: E-ink mode. Tap 📖 E-ink mode in the Captain's Console for a high-contrast black-on-white display tuned for grayscale e-readers like the Kindle Scribe — gradients, glows, shadows and animations are stripped, panels and buttons get crisp borders, and the selected tab / primary actions invert to solid black. Tap 🌙 Color mode to switch back; your choice is remembered and travels with your save."
+  "notes": "E-ink mode fix: primary action buttons (Travel, Upgrade, Install, Found, Research, etc.) were rendering white-on-white and unreadable — the white button-background rule was overriding the inverted black fill at equal CSS specificity. Reordered so primary/cycle buttons keep their solid black background with white text."
 }

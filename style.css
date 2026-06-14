@@ -343,6 +343,8 @@ body.eink .announce.finale .ann-title {
 }
 body.eink .logo { color: #000000; }
 /* selected / primary / cycle buttons -> inverted (black fill, white text) */
+body.eink .tab,
+body.eink .btn { background: #ffffff; color: #000000; }
 body.eink .tab.active,
 body.eink .btn-primary,
 body.eink .btn-turn {
@@ -350,10 +352,10 @@ body.eink .btn-turn {
   color: #ffffff;
   border: 1px solid #000000;
 }
-body.eink .tab,
-body.eink .btn { background: #ffffff; }
 body.eink .tab:hover:not(.active),
-body.eink .btn:hover:not(:disabled) { background: #e8e8e8; border-color: #000000; }
+body.eink .btn:hover:not(:disabled) { background: #e8e8e8; color: #000000; border-color: #000000; }
+body.eink .btn-primary:hover:not(:disabled),
+body.eink .btn-turn:hover:not(:disabled) { background: #2a2a2a; color: #ffffff; }
 /* good/bad buttons: white fill, colored text + 2px border (no muddy translucency) */
 body.eink .btn-good { background: #ffffff; border: 2px solid var(--good); color: var(--good); }
 body.eink .btn-bad  { background: #ffffff; border: 2px solid var(--bad);  color: var(--bad); }
