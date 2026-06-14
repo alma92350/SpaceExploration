@@ -1,5 +1,5 @@
 {
-  "version": "2.1.0",
+  "version": "2.2.0",
   "saveVersion": "v2",
-  "notes": "Progressive disclosure, phase 2: the Galaxy map now shows only worlds within ~100 fuel of where you are \u2014 a rolling horizon that reveals new worlds as you travel toward them. Visited and surveyed worlds stay charted; colonizable worlds appear once you research the Colonial Charter. A hint shows how many worlds lie beyond sensor range."
+  "notes": "Progressive disclosure, phase 3: Raiding and Politics now stay hidden until you're an established trader \u2014 Raiding opens at 35,000 cr in cumulative sales (or if you arm up / get attacked), Politics at 50,000 cr (or you gain influence/office), with late cycle fallbacks. The Missions \u2192 Next Steps panel now lists every upcoming feature and how to unlock it."
 }

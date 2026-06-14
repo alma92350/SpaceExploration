@@ -619,7 +619,7 @@ function gougeSell(c, qty) {
   qty = Math.min(Math.floor(qty), S.res[c] || 0);
   if (qty <= 0) return toast(`You have no ${COM[c].name} to gouge with.`, "bad");
   const revenue = Math.round(sellPrice(p.id, c) * 1.35 * qty);   // a vulture's premium on crisis prices
-  S.res[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue;
+  S.res[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue; S.stats.sales = (S.stats.sales || 0) + revenue;
   const repHit = Math.min(12, 2 + Math.round(qty * 0.15));
   addRep(p.faction, -repHit);
   applyPolDelta({ legitimacy: -2, heat: 3 });
@@ -926,7 +926,7 @@ function freshState(opts = {}) {
     climate: 0,                 // sector-wide climate stress 0–100 (smoothed mean pollution)
     visited: { [start]: true },
     log: [],
-    stats: { jumps: 0, trades: 0, profit: 0, busts: 0 },
+    stats: { jumps: 0, trades: 0, profit: 0, busts: 0, sales: 0 },
     journal: [],               // captain's log: persistent narrative chronicle
     unlocked: {},              // progressive disclosure: which tabs have been revealed
     disc: {},                  // feature disclosure flags (markets, galaxy, ...)
@@ -3358,7 +3358,7 @@ function sell(c, qty) {
   const p = currentPlanet();
   const slip = tradeSlippage(p, c, qty);
   const revenue = Math.round(sellPrice(S.location, c) * (1 - slip / 2) * qty); // avg price drops with size
-  S.res[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue;
+  S.res[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue; S.stats.sales = (S.stats.sales || 0) + revenue;
   applyMarketMove(S.location, c, slip, true);  // flooding the market → price down
   addRep(currentPlanet().faction, 1);
   log(`Sold ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(revenue)}</span> cr${slip > 0.05 ? " (price fell)" : ""}.`, "good");
@@ -3396,7 +3396,7 @@ function fence(c, qty) {
   if ((S.res[c] || 0) < qty) return toast("You don't have that many.", "bad");
   const slip = tradeSlippage(p, c, qty);
   const revenue = Math.round(fencePrice(S.location, c) * (1 - slip / 2) * qty);
-  S.res[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue;
+  S.res[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue; S.stats.sales = (S.stats.sales || 0) + revenue;
   applyMarketMove(S.location, c, slip, true);
   addRep("syndicate", 1);
   log(`🕴️ Fenced ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(revenue)}</span> cr — no questions asked.`, "good");
@@ -3420,7 +3420,7 @@ function fenceAllPlunder() {
     S.res[c] = 0; S.res.credits += rev; total += rev; parts.push(`${qty}${COM[c].ico}`);
     applyMarketMove(S.location, c, slip, true);
   });
-  S.stats.trades++; S.stats.profit += total; addRep("syndicate", 2);
+  S.stats.trades++; S.stats.profit += total; S.stats.sales = (S.stats.sales || 0) + total; addRep("syndicate", 2);
   log(`🕴️ Dumped your whole hold to the fence — ${parts.join(" ")} for <span class="c">${fmt(total)}</span> cr.`, "good");
   toast(`Fenced everything (+${fmt(total)} cr)`, "good");
   afterAction();
@@ -3693,7 +3693,7 @@ function baseMarketSell(c, qty) {
   }
   const slip = tradeSlippage(p, c, qty);
   const revenue = Math.round(sellPrice(S.location, c) * (1 - slip / 2) * qty);
-  b.storage[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue;
+  b.storage[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue; S.stats.sales = (S.stats.sales || 0) + revenue;
   applyMarketMove(S.location, c, Math.min(0.6, slip * BASE_MARKET_IMPACT), true); addRep(p.faction, 1);   // dumping a stockpile floods the local market
   log(`Sold ${qty} ${COM[c].ico} ${COM[c].name} from the base for <span class="c">${fmt(revenue)}</span> cr — local price fell to ${fmt(S.prices[S.location][c])}.`, "good");
   sfx("sell"); toast(`Sold ${qty} ${COM[c].name} (+${fmt(revenue)} cr)`, "good");
@@ -5133,8 +5133,11 @@ function renderMissions() {
       </div>`;
     }).join("") : '<div class="hint">No active contracts. New ones are posted by the factions as cycles pass.</div>';
 
-  const nextSteps = DISCLOSURE_GATES.filter(g => !(S.disc && S.disc[g.id])).map(g =>
+  const gateSteps = DISCLOSURE_GATES.filter(g => !(S.disc && S.disc[g.id])).map(g =>
     `<div class="card" style="border-color:var(--accent)"><h4>${g.icon} ${g.goal}</h4><div class="hint">🔓 ${g.reward}${g.fallbackTurn ? ` · or automatically by cycle ${g.fallbackTurn}` : ""}</div></div>`).join("");
+  const tabSteps = (typeof TAB_LADDER !== "undefined" ? TAB_LADDER : []).filter(g => !(S.unlocked && S.unlocked[g.id])).map(g =>
+    `<div class="card"><h4>🔓 ${tabLabel(g.id)}</h4><div class="hint">${g.blurb} — ${g.hint}</div></div>`).join("");
+  const nextSteps = gateSteps + tabSteps;
   const nextStepsSection = nextSteps ? `<div class="section-title">🧭 Next Steps — unlock new features</div><div class="cards">${nextSteps}</div>` : "";
   el.innerHTML = `<h2>🎯 Missions</h2>
     <div class="subtitle">Everything with an objective in one place: <b>time-bound contracts</b> race the clock, <b>career missions</b> unlock as you grow, and your <b>legacy goals</b> are the long game that wins it all.</div>
@@ -5911,11 +5914,11 @@ const TAB_LADDER = [
   { id: "industry",  blurb: "refine raw materials into finished goods",
     hint: "Unlocks when you carry raw materials", test: s => RAW_IDS.some(c => (s.res[c] || 0) > 0) || s.turn >= 4 },
   { id: "raid",      blurb: "hunt pirates or prey on shipping",
-    hint: "Unlocks when you fit Weapon Systems (Ship)", test: s => (s.upgrades.cannons || 0) > 0 || s.prey || s.encounter || s.interdiction || s.turn >= 6 },
+    hint: "Unlocks as your trade empire grows (35,000 cr in sales) — or the moment you arm up or get attacked", test: s => (s.upgrades.cannons || 0) > 0 || s.prey || s.encounter || s.interdiction || (s.stats && s.stats.sales >= 35000) || s.turn >= 70 },
   { id: "bases",     blurb: "automated off-world production",
     hint: "Unlocks once you can afford a base (~5,000 cr)", test: s => (s.res.credits || 0) >= 5000 || Object.keys(s.bases || {}).length > 0 || s.turn >= 7 },
   { id: "politics",  blurb: "factions, influence, office & law",
-    hint: "Unlocks when you gain influence", test: s => (s.res.influence || 0) > 0 || s.office > 0 || (s.orgs && s.orgs.party) || s.turn >= 9 },
+    hint: "Unlocks once you're an established trader (50,000 cr in sales) — or you gain influence/office", test: s => (s.res.influence || 0) > 0 || s.office > 0 || (s.orgs && s.orgs.party) || (s.stats && s.stats.sales >= 50000) || s.turn >= 85 },
   { id: "colonies",  blurb: "found and grow your own worlds",
     hint: "Unlocks with the Colonial Charter (Research)", test: s => !!s.techs.colonial || currentPlanet().colonizable || Object.keys(s.colonies || {}).length > 0 },
 ];
@@ -6010,7 +6013,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.1.0";
+const APP_VERSION = "2.2.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
