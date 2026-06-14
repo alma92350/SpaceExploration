@@ -3765,7 +3765,7 @@ function processBaseTrade() {
       const dist = worldDist(bid, cid);
       if (!tradeColOk(b, cid)) return;
       const tariff = col.faction ? 1.25 : 1;
-      RAW_IDS.forEach(c => {
+      CARGO_IDS.forEach(c => {                       // export ANY product the base stocks to fill colony orders
         if (!tradeExpOk(b, c)) return;
         const need = (col.orders[c] || 0) - (col.storage[c] || 0);
         if (need <= 0) return;
@@ -5652,13 +5652,13 @@ function renderBases() {
         body = `<div class="card"><div class="hint">Found a colony to trade with — your base will ship it raw materials and import its manufactured goods.</div></div>`;
       } else {
         // eligible commodities to offer as toggles
-        const expGoods = RAW_IDS.filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.orders[c] || 0) > 0));
+        const expGoods = CARGO_IDS.filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.orders[c] || 0) > 0));
         const impGoods = CARGO_IDS.filter(isFinishedGood).filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.storage[c] || 0) > 0));
         const chip = (dir, c) => { const on = dir === "imp" ? tradeImpOk(b, c) : tradeExpOk(b, c);
           return `<button class="btn btn-sm ${t.on && on ? "btn-good" : ""}" ${t.on ? "" : "disabled"} title="${on ? "Trading" : "Skipping"} ${COM[c].name}" onclick="setBaseTradeGood('${pid}','${dir}','${c}')">${COM[c].ico} ${COM[c].name} ${on ? "✓" : "✗"}</button>`; };
         const colRows = cols.map(([cid, col]) => {
           const cpl = PLANETS.find(p => p.id === cid), on = tradeColOk(b, cid), dist = worldDist(pid, cid);
-          const needs = RAW_IDS.filter(c => (col.orders[c] || 0) > (col.storage[c] || 0)).map(c => COM[c].ico).join("") || "—";
+          const needs = CARGO_IDS.filter(c => (col.orders[c] || 0) > (col.storage[c] || 0)).map(c => COM[c].ico).join("") || "—";
           const offers = CARGO_IDS.filter(c => isFinishedGood(c) && (col.storage[c] || 0) > colonyFinishedReserve(col, c) + (col.orders[c] || 0)).map(c => COM[c].ico).join("") || "—";
           return `<div class="ship-stat" style="align-items:center"><span class="k"><button class="btn btn-sm ${t.on && on ? "btn-good" : ""}" ${t.on ? "" : "disabled"} onclick="setBaseTradeColony('${pid}','${cid}')">${on ? "✓" : "✗"} ${cpl.name}</button> <span class="hint">${dist} ly${col.faction ? " · " + FACTIONS[col.faction].ico + " tariff" : ""}</span></span>
             <span class="v hint">needs ${needs} · offers ${offers}</span></div>`;
@@ -6016,7 +6016,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.3.0";
+const APP_VERSION = "2.3.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
