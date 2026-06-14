@@ -4355,6 +4355,14 @@ function processLogistics() {
    EXPLORATION  (discover hidden worlds)
    ============================================================ */
 function isVisible(p) { return isActive(p) && (!p.hidden || S.discovered[p.id]); }
+const GALAXY_FUEL_HORIZON = 100;   // worlds within this fuel cost of where you are show on the map (rolls as you travel)
+function galaxyKnown(p) {
+  if (!isVisible(p)) return false;
+  if (S.showAllTabs || S.visited[p.id]) return true;          // always show worlds you've been to
+  if (p.hidden && S.discovered[p.id]) return true;            // surveyed worlds stay charted
+  if (p.colonizable && !canColonize()) return false;          // colony worlds stay off-map until the Colonial Charter
+  return p.id === S.location || fuelCost(p.id) <= GALAXY_FUEL_HORIZON;
+}
 function undiscoveredHidden() {
   return PLANETS.filter(p => p.hidden && !S.discovered[p.id]).sort((a, b) => a.x - b.x);
 }
@@ -4545,7 +4553,7 @@ function repBar(f) {
 /* ----- Galaxy ----- */
 function renderGalaxy() {
   const el = document.getElementById("panel-galaxy");
-  const cards = PLANETS.filter(isVisible).map(p => {
+  const cards = PLANETS.filter(galaxyKnown).map(p => {
     const here = p.id === S.location;
     const fc = here ? 0 : fuelCost(p.id);
     const canGo = !here && S.res.fuel >= fc;
@@ -4605,6 +4613,7 @@ function renderGalaxy() {
   el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}${intelBadge}</h2>
     <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Travelling costs fuel and advances a cycle.</div>
     <div class="planet-grid">${cards}</div>
+    ${(() => { const beyond = PLANETS.filter(p => isActive(p) && !p.hidden && !p.colonizable && !galaxyKnown(p)).length; return beyond ? `<div class="hint" style="margin-top:8px">🛰️ ${beyond} more world(s) lie beyond your sensor range (~${GALAXY_FUEL_HORIZON} fuel) — travel toward the frontier to chart them.</div>` : ""; })()}
     <div class="section-title">🔭 Exploration</div>
     <div class="cards">${survey}</div>
     <div class="hint" style="margin-top:14px">🏆 Your long-term legacy goals and all contracts now live in the <b>🎯 Missions</b> tab.</div>`;
@@ -6001,7 +6010,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.0.0";
+const APP_VERSION = "2.1.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

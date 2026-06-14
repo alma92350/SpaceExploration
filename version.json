@@ -1,5 +1,5 @@
 {
-  "version": "2.0.0",
+  "version": "2.1.0",
   "saveVersion": "v2",
-  "notes": "Progressive disclosure, phase 1: the market now starts with only Raw & Refined goods to cut early overload; manufacturing your first Medicine (a new guiding objective in Missions \u2192 Next Steps) opens the full market \u2014 components, finished goods, luxuries & strategics. You can always trade anything you're carrying, and everything opens by cycle 15 regardless."
+  "notes": "Progressive disclosure, phase 2: the Galaxy map now shows only worlds within ~100 fuel of where you are \u2014 a rolling horizon that reveals new worlds as you travel toward them. Visited and surveyed worlds stay charted; colonizable worlds appear once you research the Colonial Charter. A hint shows how many worlds lie beyond sensor range."
 }
