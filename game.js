@@ -1016,34 +1016,36 @@ function repPriceFactor(planet) {
   const r = S.rep[planet.faction] || 0;
   return Math.max(-0.12, Math.min(0.12, r / 100 * 0.12)); // friendly faction → up to ±12%
 }
-function tradeSpread() {
-  let s = Math.max(0.84, 0.90 - S.upgrades.trade * 0.04);
-  if (policyActive("freetrade")) s = Math.min(0.97, s + 0.06);  // open lanes tighten spreads
-  return s;
+/* The market maker's half-spread (as a fraction of the mid price). The Trade
+   Computer and free-trade lanes tighten it, but it never reaches zero — so the
+   player's BUY price is always strictly above the SELL price (no arbitrage). */
+function tradeHalfSpread() {
+  let h = 0.10 - S.upgrades.trade * 0.012;
+  if (policyActive("freetrade")) h -= 0.02;
+  return Math.max(0.04, h);
 }
-function policyBuyMul(c) {
-  return 1;   // (contraband premiums now flow through isIllegalAt -> planetPriceMul)
+/* the local mid price, including policy/decree level shifts that move BOTH the
+   buy and sell sides together (a commodity is simply worth more/less here). */
+function marketMid(pid, c) {
+  let mid = S.prices[pid][c];
+  if (policyActive("tariff")) mid *= 1.05;                          // protectionism lifts local prices
+  if (policyActive("mining") && COM[c].tier === "Raw") mid *= 1.10; // raw-material windfall
+  if (S.decrees.tariff === c) mid *= 1.07;                          // your governor's tariff
+  return mid;
 }
-function policySellMul(c) {
-  let m = 1;
-  if (policyActive("tariff")) m *= 1.10;                        // protectionism
-  if (policyActive("mining") && COM[c].tier === "Raw") m *= 1.20; // raw-material windfall
-  return m;
-}
+// faction standing tightens YOUR side of the spread (better buy & sell), bounded
+// so it can never flip buy below sell.
+function repSpreadBonus(p, h) { return Math.max(-0.8 * h, Math.min(0.8 * h, repPriceFactor(p))); }
 function buyPrice(pid, c) {
   const p = PLANETS.find(x => x.id === pid);
-  let v = S.prices[pid][c] * (1 + (1 - tradeSpread()) * 0.5);
-  v *= 1 - repPriceFactor(p);            // friendly faction sells to you cheaper
-  v *= policyBuyMul(c);
-  return Math.max(1, Math.round(v));
+  const h = tradeHalfSpread();
+  return Math.max(2, Math.round(marketMid(pid, c) * (1 + h - repSpreadBonus(p, h))));  // friendly → buy nearer mid (cheaper)
 }
 function sellPrice(pid, c) {
   const p = PLANETS.find(x => x.id === pid);
-  let v = S.prices[pid][c] * tradeSpread();
-  v *= 1 + repPriceFactor(p);            // friendly faction pays you more
-  if (S.decrees.tariff === c) v *= 1.15; // your governor tariff lifts your sell price
-  v *= policySellMul(c);
-  return Math.max(1, Math.round(v));
+  const h = tradeHalfSpread();
+  const raw = Math.round(marketMid(pid, c) * (1 - h + repSpreadBonus(p, h)));           // friendly → sell nearer mid (dearer)
+  return Math.max(1, Math.min(raw, buyPrice(pid, c) - 1));                              // always at least 1 below buy (rounding-proof: no arbitrage)
 }
 
 /* ---------- Market depth & slippage ----------
@@ -5963,7 +5965,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.9.4";
+const APP_VERSION = "1.9.5";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

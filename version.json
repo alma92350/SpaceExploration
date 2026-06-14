@@ -1,5 +1,5 @@
 {
-  "version": "1.9.4",
+  "version": "1.9.5",
   "saveVersion": "v2",
-  "notes": "Selling or buying from a base's stockpile now moves the local market price noticeably \u2014 bases trade in bulk, so dumping a depot crashes the price harder than an equal ship sale. The base Inventory rows show the live market price and each trade logs the new price."
+  "notes": "Economy fix: closed a buy/sell arbitrage. Reputation, policies and decrees were boosting the sell price above the buy price (risk-free 'buy low, sell high' at friendly worlds). Prices are now a mid +/- a guaranteed spread, so your buy price is always strictly above your sell price; perks tighten the spread but can never invert it."
 }
