@@ -1,5 +1,5 @@
 {
-  "version": "1.8.3",
+  "version": "1.9.0",
   "saveVersion": "v2",
-  "notes": "Fix: base trade routes now actually import colonies' finished goods (consumer goods, weapons, luxury...). Bases get first claim on freshly-manufactured output before the colony sells the remainder to market."
+  "notes": "Base UI reorganised into Modules / Inventory / Import-Export sub-tabs. The trade route is now configurable: pick exactly which raws to export and which finished goods to import, and toggle each colony on or off. Amounts stay automatic (colony need for exports, colony excess for imports)."
 }

@@ -3693,7 +3693,10 @@ function colonyFinishedReserve(col, c) {
   if (c === "luxury" || c === "medicine") return Math.ceil(col.pop / 3);
   return 0;
 }
-function baseTradeActive(b) { return !!(b && b.trade && (b.modules.warehouse || 0) > 0); }
+function baseTradeActive(b) { return !!(b && b.trade && b.trade.on && (b.modules.warehouse || 0) > 0); }
+function tradeExpOk(b, c) { return !(b.trade.exp && b.trade.exp[c] === false); }   // default-on; player disables specific goods
+function tradeImpOk(b, c) { return !(b.trade.imp && b.trade.imp[c] === false); }
+function tradeColOk(b, cid) { return !(b.trade.cols && b.trade.cols[cid] === false); }
 let _trade = null;
 function tradeBegin() { _trade = { freight: 0, importedVal: 0, exportedVal: 0, ambushLoss: 0, imp: {}, exp: {}, seized: {} }; }
 function tradeSeizeCheck(c, bid, cid) { return (isIllegalAt(c, bid) || isIllegalAt(c, cid)) && Math.random() < TRADE_SEIZE_CHANCE; }
@@ -3712,8 +3715,10 @@ function processBaseTrade() {
     cols.forEach(([cid, col]) => {
       const cp = PLANETS.find(p => p.id === cid);
       const dist = worldDist(bid, cid);
+      if (!tradeColOk(b, cid)) return;
       const tariff = col.faction ? 1.25 : 1;
       RAW_IDS.forEach(c => {
+        if (!tradeExpOk(b, c)) return;
         const need = (col.orders[c] || 0) - (col.storage[c] || 0);
         if (need <= 0) return;
         const room = colonyStorageCap(col, cp) - colonyStorageUsed(col);
@@ -3737,8 +3742,10 @@ function runBaseImport(col, cid, cp) {
   bases.forEach(([bid, b]) => {
     const cap = baseStorageCap(bid);
     const dist = worldDist(bid, cid);
+    if (!tradeColOk(b, cid)) return;
     const tariff = col.faction ? 1.25 : 1;
     CARGO_IDS.filter(isFinishedGood).forEach(c => {
+      if (!tradeImpOk(b, c)) return;
       const reserve = colonyFinishedReserve(col, c) + (col.orders[c] || 0);
       const surplus = (col.storage[c] || 0) - reserve;
       if (surplus <= 0) return;
@@ -5379,7 +5386,7 @@ function subTabBar(panel, views) {
 }
 function setSubView(panel, v) {
   subViews[panel] = v;
-  ({ ship: renderShipPanel, research: renderResearch, industry: renderIndustry, colonies: renderColonies }[panel] || renderAll)();
+  ({ ship: renderShipPanel, research: renderResearch, industry: renderIndustry, colonies: renderColonies, bases: renderBases }[panel] || renderAll)();
 }
 
 // Ship outfitting grouped into focused bays
@@ -5443,13 +5450,24 @@ function renderShipPanel() {
 }
 
 /* ----- Bases ----- */
+function ensureTrade(b) { if (!b.trade || typeof b.trade !== "object") b.trade = { on: false, exp: {}, imp: {}, cols: {} }; b.trade.exp = b.trade.exp || {}; b.trade.imp = b.trade.imp || {}; b.trade.cols = b.trade.cols || {}; return b.trade; }
 function toggleBaseTrade(pid) {
   const b = S.bases[pid]; if (!b) return;
   if (!(b.modules.warehouse || 0)) return toast("Build a Storage Depot first to run a trade route.", "bad");
   if (!Object.keys(S.colonies || {}).length) return toast("You need at least one colony to trade with.", "bad");
-  b.trade = !b.trade;
-  toast(b.trade ? "Trade route enabled — raws out, goods in each cycle." : "Trade route disabled.", b.trade ? "good" : "");
+  const t = ensureTrade(b); t.on = !t.on;
+  toast(t.on ? "Trade route enabled — pick what to ship per colony below." : "Trade route disabled.", t.on ? "good" : "");
   saveGame(); renderAll();
+}
+function setBaseTradeGood(pid, dir, c) {
+  const b = S.bases[pid]; if (!b) return; const t = ensureTrade(b); const m = dir === "imp" ? t.imp : t.exp;
+  if (m[c] === false) delete m[c]; else m[c] = false;   // toggle between enabled (default) and disabled
+  saveGame(); renderBases();
+}
+function setBaseTradeColony(pid, cid) {
+  const b = S.bases[pid]; if (!b) return; const t = ensureTrade(b);
+  if (t.cols[cid] === false) delete t.cols[cid]; else t.cols[cid] = false;
+  saveGame(); renderBases();
 }
 function renderBases() {
   const el = document.getElementById("panel-bases");
@@ -5508,44 +5526,73 @@ function renderBases() {
              <button class="btn btn-primary" ${ok ? "" : "disabled"} onclick="buildModule('${m.id}')">${tier > 0 ? "Upgrade" : "Build"} (Tier ${tier + 1})</button>`}
       </div>`;
     }).join("");
-    const ids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 || (b.storage[c] || 0) > 0);
-    const rows = ids.length ? ids.map(c => `<tr>
-      <td>${COM[c].ico} ${COM[c].name}</td>
-      <td class="num">${fmt(S.res[c] || 0)}</td>
-      <td class="num">${fmt(b.storage[c] || 0)}</td>
-      <td><div class="trade-controls">
-        <input class="qty" id="xfer-${c}" type="number" min="1" value="10" />
-        <button class="btn btn-sm" onclick="depositQty('${c}')">Store ▸</button>
-        <button class="btn btn-sm" onclick="withdrawQty('${c}')">◂ Take</button>
-      </div></td></tr>`).join("")
-      : '<tr><td colspan="4" class="hint">Nothing in your hold or this base yet.</td></tr>';
-    // ---- Trade route card ----
-    const hasWarehouse = (b.modules.warehouse || 0) > 0;
-    const hasColonies = Object.keys(S.colonies || {}).length > 0;
-    const lc = S.tradeLastCycle;
-    const contrabandHeld = CARGO_IDS.filter(c => (b.storage[c] || 0) > 0 && isIllegalAt(c, pid));
-    let tradeBody;
-    if (!hasWarehouse) {
-      tradeBody = `<div class="hint">Build a 🏬 <b>Storage Depot</b> to turn this base into a trade hub.</div>`;
-    } else if (!hasColonies) {
-      tradeBody = `<div class="hint">Found a colony to trade with — your base will ship it raw materials and import its manufactured goods.</div>`;
+    // ===== Sub-tabs: Modules / Inventory / Trade =====
+    const BASE_VIEWS = [["modules", "🛠️ Modules"], ["inventory", "📦 Inventory"], ["trade", "🔄 Import/Export"]];
+    const view = subView("bases", BASE_VIEWS);
+    let body;
+    if (view === "modules") {
+      body = `<div class="cards">${modCards}</div>`;
+    } else if (view === "inventory") {
+      const ids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 || (b.storage[c] || 0) > 0);
+      const rows = ids.length ? ids.map(c => `<tr>
+        <td>${COM[c].ico} ${COM[c].name}</td>
+        <td class="num">${fmt(S.res[c] || 0)}</td>
+        <td class="num">${fmt(b.storage[c] || 0)}</td>
+        <td><div class="trade-controls">
+          <input class="qty" id="xfer-${c}" type="number" min="1" value="10" />
+          <button class="btn btn-sm" onclick="depositQty('${c}')">Store ▸</button>
+          <button class="btn btn-sm" onclick="withdrawQty('${c}')">◂ Take</button>
+        </div></td></tr>`).join("")
+        : '<tr><td colspan="4" class="hint">Nothing in your hold or this base yet.</td></tr>';
+      body = `<div class="section-title">📦 Inventory (${baseStorageUsed(b)}/${baseStorageCap(pid)})</div>
+        <div class="hint" style="margin-bottom:8px">Move goods between your ship and this base's stockpile.</div>
+        <div class="row" style="margin-bottom:8px"><button class="btn btn-sm" onclick="storeAllCargo()">Store all cargo ▸</button></div>
+        <table><thead><tr><th>Commodity</th><th class="num">In ship</th><th class="num">In base</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
     } else {
-      tradeBody = `<div class="hint" style="margin-bottom:6px">Each cycle: export this base's <b>raw stock</b> to fill colony orders, and import colonies' <b>finished-goods surplus</b> back here. Freight scales with distance; faction-aligned colonies add a tariff; routing contraband risks customs; pirates ambush convoys.</div>
-        <button class="btn ${b.trade ? "btn-bad" : "btn-primary"} btn-sm" onclick="toggleBaseTrade('${pid}')">${b.trade ? "⏹ Disable trade route" : "🔄 Enable trade route"}</button>
-        ${b.trade && lc ? `<div class="ship-stat" style="margin-top:8px"><span class="k">Last cycle net</span><span class="v" style="color:${lc.net >= 0 ? "var(--good)" : "var(--bad)"}">${lc.net >= 0 ? "+" : ""}${fmt(lc.net)} cr</span></div>
-          <div class="ship-stat"><span class="k">Freight/tariffs</span><span class="v">${fmt(lc.freight)} cr</span></div>
-          ${Object.keys(lc.imp || {}).length ? `<div class="ship-stat"><span class="k">Imported</span><span class="v">${Object.entries(lc.imp).map(([c, q]) => q + COM[c].ico).join(" ")}</span></div>` : ""}
-          ${Object.keys(lc.seized || {}).length ? `<div class="ship-stat"><span class="k" style="color:var(--bad)">🚔 Seized</span><span class="v">${Object.entries(lc.seized).map(([c, q]) => q + COM[c].ico).join(" ")}</span></div>` : ""}` : ""}
-        ${typeof S.tradeNet === "number" && S.tradeNet !== 0 ? `<div class="ship-stat"><span class="k">Lifetime trade balance</span><span class="v" style="color:${S.tradeNet >= 0 ? "var(--good)" : "var(--bad)"}">${S.tradeNet >= 0 ? "+" : ""}${fmt(S.tradeNet)} cr</span></div>` : ""}
-        ${contrabandHeld.length ? `<div class="hint" style="color:var(--warn);margin-top:6px">⚠️ Contraband in stock here (${contrabandHeld.map(c => COM[c].ico).join(" ")}) — routing it risks customs seizure.</div>` : ""}`;
+      // ----- Import / Export -----
+      const hasWarehouse = (b.modules.warehouse || 0) > 0;
+      const cols = Object.entries(S.colonies || {});
+      const t = (b.trade && typeof b.trade === "object") ? b.trade : { on: false, exp: {}, imp: {}, cols: {} };
+      const lc = S.tradeLastCycle;
+      const contrabandHeld = CARGO_IDS.filter(c => (b.storage[c] || 0) > 0 && isIllegalAt(c, pid));
+      if (!hasWarehouse) {
+        body = `<div class="card"><div class="hint">Build a 🏬 <b>Storage Depot</b> (Modules tab) to turn this base into a trade hub.</div></div>`;
+      } else if (!cols.length) {
+        body = `<div class="card"><div class="hint">Found a colony to trade with — your base will ship it raw materials and import its manufactured goods.</div></div>`;
+      } else {
+        // eligible commodities to offer as toggles
+        const expGoods = RAW_IDS.filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.orders[c] || 0) > 0));
+        const impGoods = CARGO_IDS.filter(isFinishedGood).filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.storage[c] || 0) > 0));
+        const chip = (dir, c) => { const on = dir === "imp" ? tradeImpOk(b, c) : tradeExpOk(b, c);
+          return `<button class="btn btn-sm ${t.on && on ? "btn-good" : ""}" ${t.on ? "" : "disabled"} title="${on ? "Trading" : "Skipping"} ${COM[c].name}" onclick="setBaseTradeGood('${pid}','${dir}','${c}')">${COM[c].ico} ${COM[c].name} ${on ? "✓" : "✗"}</button>`; };
+        const colRows = cols.map(([cid, col]) => {
+          const cpl = PLANETS.find(p => p.id === cid), on = tradeColOk(b, cid), dist = worldDist(pid, cid);
+          const needs = RAW_IDS.filter(c => (col.orders[c] || 0) > (col.storage[c] || 0)).map(c => COM[c].ico).join("") || "—";
+          const offers = CARGO_IDS.filter(c => isFinishedGood(c) && (col.storage[c] || 0) > colonyFinishedReserve(col, c) + (col.orders[c] || 0)).map(c => COM[c].ico).join("") || "—";
+          return `<div class="ship-stat" style="align-items:center"><span class="k"><button class="btn btn-sm ${t.on && on ? "btn-good" : ""}" ${t.on ? "" : "disabled"} onclick="setBaseTradeColony('${pid}','${cid}')">${on ? "✓" : "✗"} ${cpl.name}</button> <span class="hint">${dist} ly${col.faction ? " · " + FACTIONS[col.faction].ico + " tariff" : ""}</span></span>
+            <span class="v hint">needs ${needs} · offers ${offers}</span></div>`;
+        }).join("");
+        body = `<div class="card">
+          <div class="hint" style="margin-bottom:6px">Each cycle this base ships the <b>raws you select</b> to fill colony orders, and imports the <b>finished goods you select</b> from colonies' surplus. Amounts are automatic (colony need / excess) — you just pick what flows and with which colony. Freight scales with distance; aligned colonies add a tariff; contraband risks customs; pirates ambush convoys.</div>
+          <button class="btn ${t.on ? "btn-bad" : "btn-primary"} btn-sm" onclick="toggleBaseTrade('${pid}')">${t.on ? "⏹ Disable route" : "🔄 Enable route"}</button>
+          <div class="section-title" style="margin-top:10px">⛏️ Export to colonies ${t.on ? "" : '<span class="hint">(route off)</span>'}</div>
+          <div class="row" style="flex-wrap:wrap;gap:6px">${expGoods.length ? expGoods.map(c => chip("exp", c)).join("") : '<span class="hint">No raws stocked or ordered yet.</span>'}</div>
+          <div class="section-title" style="margin-top:10px">🏭 Import from colonies</div>
+          <div class="row" style="flex-wrap:wrap;gap:6px">${impGoods.length ? impGoods.map(c => chip("imp", c)).join("") : '<span class="hint">No finished goods available yet.</span>'}</div>
+          <div class="section-title" style="margin-top:10px">🌍 Colonies</div>
+          ${colRows}
+          ${t.on && lc ? `<div class="ship-stat" style="margin-top:10px"><span class="k">Last cycle net</span><span class="v" style="color:${lc.net >= 0 ? "var(--good)" : "var(--bad)"}">${lc.net >= 0 ? "+" : ""}${fmt(lc.net)} cr</span></div>
+            <div class="ship-stat"><span class="k">Freight/tariffs</span><span class="v">${fmt(lc.freight)} cr</span></div>
+            ${Object.keys(lc.imp || {}).length ? `<div class="ship-stat"><span class="k">Imported</span><span class="v">${Object.entries(lc.imp).map(([c, q]) => q + COM[c].ico).join(" ")}</span></div>` : ""}
+            ${Object.keys(lc.seized || {}).length ? `<div class="ship-stat"><span class="k" style="color:var(--bad)">🚔 Seized</span><span class="v">${Object.entries(lc.seized).map(([c, q]) => q + COM[c].ico).join(" ")}</span></div>` : ""}` : ""}
+          ${typeof S.tradeNet === "number" && S.tradeNet !== 0 ? `<div class="ship-stat"><span class="k">Lifetime balance</span><span class="v" style="color:${S.tradeNet >= 0 ? "var(--good)" : "var(--bad)"}">${S.tradeNet >= 0 ? "+" : ""}${fmt(S.tradeNet)} cr</span></div>` : ""}
+          ${contrabandHeld.length ? `<div class="hint" style="color:var(--warn);margin-top:6px">⚠️ Contraband in stock (${contrabandHeld.map(c => COM[c].ico).join(" ")}) — routing it risks customs seizure.</div>` : ""}
+        </div>`;
+      }
     }
-    here = `<div class="section-title">🛠️ Modules — ${planet.name}</div>
-      <div class="cards">${modCards}</div>
-      <div class="section-title">🔄 Trade Route</div>
-      <div class="card">${tradeBody}</div>
-      <div class="section-title">📦 Storage (${baseStorageUsed(b)}/${baseStorageCap(pid)})</div>
-      <div class="row" style="margin-bottom:8px"><button class="btn btn-sm" onclick="storeAllCargo()">Store all cargo ▸</button></div>
-      <table><thead><tr><th>Commodity</th><th class="num">In ship</th><th class="num">In base</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    here = `<div class="section-title">📍 ${planet.name}</div>
+      ${subTabBar("bases", BASE_VIEWS)}
+      ${body}`;
   }
 
   el.innerHTML = `<h2>Bases</h2>
@@ -5848,7 +5895,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.8.3";
+const APP_VERSION = "1.9.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6194,6 +6241,11 @@ function init() {
   if (!loadGame()) { S = freshState(); rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); jotOpening("trade"); }
   if (!S.prices || !S.prices[S.location]) rollPrices();
   if (!S.bases) S.bases = {};   // backfill for older saves
+  Object.values(S.bases).forEach(b => {
+    if (b.trade === true) b.trade = { on: true, exp: {}, imp: {}, cols: {} };
+    else if (!b.trade || typeof b.trade !== "object") b.trade = { on: false, exp: {}, imp: {}, cols: {} };
+    else { b.trade.exp = b.trade.exp || {}; b.trade.imp = b.trade.imp || {}; b.trade.cols = b.trade.cols || {}; }
+  });
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
   if (!S.discovered) S.discovered = {};
@@ -6279,7 +6331,7 @@ Object.assign(window, {
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
-  exportSave, importSave, importSaveText, parseSaveText, buildSaveText, toggleBaseTrade,
+  exportSave, importSave, importSaveText, parseSaveText, buildSaveText, toggleBaseTrade, setBaseTradeGood, setBaseTradeColony,
   sfx, toggleSound,
   alignColony, colonyIndependence, toggleColonyProcess,
   setSubView,
