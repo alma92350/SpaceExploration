@@ -1,5 +1,5 @@
 {
-  "version": "1.9.1",
+  "version": "1.9.2",
   "saveVersion": "v2",
-  "notes": "Outpost and colony cards now have a Travel button to jump straight to that world, and colony cards show capability icons for what they produce."
+  "notes": "Base Inventory tab now has Buy and Sell buttons (at the local market price) next to Store/Take, so you can trade your ship's cargo without leaving the Bases screen."
 }

@@ -3653,6 +3653,8 @@ function storeAllCargo() {
   else toast("Nothing to store (or base full).", "bad");
 }
 function depositQty(c) { transferToBase(c, +document.getElementById("xfer-" + c).value); }
+function baseBuyQty(c) { const el = document.getElementById("xfer-" + c); buy(c, el ? +el.value : 0); }
+function baseSellQty(c) { const el = document.getElementById("xfer-" + c); sell(c, el ? +el.value : 0); }
 function withdrawQty(c) { transferFromBase(c, +document.getElementById("xfer-" + c).value); }
 
 /* runs every cycle (including while you travel) */
@@ -5562,6 +5564,8 @@ function renderBases() {
           <input class="qty" id="xfer-${c}" type="number" min="1" value="10" />
           <button class="btn btn-sm" onclick="depositQty('${c}')">Store ▸</button>
           <button class="btn btn-sm" onclick="withdrawQty('${c}')">◂ Take</button>
+          <button class="btn btn-sm btn-good" title="Buy into your ship at market (${fmt(buyPrice(pid, c))}/u)" onclick="baseBuyQty('${c}')">Buy</button>
+          <button class="btn btn-sm btn-bad" title="Sell from your ship at market (${fmt(sellPrice(pid, c))}/u)" onclick="baseSellQty('${c}')">Sell</button>
         </div></td></tr>`).join("")
         : '<tr><td colspan="4" class="hint">Nothing in your hold or this base yet.</td></tr>';
       body = `<div class="section-title">📦 Inventory (${baseStorageUsed(b)}/${baseStorageCap(pid)})</div>
@@ -5918,7 +5922,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.9.1";
+const APP_VERSION = "1.9.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6354,7 +6358,7 @@ Object.assign(window, {
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
-  exportSave, importSave, importSaveText, parseSaveText, buildSaveText, toggleBaseTrade, setBaseTradeGood, setBaseTradeColony,
+  exportSave, importSave, importSaveText, parseSaveText, buildSaveText, toggleBaseTrade, setBaseTradeGood, setBaseTradeColony, baseBuyQty, baseSellQty,
   sfx, toggleSound,
   alignColony, colonyIndependence, toggleColonyProcess,
   setSubView,
