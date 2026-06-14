@@ -1,5 +1,5 @@
 {
-  "version": "1.9.3",
+  "version": "1.9.4",
   "saveVersion": "v2",
-  "notes": "The base Inventory Buy/Sell buttons now trade the BASE's stockpile directly at the local market (not the ship) \u2014 buy into base storage (respecting capacity) and sell base surplus in one click."
+  "notes": "Selling or buying from a base's stockpile now moves the local market price noticeably \u2014 bases trade in bulk, so dumping a depot crashes the price harder than an equal ship sale. The base Inventory rows show the live market price and each trade logs the new price."
 }

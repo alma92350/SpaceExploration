@@ -3653,6 +3653,7 @@ function storeAllCargo() {
   else toast("Nothing to store (or base full).", "bad");
 }
 function depositQty(c) { transferToBase(c, +document.getElementById("xfer-" + c).value); }
+const BASE_MARKET_IMPACT = 1.5;   // bases trade in bulk — their deals move the local market harder than a ship's
 // Buy/Sell the BASE's stockpile at the local market (not the ship)
 function baseMarketBuy(c, qty) {
   if (combatLocked()) return;
@@ -3666,8 +3667,8 @@ function baseMarketBuy(c, qty) {
   const cost = Math.round(buyPrice(S.location, c) * (1 + slip / 2) * qty);
   if (S.res.credits < cost) return toast("Not enough credits.", "bad");
   S.res.credits -= cost; b.storage[c] = (b.storage[c] || 0) + qty; S.stats.trades++;
-  applyMarketMove(S.location, c, slip, false);
-  log(`Bought ${qty} ${COM[c].ico} ${COM[c].name} into the base for <span class="c">${fmt(cost)}</span> cr.`, "good");
+  applyMarketMove(S.location, c, Math.min(0.6, slip * BASE_MARKET_IMPACT), false);   // a depot buys wholesale — bigger market move
+  log(`Bought ${qty} ${COM[c].ico} ${COM[c].name} into the base for <span class="c">${fmt(cost)}</span> cr — local price rose to ${fmt(S.prices[S.location][c])}.`, "good");
   sfx("buy"); toast(`Bought ${qty} ${COM[c].name} → base`, "good");
   afterAction();
 }
@@ -3688,8 +3689,8 @@ function baseMarketSell(c, qty) {
   const slip = tradeSlippage(p, c, qty);
   const revenue = Math.round(sellPrice(S.location, c) * (1 - slip / 2) * qty);
   b.storage[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue;
-  applyMarketMove(S.location, c, slip, true); addRep(p.faction, 1);
-  log(`Sold ${qty} ${COM[c].ico} ${COM[c].name} from the base for <span class="c">${fmt(revenue)}</span> cr.`, "good");
+  applyMarketMove(S.location, c, Math.min(0.6, slip * BASE_MARKET_IMPACT), true); addRep(p.faction, 1);   // dumping a stockpile floods the local market
+  log(`Sold ${qty} ${COM[c].ico} ${COM[c].name} from the base for <span class="c">${fmt(revenue)}</span> cr — local price fell to ${fmt(S.prices[S.location][c])}.`, "good");
   sfx("sell"); toast(`Sold ${qty} ${COM[c].name} (+${fmt(revenue)} cr)`, "good");
   afterAction();
 }
@@ -5597,7 +5598,7 @@ function renderBases() {
     } else if (view === "inventory") {
       const ids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 || (b.storage[c] || 0) > 0);
       const rows = ids.length ? ids.map(c => `<tr>
-        <td>${COM[c].ico} ${COM[c].name}</td>
+        <td>${COM[c].ico} ${COM[c].name} <span class="hint">@ ${fmt(sellPrice(pid, c))}</span></td>
         <td class="num">${fmt(S.res[c] || 0)}</td>
         <td class="num">${fmt(b.storage[c] || 0)}</td>
         <td><div class="trade-controls">
@@ -5962,7 +5963,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.9.3";
+const APP_VERSION = "1.9.4";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
