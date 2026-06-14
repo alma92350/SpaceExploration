@@ -1,5 +1,5 @@
 {
-  "version": "2.5.1",
+  "version": "2.6.0",
   "saveVersion": "v2",
-  "notes": "Fix: opening a freshly built base's Import/Export tab no longer crashes (TypeError on b.trade.cols). The trade predicates are now null-safe and new bases initialize their trade routes on creation, so the tab works immediately without needing a reload."
+  "notes": "New: E-ink mode. Tap 📖 E-ink mode in the Captain's Console for a high-contrast black-on-white display tuned for grayscale e-readers like the Kindle Scribe — gradients, glows, shadows and animations are stripped, panels and buttons get crisp borders, and the selected tab / primary actions invert to solid black. Tap 🌙 Color mode to switch back; your choice is remembered and travels with your save."
 }

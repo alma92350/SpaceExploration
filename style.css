@@ -291,3 +291,86 @@ tr:hover td { background: rgba(255,255,255,0.03); }
   #tabs { flex-direction: row; flex-wrap: wrap; }
   .tab { flex: 1; text-align: center; }
 }
+
+/* =====================================================================
+   E-INK / HIGH-CONTRAST MODE  (toggle: 📖 E-ink mode in Captain's Console)
+   Black-on-white, strong borders, no gradients/glows/shadows/animations —
+   tuned for grayscale e-readers like the Kindle Scribe.
+   ===================================================================== */
+body.eink {
+  --bg: #ffffff;
+  --bg-grad-1: #ffffff;
+  --bg-grad-2: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #ffffff;
+  --border: #000000;
+  --accent: #000000;
+  --accent-2: #000000;
+  --good: #166a16;     /* dark green  -> distinct dark gray on e-ink */
+  --bad: #b00000;      /* dark red    -> distinct dark gray */
+  --warn: #8a5500;     /* dark amber  -> distinct dark gray */
+  --text: #000000;
+  --muted: #333333;    /* still high contrast on white */
+  --gold: #6a4f00;
+  background: #ffffff;
+  color: #000000;
+}
+/* kill the starfield + all decorative animations (ghosting/flicker on e-ink) */
+body.eink::before { display: none; }
+body.eink *, body.eink *::before, body.eink *::after {
+  text-shadow: none !important;
+  box-shadow: none !important;
+  animation: none !important;
+}
+/* flatten every gradient surface to solid white with a crisp border */
+body.eink #topbar,
+body.eink .card,
+body.eink .planet-card { background: #ffffff; }
+body.eink .card,
+body.eink .planet-card,
+body.eink #logbar,
+body.eink .ship-panel,
+body.eink .game-menu,
+body.eink .panel .card,
+body.eink .toast { border-color: #000000; }
+/* title gradient-clip text -> solid black so it stays visible */
+body.eink .title,
+body.eink .ann-title,
+body.eink .announce.finale .ann-title {
+  background: none !important;
+  -webkit-text-fill-color: #000000;
+  color: #000000;
+}
+body.eink .logo { color: #000000; }
+/* selected / primary / cycle buttons -> inverted (black fill, white text) */
+body.eink .tab.active,
+body.eink .btn-primary,
+body.eink .btn-turn {
+  background: #000000;
+  color: #ffffff;
+  border: 1px solid #000000;
+}
+body.eink .tab,
+body.eink .btn { background: #ffffff; }
+body.eink .tab:hover:not(.active),
+body.eink .btn:hover:not(:disabled) { background: #e8e8e8; border-color: #000000; }
+/* good/bad buttons: white fill, colored text + 2px border (no muddy translucency) */
+body.eink .btn-good { background: #ffffff; border: 2px solid var(--good); color: var(--good); }
+body.eink .btn-bad  { background: #ffffff; border: 2px solid var(--bad);  color: var(--bad); }
+body.eink .btn-good:hover:not(:disabled),
+body.eink .btn-bad:hover:not(:disabled) { background: #f0f0f0; }
+body.eink .btn:disabled { opacity: 0.45; }
+/* chips, badges, bars, dots: outline instead of translucent fill */
+body.eink .lvl-chip,
+body.eink .badge,
+body.eink .qty,
+body.eink .lawsel { background: #ffffff; border: 1px solid #000000; color: #000000; }
+body.eink .bar { background: #d9d9d9; border: 1px solid #000000; }
+body.eink .bar > span { background: #000000; }
+body.eink .dot { background: #ffffff; border: 1px solid #000000; }
+body.eink .dot.on { background: #000000; }
+body.eink tr:hover td { background: #f0f0f0; }
+/* announcement banner: plain bordered card */
+body.eink .announce { background: #ffffff; border: 2px solid #000000; }
+/* thicker dividers read better on grayscale */
+body.eink th, body.eink td { border-bottom: 1px solid #000000; }

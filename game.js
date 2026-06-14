@@ -1162,6 +1162,19 @@ function toggleSound() {
   if (typeof toast === "function") toast(S.sound ? "🔊 Sound on" : "🔇 Sound off", "");
   if (typeof saveGame === "function") saveGame();
 }
+function einkLabel() { return (typeof S !== "undefined" && S && S.eink) ? "🌙 Color mode" : "📖 E-ink mode"; }
+function applyEink() {
+  if (typeof document === "undefined" || !document.body) return;
+  document.body.classList.toggle("eink", !!(typeof S !== "undefined" && S && S.eink));
+}
+function toggleEink() {
+  S.eink = !S.eink;
+  applyEink();
+  const btn = typeof document !== "undefined" && document.getElementById("einkToggleBtn");
+  if (btn) btn.textContent = einkLabel();
+  if (typeof toast === "function") toast(S.eink ? "📖 E-ink mode — high contrast for e-readers" : "🌙 Color mode", "");
+  if (typeof saveGame === "function") saveGame();
+}
 function toast(msg, type = "") {
   if (type === "good") sfx("good"); else if (type === "bad") sfx("bad"); else if (type === "event") sfx("event");
   if (typeof document === "undefined") return;
@@ -1286,6 +1299,7 @@ function reserveOf(pid, c) {
   if (!S.unlocked) { S.unlocked = {}; checkUnlocks(true); }   // veterans keep everything they've earned, silently
   if (S.showAllTabs == null) S.showAllTabs = false;
   if (S.sound == null) S.sound = true;
+  if (S.eink == null) S.eink = false;
   if (S.pirateIntel === undefined) S.pirateIntel = null;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   if (S.res && S.res.drones == null) S.res.drones = 0;
@@ -6057,7 +6071,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.5.1";
+const APP_VERSION = "2.6.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6143,6 +6157,8 @@ function helpHTML() {
     <p style="margin:0 0 6px">Your game autosaves in this browser. Use <b>💾 Save</b> (top bar) to download a save file you own — a backup, or to carry your run to another browser or machine — and <b>📂 Load</b> to restore one.</p>
     <h4>Sound</h4>
     <p style="margin:0 0 6px">Procedural sound effects play on trades, combat, travel and big moments. Toggle them with <b>🔊 Sound</b> in the Captain's Console (bottom-left).</p>
+    <h4>E-ink mode</h4>
+    <p style="margin:0 0 6px">Reading on a Kindle Scribe or other e-reader? Tap <b>📖 E-ink mode</b> in the Captain's Console for a high-contrast black-on-white display — gradients, glows and animations are stripped for crisp grayscale legibility. Tap <b>🌙 Color mode</b> to switch back. Your choice is remembered.</p>
     <h4>Progression &amp; Guided Mode</h4>
     <p style="margin:0 0 6px">To avoid overload, features reveal as you grow: the market starts with raw &amp; refined goods (the rest opens when you first manufacture <b>Medicine</b>); the galaxy shows worlds within sensor range and widens as you travel; tabs like <b>Raider</b> and <b>Politics</b> arrive as your trade empire matures; and colony build options stage in by tier. The <b>🧭 Next Steps</b> panel in 🎯 Missions always shows what unlocks next and how. Veteran saves keep everything they've already earned.</p>
     <p style="margin:0"><button class="btn btn-sm" onclick="toggleShowAllTabs();toggleHelp();toggleHelp()">${typeof S!=="undefined"&&S.showAllTabs?"↩️ Switch to Guided mode (hide features until earned)":"👁️ Show everything now (reveal all features)"}</button></p>
@@ -6433,6 +6449,7 @@ function init() {
   if (!S.unlocked) { S.unlocked = {}; checkUnlocks(true); }   // veterans keep everything they've earned, silently
   if (S.showAllTabs == null) S.showAllTabs = false;
   if (S.sound == null) S.sound = true;
+  if (S.eink == null) S.eink = false;
   if (S.pirateIntel === undefined) S.pirateIntel = null;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   if (S.res && S.res.drones == null) S.res.drones = 0;
@@ -6453,6 +6470,7 @@ function init() {
   UPGRADES.forEach(u => { if (S.upgrades[u.id] == null) S.upgrades[u.id] = 0; });  // backfill new upgrades (cannons)
   syncObjectives();
   if (!S.disc) S.disc = {}; if (!S.made) S.made = {}; if (S.stats && S.stats.sales == null) S.stats.sales = 0; checkUnlocks(true); checkDisclosure(true); applyTabVisibility();
+  applyEink();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
   // Captain's Console — game actions live in the sidebar, keeping the top bar
@@ -6465,6 +6483,7 @@ function init() {
     { label: "💾 Save",     title: "Save this game to a file on your disk (backup, or move between browsers/machines)",                     fn: () => exportSave() },
     { label: "📂 Load",     title: "Load a game from a save file on your disk (replaces the current game)",                                fn: () => importSave() },
     { label: soundLabel(), title: "Toggle sound effects", fn: () => toggleSound(), id: "soundToggleBtn" },
+    { label: einkLabel(), title: "High-contrast black-on-white mode for e-ink readers (Kindle Scribe etc.)", fn: () => toggleEink(), id: "einkToggleBtn" },
     { label: "❓ Help",     title: "How to play, and links to the project",                                                                fn: () => toggleHelp() },
   ].forEach(b => {
     const el = document.createElement("button");
@@ -6493,7 +6512,7 @@ Object.assign(window, {
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
-  acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
+  acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs, toggleEink,
   exportSave, importSave, importSaveText, parseSaveText, buildSaveText, toggleBaseTrade, setBaseTradeGood, setBaseTradeColony, baseMarketBuy, baseMarketSell, baseBuyQty, baseSellQty,
   sfx, toggleSound,
   alignColony, colonyIndependence, toggleColonyProcess,
