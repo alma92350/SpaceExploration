@@ -1,5 +1,5 @@
 {
-  "version": "1.9.5",
+  "version": "2.0.0",
   "saveVersion": "v2",
-  "notes": "Economy fix: closed a buy/sell arbitrage. Reputation, policies and decrees were boosting the sell price above the buy price (risk-free 'buy low, sell high' at friendly worlds). Prices are now a mid +/- a guaranteed spread, so your buy price is always strictly above your sell price; perks tighten the spread but can never invert it."
+  "notes": "Progressive disclosure, phase 1: the market now starts with only Raw & Refined goods to cut early overload; manufacturing your first Medicine (a new guiding objective in Missions \u2192 Next Steps) opens the full market \u2014 components, finished goods, luxuries & strategics. You can always trade anything you're carrying, and everything opens by cycle 15 regardless."
 }

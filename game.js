@@ -929,6 +929,8 @@ function freshState(opts = {}) {
     stats: { jumps: 0, trades: 0, profit: 0, busts: 0 },
     journal: [],               // captain's log: persistent narrative chronicle
     unlocked: {},              // progressive disclosure: which tabs have been revealed
+    disc: {},                  // feature disclosure flags (markets, galaxy, ...)
+    made: {},                  // first-manufactured commodities (drives disclosure & objectives)
     showAllTabs: false,        // veteran toggle: reveal every tab at once
     sound: true,               // procedural SFX on/off
     pirateIntel: null,         // bought pirate-activity chart { worlds, until, scope }
@@ -2663,6 +2665,7 @@ function produce(recipeId) {
   }
   Object.entries(r.in).forEach(([k, v]) => { S.res[k] -= v * batches; });
   S.res[r.out] += r.qty * batches;
+  S.made = S.made || {}; S.made[r.out] = true;   // first-manufactured tracking (disclosure / objectives)
   useAction();
   const inStr = Object.entries(r.in).map(([k, v]) => `${v*batches} ${COM[k].ico}`).join(" + ");
   log(`Produced <span class="c">${r.qty*batches}</span> ${COM[r.out].ico} ${COM[r.out].name} (used ${inStr}) on ${p.name}.`, "good");
@@ -4144,6 +4147,7 @@ function processColonies() {
       Object.entries(r.in).forEach(([c, q]) => { col.storage[c] -= batches * q; });
       if (r.in[COLONY_FOOD]) foodMade -= batches * r.in[COLONY_FOOD];      // food burned by industry can't feed people
       store(r.out, batches * r.outQty);
+      S.made = S.made || {}; S.made[r.out] = true;
       if (b.pollute) addPollution(pid, b.pollute * t);                     // industry fouls the world it runs on
       // fission flavor: a hard-run reactor can suffer a containment scare
       if (b.id === "reactor" && Math.random() < 0.012 * t) {
@@ -4615,6 +4619,7 @@ function renderMarket() {
   TIERS.forEach(tier => {
     const ids = COM_IDS.filter(c => COM[c].tier === tier);
     if (!ids.length) return;
+    if (!tierRevealed(tier) && !ids.some(c => (S.res[c] || 0) > 0)) return;   // hidden until disclosed (unless you carry some)
     rows += `<tr><td colspan="6" class="section-title" style="padding-top:14px">${tier}</td></tr>`;
     ids.forEach(c => {
       const bp = buyPrice(p.id, c), sp = sellPrice(p.id, c), base = COM[c].base;
@@ -4634,6 +4639,7 @@ function renderMarket() {
         </div></td></tr>`;
     });
   });
+  if (TIERS.some(t => !tierRevealed(t))) rows += `<tr><td colspan="6" class="hint" style="padding-top:12px">🔒 Advanced markets (components, finished goods, luxuries, strategics) open once you <b>manufacture your first Medicine</b> — see Missions → Next Steps.</td></tr>`;
   // ---- Black market: fence held cargo off the books (no customs, no Wanted) ----
   let blackMarket = "";
   if (hasBlackMarket(p)) {
@@ -5118,8 +5124,12 @@ function renderMissions() {
       </div>`;
     }).join("") : '<div class="hint">No active contracts. New ones are posted by the factions as cycles pass.</div>';
 
+  const nextSteps = DISCLOSURE_GATES.filter(g => !(S.disc && S.disc[g.id])).map(g =>
+    `<div class="card" style="border-color:var(--accent)"><h4>${g.icon} ${g.goal}</h4><div class="hint">🔓 ${g.reward}${g.fallbackTurn ? ` · or automatically by cycle ${g.fallbackTurn}` : ""}</div></div>`).join("");
+  const nextStepsSection = nextSteps ? `<div class="section-title">🧭 Next Steps — unlock new features</div><div class="cards">${nextSteps}</div>` : "";
   el.innerHTML = `<h2>🎯 Missions</h2>
     <div class="subtitle">Everything with an objective in one place: <b>time-bound contracts</b> race the clock, <b>career missions</b> unlock as you grow, and your <b>legacy goals</b> are the long game that wins it all.</div>
+    ${nextStepsSection}
     <div class="section-title">📋 Contracts (time-bound)</div>
     <div class="cards">${contractCards}</div>
     <div class="section-title">🧭 Career Missions (long-term)</div>
@@ -5868,7 +5878,7 @@ function renderColonies() {
 
 function renderAll() {
   if (typeof document === "undefined") return;
-  checkUnlocks(); applyTabVisibility();
+  checkUnlocks(); checkDisclosure(); applyTabVisibility();
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
   renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderShipPanel(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
@@ -5913,6 +5923,32 @@ function unlock(id, announceIt) {
     log(`🔓 New feature unlocked: <b>${lbl}</b> — ${g.blurb}.`, "event");
     if (typeof toast === "function") toast(`🔓 Unlocked: ${lbl}`, "good");
   }
+}
+/* ---------- Feature disclosure (level-dependent UI) ----------
+   Beyond tab unlocks, whole swathes of UI stay hidden until the player reaches
+   the milestone that makes them relevant — each paired with a guiding objective
+   (shown under Missions → Next Steps) and a cycle fallback so nothing hides
+   forever. Phase 1: the market opens up once you manufacture your first Medicine. */
+const DISCLOSURE_GATES = [
+  { id: "advMarkets", icon: "🧪", goal: "Manufacture your first Medicine",
+    reward: "Opens the full market — components, finished goods, luxuries & strategics",
+    done: s => !!(s.made && s.made.medicine), fallbackTurn: 15 },
+];
+function checkDisclosure(silent) {
+  if (!S.disc) S.disc = {};
+  DISCLOSURE_GATES.forEach(g => {
+    if (S.disc[g.id]) return;
+    if (g.done(S) || (g.fallbackTurn && S.turn >= g.fallbackTurn)) {
+      S.disc[g.id] = true;
+      if (!silent) { log(`🔓 ${g.reward}.`, "event"); if (typeof toast === "function") toast("🔓 " + g.reward, "good"); }
+    }
+  });
+}
+// which market tiers are visible — Raw & Refined always; the rest after first Medicine
+function tierRevealed(tier) {
+  if (tier === "Raw" || tier === "Refined") return true;
+  if (S.showAllTabs) return true;
+  return !!(S.disc && S.disc.advMarkets);
 }
 function checkUnlocks(silent) {
   if (!S.unlocked) S.unlocked = {};
@@ -5965,7 +6001,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.9.5";
+const APP_VERSION = "2.0.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6359,7 +6395,7 @@ function init() {
   if (S.commission === undefined) S.commission = null;
   UPGRADES.forEach(u => { if (S.upgrades[u.id] == null) S.upgrades[u.id] = 0; });  // backfill new upgrades (cannons)
   syncObjectives();
-  checkUnlocks(true); applyTabVisibility();
+  if (!S.disc) S.disc = {}; if (!S.made) S.made = {}; checkUnlocks(true); checkDisclosure(true); applyTabVisibility();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
   document.getElementById("endTurnBtn").addEventListener("click", () => endTurn());
   // Captain's Console — game actions live in the sidebar, keeping the top bar
