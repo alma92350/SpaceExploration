@@ -1,5 +1,5 @@
 {
-  "version": "2.6.1",
+  "version": "2.6.2",
   "saveVersion": "v2",
-  "notes": "E-ink mode fix: primary action buttons (Travel, Upgrade, Install, Found, Research, etc.) were rendering white-on-white and unreadable — the white button-background rule was overriding the inverted black fill at equal CSS specificity. Reordered so primary/cycle buttons keep their solid black background with white text."
+  "notes": "Base trade: import and export are now mutually exclusive per commodity, so a finished good can no longer be imported from one colony and exported back to another in the same loop (wasting freight). Finished goods default to import; click a good's export chip to flip it the other way (locked direction shows ⇄). Raw materials still export as before."
 }

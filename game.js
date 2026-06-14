@@ -3758,6 +3758,12 @@ function colonyFinishedReserve(col, c) {
 function baseTradeActive(b) { return !!(b && b.trade && b.trade.on && (b.modules.warehouse || 0) > 0); }
 function tradeExpOk(b, c) { return !(b.trade && b.trade.exp && b.trade.exp[c] === false); }   // default-on; player disables specific goods
 function tradeImpOk(b, c) { return !(b.trade && b.trade.imp && b.trade.imp[c] === false); }
+// Import/export are mutually exclusive per commodity so a finished good can't loop
+// (imported from one colony then exported back to another, paying freight each way).
+// Only finished goods can be imported, so they're the only ones that can conflict;
+// when both flags are on (the default) import wins and export is locked out.
+function baseImporting(b, c) { return isFinishedGood(c) && tradeImpOk(b, c); }
+function baseExporting(b, c) { return tradeExpOk(b, c) && !baseImporting(b, c); }
 function tradeColOk(b, cid) { return !(b.trade && b.trade.cols && b.trade.cols[cid] === false); }
 let _trade = null;
 function tradeBegin() { _trade = { freight: 0, importedVal: 0, exportedVal: 0, ambushLoss: 0, imp: {}, exp: {}, seized: {} }; }
@@ -3780,7 +3786,7 @@ function processBaseTrade() {
       if (!tradeColOk(b, cid)) return;
       const tariff = col.faction ? 1.25 : 1;
       CARGO_IDS.forEach(c => {                       // export ANY product the base stocks to fill colony orders
-        if (!tradeExpOk(b, c)) return;
+        if (!baseExporting(b, c)) return;            // ...unless it's set to import (avoid loops)
         const need = (col.orders[c] || 0) - (col.storage[c] || 0);
         if (need <= 0) return;
         const room = colonyStorageCap(col, cp) - colonyStorageUsed(col);
@@ -5560,8 +5566,15 @@ function toggleBaseTrade(pid) {
   saveGame(); renderAll();
 }
 function setBaseTradeGood(pid, dir, c) {
-  const b = S.bases[pid]; if (!b) return; const t = ensureTrade(b); const m = dir === "imp" ? t.imp : t.exp;
-  if (m[c] === false) delete m[c]; else m[c] = false;   // toggle between enabled (default) and disabled
+  const b = S.bases[pid]; if (!b) return; const t = ensureTrade(b);
+  const isExp = dir === "exp";
+  const on = isExp ? baseExporting(b, c) : baseImporting(b, c);   // current EFFECTIVE direction
+  if (on) {                                          // turn this direction off — the good is no longer traded that way
+    if (isExp) t.exp[c] = false; else t.imp[c] = false;
+  } else {                                           // turn it on, and disable the opposite so it can't loop
+    if (isExp) { delete t.exp[c]; if (isFinishedGood(c)) t.imp[c] = false; }
+    else       { delete t.imp[c]; t.exp[c] = false; }
+  }
   saveGame(); renderBases();
 }
 function setBaseTradeColony(pid, cid) {
@@ -5668,8 +5681,14 @@ function renderBases() {
         // eligible commodities to offer as toggles
         const expGoods = CARGO_IDS.filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.orders[c] || 0) > 0));
         const impGoods = CARGO_IDS.filter(isFinishedGood).filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.storage[c] || 0) > 0));
-        const chip = (dir, c) => { const on = dir === "imp" ? tradeImpOk(b, c) : tradeExpOk(b, c);
-          return `<button class="btn btn-sm ${t.on && on ? "btn-good" : ""}" ${t.on ? "" : "disabled"} title="${on ? "Trading" : "Skipping"} ${COM[c].name}" onclick="setBaseTradeGood('${pid}','${dir}','${c}')">${COM[c].ico} ${COM[c].name} ${on ? "✓" : "✗"}</button>`; };
+        const chip = (dir, c) => {
+          const on = dir === "imp" ? baseImporting(b, c) : baseExporting(b, c);
+          const otherActive = !on && (dir === "imp" ? baseExporting(b, c) : baseImporting(b, c));   // locked by the opposite direction
+          const title = on ? `Trading ${COM[c].name}`
+            : otherActive ? `${dir === "imp" ? "Exporting" : "Importing"} ${COM[c].name} instead — click to ${dir === "imp" ? "import" : "export"} it (the other direction turns off)`
+            : `Skipping ${COM[c].name}`;
+          return `<button class="btn btn-sm ${t.on && on ? "btn-good" : ""}" ${t.on ? "" : "disabled"} title="${title}" onclick="setBaseTradeGood('${pid}','${dir}','${c}')">${COM[c].ico} ${COM[c].name} ${on ? "✓" : otherActive ? "⇄" : "✗"}</button>`;
+        };
         const colRows = cols.map(([cid, col]) => {
           const cpl = PLANETS.find(p => p.id === cid), on = tradeColOk(b, cid), dist = worldDist(pid, cid);
           const needs = CARGO_IDS.filter(c => (col.orders[c] || 0) > (col.storage[c] || 0)).map(c => COM[c].ico).join("") || "—";
@@ -5678,7 +5697,7 @@ function renderBases() {
             <span class="v hint">needs ${needs} · offers ${offers}</span></div>`;
         }).join("");
         body = `<div class="card">
-          <div class="hint" style="margin-bottom:6px">Each cycle this base ships the <b>raws you select</b> to fill colony orders, and imports the <b>finished goods you select</b> from colonies' surplus. Amounts are automatic (colony need / excess) — you just pick what flows and with which colony. Freight scales with distance; aligned colonies add a tariff; contraband risks customs; pirates ambush convoys.</div>
+          <div class="hint" style="margin-bottom:6px">Each cycle this base ships the <b>raws you select</b> to fill colony orders, and imports the <b>finished goods you select</b> from colonies' surplus. A good flows <b>either in or out, never both</b> — picking one direction locks the other (shown as ⇄; click to flip). Amounts are automatic (colony need / excess) — you just pick what flows and with which colony. Freight scales with distance; aligned colonies add a tariff; contraband risks customs; pirates ambush convoys.</div>
           <button class="btn ${t.on ? "btn-bad" : "btn-primary"} btn-sm" onclick="toggleBaseTrade('${pid}')">${t.on ? "⏹ Disable route" : "🔄 Enable route"}</button>
           <div class="section-title" style="margin-top:10px">⛏️ Export to colonies ${t.on ? "" : '<span class="hint">(route off)</span>'}</div>
           <div class="row" style="flex-wrap:wrap;gap:6px">${expGoods.length ? expGoods.map(c => chip("exp", c)).join("") : '<span class="hint">No raws stocked or ordered yet.</span>'}</div>
@@ -6071,7 +6090,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.6.1";
+const APP_VERSION = "2.6.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
