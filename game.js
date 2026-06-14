@@ -3653,8 +3653,48 @@ function storeAllCargo() {
   else toast("Nothing to store (or base full).", "bad");
 }
 function depositQty(c) { transferToBase(c, +document.getElementById("xfer-" + c).value); }
-function baseBuyQty(c) { const el = document.getElementById("xfer-" + c); buy(c, el ? +el.value : 0); }
-function baseSellQty(c) { const el = document.getElementById("xfer-" + c); sell(c, el ? +el.value : 0); }
+// Buy/Sell the BASE's stockpile at the local market (not the ship)
+function baseMarketBuy(c, qty) {
+  if (combatLocked()) return;
+  const b = S.bases[S.location]; if (!b) return toast("No base here.", "bad");
+  qty = Math.max(0, Math.floor(qty)); if (qty <= 0) return;
+  const p = currentPlanet();
+  const room = baseStorageCap(S.location) - baseStorageUsed(b);
+  if (room <= 0) return toast("Base storage is full.", "bad");
+  qty = Math.min(qty, room);
+  const slip = tradeSlippage(p, c, qty);
+  const cost = Math.round(buyPrice(S.location, c) * (1 + slip / 2) * qty);
+  if (S.res.credits < cost) return toast("Not enough credits.", "bad");
+  S.res.credits -= cost; b.storage[c] = (b.storage[c] || 0) + qty; S.stats.trades++;
+  applyMarketMove(S.location, c, slip, false);
+  log(`Bought ${qty} ${COM[c].ico} ${COM[c].name} into the base for <span class="c">${fmt(cost)}</span> cr.`, "good");
+  sfx("buy"); toast(`Bought ${qty} ${COM[c].name} → base`, "good");
+  afterAction();
+}
+function baseMarketSell(c, qty) {
+  if (combatLocked()) return;
+  const b = S.bases[S.location]; if (!b) return toast("No base here.", "bad");
+  qty = Math.max(0, Math.floor(qty)); if (qty <= 0) return;
+  if ((b.storage[c] || 0) < qty) return toast("The base doesn't have that many.", "bad");
+  const p = currentPlanet();
+  if (isIllegalAt(c, S.location) && Math.random() < bustRisk(c, qty, p)) {
+    const conf = b.storage[c] || 0, fine = Math.min(S.res.credits, Math.round(conf * COM[c].base * 0.4) + 200);
+    b.storage[c] = 0; S.res.credits -= fine;
+    addRep("core", -12); addRep(p.faction, -6); addRep("frontier", 3); S.stats.busts++;
+    log(`🚨 CUSTOMS BUST at ${p.name}! ${conf} ${COM[c].ico} ${COM[c].name} seized from your base, fined ${fmt(fine)} cr.`, "bad");
+    toast(`🚨 Busted! ${COM[c].name} seized`, "bad");
+    return afterAction();
+  }
+  const slip = tradeSlippage(p, c, qty);
+  const revenue = Math.round(sellPrice(S.location, c) * (1 - slip / 2) * qty);
+  b.storage[c] -= qty; S.res.credits += revenue; S.stats.trades++; S.stats.profit += revenue;
+  applyMarketMove(S.location, c, slip, true); addRep(p.faction, 1);
+  log(`Sold ${qty} ${COM[c].ico} ${COM[c].name} from the base for <span class="c">${fmt(revenue)}</span> cr.`, "good");
+  sfx("sell"); toast(`Sold ${qty} ${COM[c].name} (+${fmt(revenue)} cr)`, "good");
+  afterAction();
+}
+function baseBuyQty(c) { const el = document.getElementById("xfer-" + c); baseMarketBuy(c, el ? +el.value : 0); }
+function baseSellQty(c) { const el = document.getElementById("xfer-" + c); baseMarketSell(c, el ? +el.value : 0); }
 function withdrawQty(c) { transferFromBase(c, +document.getElementById("xfer-" + c).value); }
 
 /* runs every cycle (including while you travel) */
@@ -5564,8 +5604,8 @@ function renderBases() {
           <input class="qty" id="xfer-${c}" type="number" min="1" value="10" />
           <button class="btn btn-sm" onclick="depositQty('${c}')">Store ▸</button>
           <button class="btn btn-sm" onclick="withdrawQty('${c}')">◂ Take</button>
-          <button class="btn btn-sm btn-good" title="Buy into your ship at market (${fmt(buyPrice(pid, c))}/u)" onclick="baseBuyQty('${c}')">Buy</button>
-          <button class="btn btn-sm btn-bad" title="Sell from your ship at market (${fmt(sellPrice(pid, c))}/u)" onclick="baseSellQty('${c}')">Sell</button>
+          <button class="btn btn-sm btn-good" title="Buy into the base at market (${fmt(buyPrice(pid, c))}/u)" onclick="baseBuyQty('${c}')">Buy</button>
+          <button class="btn btn-sm btn-bad" title="Sell from the base at market (${fmt(sellPrice(pid, c))}/u)" onclick="baseSellQty('${c}')">Sell</button>
         </div></td></tr>`).join("")
         : '<tr><td colspan="4" class="hint">Nothing in your hold or this base yet.</td></tr>';
       body = `<div class="section-title">📦 Inventory (${baseStorageUsed(b)}/${baseStorageCap(pid)})</div>
@@ -5922,7 +5962,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "1.9.2";
+const APP_VERSION = "1.9.3";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6358,7 +6398,7 @@ Object.assign(window, {
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
   acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs,
-  exportSave, importSave, importSaveText, parseSaveText, buildSaveText, toggleBaseTrade, setBaseTradeGood, setBaseTradeColony, baseBuyQty, baseSellQty,
+  exportSave, importSave, importSaveText, parseSaveText, buildSaveText, toggleBaseTrade, setBaseTradeGood, setBaseTradeColony, baseMarketBuy, baseMarketSell, baseBuyQty, baseSellQty,
   sfx, toggleSound,
   alignColony, colonyIndependence, toggleColonyProcess,
   setSubView,
