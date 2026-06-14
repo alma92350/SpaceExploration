@@ -5614,7 +5614,9 @@ function renderBases() {
       </div>`;
     }).join("");
     // ===== Sub-tabs: Modules / Inventory / Trade =====
-    const BASE_VIEWS = [["modules", "🛠️ Modules"], ["inventory", "📦 Inventory"], ["trade", "🔄 Import/Export"]];
+    const hasColonies = Object.keys(S.colonies || {}).length > 0;
+    const BASE_VIEWS = [["modules", "🛠️ Modules"], ["inventory", "📦 Inventory"]];
+    if (hasColonies) BASE_VIEWS.push(["trade", "🔄 Import/Export"]);   // trade routes appear once you have a colony to trade with
     const view = subView("bases", BASE_VIEWS);
     let body;
     if (view === "modules") {
@@ -5681,6 +5683,7 @@ function renderBases() {
     }
     here = `<div class="section-title">📍 ${planet.name}</div>
       ${subTabBar("bases", BASE_VIEWS)}
+      ${!hasColonies ? `<div class="hint" style="margin:6px 0">🔄 Found a colony to open <b>Import/Export</b> trade routes from this base.</div>` : ""}
       ${body}`;
   }
 
@@ -6013,7 +6016,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.2.0";
+const APP_VERSION = "2.3.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
