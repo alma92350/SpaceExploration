@@ -1,5 +1,5 @@
 {
-  "version": "2.5.0",
+  "version": "2.5.1",
   "saveVersion": "v2",
-  "notes": "Progressive disclosure, phase 6 (polish): a true global Guided-mode toggle — \"Show everything now\" reveals every layer at once (market tiers, far galaxy worlds, locked tabs, colony build categories), and \"Guided mode\" hides them again until earned. Find it in Help. Old saves migrate cleanly (sales stat backfilled, veterans auto-reveal what they've earned), and Help now documents how progression works alongside the 🧭 Next Steps panel."
+  "notes": "Fix: opening a freshly built base's Import/Export tab no longer crashes (TypeError on b.trade.cols). The trade predicates are now null-safe and new bases initialize their trade routes on creation, so the tab works immediately without needing a reload."
 }

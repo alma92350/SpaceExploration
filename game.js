@@ -3598,7 +3598,7 @@ function buildBase() {
   if (S.res.credits < BASE_FOUNDATION_COST) return toast("Not enough credits.", "bad");
   if (!canAfford(mats)) return toast("Need build materials in your hold (metals).", "bad");
   S.res.credits -= BASE_FOUNDATION_COST; pay(mats);
-  S.bases[pid] = { modules: {}, storage: {} };
+  S.bases[pid] = { modules: {}, storage: {}, trade: { on: false, exp: {}, imp: {}, cols: {} } };
   log(`🏗️ Established a base on <span class="c">${currentPlanet().name}</span>.`, "event");
   toast("Base established!", "event");
   afterAction();
@@ -3742,9 +3742,9 @@ function colonyFinishedReserve(col, c) {
   return 0;
 }
 function baseTradeActive(b) { return !!(b && b.trade && b.trade.on && (b.modules.warehouse || 0) > 0); }
-function tradeExpOk(b, c) { return !(b.trade.exp && b.trade.exp[c] === false); }   // default-on; player disables specific goods
-function tradeImpOk(b, c) { return !(b.trade.imp && b.trade.imp[c] === false); }
-function tradeColOk(b, cid) { return !(b.trade.cols && b.trade.cols[cid] === false); }
+function tradeExpOk(b, c) { return !(b.trade && b.trade.exp && b.trade.exp[c] === false); }   // default-on; player disables specific goods
+function tradeImpOk(b, c) { return !(b.trade && b.trade.imp && b.trade.imp[c] === false); }
+function tradeColOk(b, cid) { return !(b.trade && b.trade.cols && b.trade.cols[cid] === false); }
 let _trade = null;
 function tradeBegin() { _trade = { freight: 0, importedVal: 0, exportedVal: 0, ambushLoss: 0, imp: {}, exp: {}, seized: {} }; }
 function tradeSeizeCheck(c, bid, cid) { return (isIllegalAt(c, bid) || isIllegalAt(c, cid)) && Math.random() < TRADE_SEIZE_CHANCE; }
@@ -6057,7 +6057,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.5.0";
+const APP_VERSION = "2.5.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
