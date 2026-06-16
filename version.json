@@ -1,5 +1,5 @@
 {
-  "version": "2.9.0",
+  "version": "2.10.0",
   "saveVersion": "v2",
-  "notes": "Convoy Escort phase 3 — the journey. Each leg is now a real cycle on the clock and burns fuel, and the lanes grow more dangerous the closer you get to port. Completed runs build your Escort Guild reputation: rank up from Freelancer to Fleet Commander for steadily better pay and a larger escort fleet (up to 4 escorts). Elite Marauder Leads now wield telegraphed battlefield abilities — 💥 Alpha Strike (a doubled hit), 📣 Rally (the whole wave hits harder) and 📡 Jammer (saps your next salvo) — so read their cards and prioritise."
+  "notes": "Convoy Escort phase 4 — polish. Distinct procedural sound cues for ambushes, fleet salvos and guild promotions; a between-leg convoy yard repair to patch your escorts and freighters (credits + materials) so long, dangerous runs stay viable; and your active convoy's destination is now flagged on the galaxy map. Plus a design/balance doc (docs/ESCORT.md)."
 }

@@ -1148,6 +1148,9 @@ function sfx(name) {
       case "travel":  _tone(ac, t, { type: "sine", f0: 220, f1: 660, dur: 0.4, gain: 0.14 }); break;
       case "repair":  _tone(ac, t, { type: "square", f0: 300, dur: 0.04, gain: 0.1 }); _tone(ac, t + 0.07, { type: "square", f0: 300, dur: 0.04, gain: 0.1 }); _tone(ac, t + 0.14, { type: "square", f0: 380, dur: 0.06, gain: 0.1 }); break;
       case "win":     [523, 659, 784, 1047].forEach((f, i) => _tone(ac, t + i * 0.1, { type: "triangle", f0: f, dur: 0.18, gain: 0.18 })); break;
+      case "alarm":   _tone(ac, t, { type: "square", f0: 740, f1: 520, dur: 0.16, gain: 0.16 }); _tone(ac, t + 0.18, { type: "square", f0: 740, f1: 520, dur: 0.16, gain: 0.16 }); break;
+      case "salvo":   _tone(ac, t, { type: "sawtooth", f0: 1000, f1: 160, dur: 0.18, gain: 0.16 }); _noise(ac, t, 0.18, 0.12); break;
+      case "promote": [523, 784, 1047, 1319].forEach((f, i) => _tone(ac, t + i * 0.08, { type: "triangle", f0: f, dur: 0.14, gain: 0.17 })); break;
       case "click":   _tone(ac, t, { type: "square", f0: 440, dur: 0.03, gain: 0.08 }); break;
       default:        _tone(ac, t, { type: "sine", f0: 660, dur: 0.08, gain: 0.12 });
     }
@@ -4594,6 +4597,8 @@ function renderGalaxy() {
     const tag = p.colonizable
       ? `<span class="pill good">${S.colonies[p.id] ? "your colony 🌍" : "colonizable"}</span>`
       : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
+    const escortPill = (S.escort && S.escort.active && S.escort.mission && S.escort.mission.to === p.id)
+      ? `<span class="pill" title="Your active convoy is bound here (${S.escort.mission.legsLeft} leg(s) left)">🛡️ convoy bound</span>` : '';
     return `<div class="planet-card ${here ? "current" : ""}">
       <div class="planet-orb" style="background:radial-gradient(circle at 35% 30%, ${p.color}, #000 130%)"></div>
       <div class="planet-name">${p.name} ${S.visited[p.id] ? "" : '<span class="badge">unknown</span>'}</div>
@@ -4602,7 +4607,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}${piratePill}
+        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${here ? `<div class="pill good">◉ You are here</div>`
@@ -6122,7 +6127,7 @@ function spawnEscortWave() {
   e.wave = { foes, round: 1 }; e.targets = [];
   assignIntents();
   log(`🚨 Ambush! ${foes.length} hostiles fall on the convoy${elite ? " — led by a ☠️ Marauder Lead" : ""}. Watch their intent and pick your targets.`, "bad");
-  toast(`Ambush — ${foes.length} hostiles!`, "bad"); sfx("bad");
+  toast(`Ambush — ${foes.length} hostiles!`, "bad"); sfx("alarm");
 }
 function escortAdvance() {
   const e = ensureEscort(); if (!e.active) return;
@@ -6166,7 +6171,7 @@ function escortFire() {
     f.hp = Math.max(0, f.hp - dmg);
     if (f.hp <= 0) killed.push(f);
   });
-  sfx("fire");
+  sfx("salvo");
   log(`🔥 Fleet salvo: ${fmt(F)} firepower split across ${targets.length} target(s) — ${fmt(per)} each${killed.length ? ` · destroyed ${killed.map(f => f.ico).join("")}` : ""}.`, killed.length ? "good" : "");
   e.targets = (e.targets || []).filter(i => w.foes[i] && w.foes[i].hp > 0);
   if (!escortInCombat()) return escortWaveCleared();
@@ -6221,11 +6226,28 @@ function escortRepair() {
   const worst = SUBSYS.reduce((mn, k) => (shipCond(k) < shipCond(mn) ? k : mn), SUBSYS[0]);
   if (shipCond(worst) < 100) S.pirate.subsys[worst] = Math.min(100, S.pirate.subsys[worst] + FIELD_REPAIR.sub);
   log(`🔧 Field patch: +${Math.round(S.pirate.hull - before)} hull — the fleet held fire as the raiders pressed in.`, "");
-  sfx("event");
+  sfx("repair");
   escortEnemyTurn();
   if (e.active) { saveGame(); renderEscort(); }
 }
 function setEscortPosture(p) { const e = ensureEscort(); if (ESCORT_POSTURES[p]) { e.posture = p; if (e.wave) assignIntents(); saveGame(); renderEscort(); } }
+// Between legs (out of combat) you can patch up the convoy's escorts & freighters
+// at a yard cost — a credit/material sink that keeps long, dangerous runs viable.
+function escortFleetMissing() { return escortFleet().reduce((s, sh) => s + (sh.role !== "flagship" && sh.alive ? (sh.hullMax - sh.hull) : 0), 0); }
+function escortRepairCost() { const miss = escortFleetMissing(); return { miss, credits: miss * 7, metals: Math.ceil(miss / 14), electronics: Math.ceil(miss / 22) }; }
+function escortFleetRepair() {
+  const e = ensureEscort(); if (!e.active) return;
+  if (escortInCombat()) return toast("You can't run repairs mid-ambush.", "bad");
+  const c = escortRepairCost();
+  if (c.miss <= 0) return toast("The convoy's escorts and freighters are already sound.", "bad");
+  if ((S.res.credits || 0) < c.credits || (S.res.metals || 0) < c.metals || (S.res.electronics || 0) < c.electronics)
+    return toast(`Convoy repair needs ${fmt(c.credits)} cr · ${c.metals} ⛓️ · ${c.electronics} 🖥️.`, "bad");
+  S.res.credits -= c.credits; S.res.metals -= c.metals; S.res.electronics -= c.electronics;
+  escortFleet().forEach(sh => { if (sh.role !== "flagship" && sh.alive) sh.hull = sh.hullMax; });
+  log(`🔧 Convoy yard repair: patched the escorts & freighters for ${fmt(c.credits)} cr.`, "good");
+  toast("Convoy repaired.", "good"); sfx("repair");
+  saveGame(); renderEscort();
+}
 function escortWaveCleared() {
   const e = ensureEscort();
   e.wave = null; e.targets = [];
@@ -6260,7 +6282,7 @@ function escortDeliver() {
     const rk = escortRank();
     log(`🎖️ Escort Guild promotion — you're now a <b>${rk.name}</b>: ${Math.round((rk.mult - 1) * 100)}% better pay and a fleet of ${rk.escorts} escorts.`, "event");
     if (typeof announce === "function") announce("🎖️ Guild Promotion", `You are now a ${rk.name}. Better contracts and a larger fleet await.`, false);
-    toast(`Promoted: ${rk.name}!`, "good");
+    toast(`Promoted: ${rk.name}!`, "good"); sfx("promote");
   }
   saveGame(); renderAll();
 }
@@ -6359,9 +6381,12 @@ function renderEscort() {
       <div class="cards raid-action-cards">${foeCards}</div></div>`;
   } else {
     const lowFuel = (S.res.fuel || 0) < ESCORT_LEG_FUEL;
+    const rc = escortRepairCost();
     combat = `<div class="card"><h4>🛰️ Underway</h4>
       <div class="hint">${m.legsLeft > 0 ? `${m.legsLeft} leg(s) to ${dn ? dn.name : "port"}. Each leg is a cycle and burns ${ESCORT_LEG_FUEL} ⛽ (you hold ${fmt(S.res.fuel || 0)}); risk of ambush climbs as you near the destination.` : "Final approach — bring them in."}</div>
-      <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${m.legsLeft > 0 && lowFuel ? "disabled" : ""} onclick="escortAdvance()">${m.legsLeft > 0 ? `▶ Advance one leg (${ESCORT_LEG_FUEL} ⛽)` : "🏁 Deliver convoy"}</button>${postBtns}</div>
+      <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${m.legsLeft > 0 && lowFuel ? "disabled" : ""} onclick="escortAdvance()">${m.legsLeft > 0 ? `▶ Advance one leg (${ESCORT_LEG_FUEL} ⛽)` : "🏁 Deliver convoy"}</button>
+        ${rc.miss > 0 ? `<button class="btn btn-sm" onclick="escortFleetRepair()" title="Repair the convoy's escorts & freighters to full">🔧 Repair convoy (${fmt(rc.credits)} cr · ${rc.metals}⛓️ · ${rc.electronics}🖥️)</button>` : ""}
+        ${postBtns}</div>
       ${m.legsLeft > 0 && lowFuel ? '<div class="hint" style="color:var(--bad)">Not enough fuel for the next leg — refuel at the Market.</div>' : ""}</div>`;
   }
   el.innerHTML = `<div class="panel-head"><h2>🛡️ Escort — convoy to ${dn ? dn.name : "?"}</h2>
@@ -6497,7 +6522,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.9.0";
+const APP_VERSION = "2.10.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6938,7 +6963,7 @@ Object.assign(window, {
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, repairShip,
-  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortToggleTarget, escortFocus, setEscortPosture, abortEscort,
+  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, abortEscort,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
