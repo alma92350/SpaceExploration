@@ -16,7 +16,9 @@ completed (`commissionsDone > 0`). No early cycle fallback (it's expert);
 plus `S.escortRep` (guild reputation, persisted in the save).
 
 - **Flagship** — the player's ship; hull/subsystems are `S.pirate.*`, and only it
-  can field-repair. Firepower = `estPlayerDPS() * condFactor("weapons")`.
+  can field-repair. Each salvo it expends ammo for the best weapon it can afford
+  (`escortFlagWeapon()` → `payAmmo`); firepower scales to that weapon's mult, so
+  running out of energy/torpedo/antimatter rounds drops it back to free kinetic.
 - **Escorts** — armed, `SHIP_CLASSES`-scaled hull & firepower; count grows with
   guild rank (2 → 4).
 - **Freighters** — the payload; little firepower. Losing them cuts the fee.

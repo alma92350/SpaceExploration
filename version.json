@@ -1,5 +1,5 @@
 {
-  "version": "2.10.0",
+  "version": "2.10.1",
   "saveVersion": "v2",
-  "notes": "Convoy Escort phase 4 — polish. Distinct procedural sound cues for ambushes, fleet salvos and guild promotions; a between-leg convoy yard repair to patch your escorts and freighters (credits + materials) so long, dangerous runs stay viable; and your active convoy's destination is now flagged on the galaxy map. Plus a design/balance doc (docs/ESCORT.md)."
+  "notes": "Escort fix: your flagship now spends ammo when it fires, just like in a raid. Each fleet salvo, the flagship fires the best weapon it can afford (energy/torpedo/antimatter cost their ammo; kinetic is free) — and if you run those rounds dry, it drops back to kinetic with reduced firepower. The flagship's current weapon and ammo cost are shown in the fleet roster and Fire Control."
 }

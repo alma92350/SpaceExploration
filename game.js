@@ -6049,9 +6049,19 @@ function escortFleet() { return (S.escort && S.escort.fleet) || []; }
 function escShipAlive(sh) { return sh.role === "flagship" ? S.pirate.hull > 0 : sh.alive; }
 function escShipHull(sh) { return sh.role === "flagship" ? Math.round(S.pirate.hull) : sh.hull; }
 function escShipHullMax(sh) { return sh.role === "flagship" ? HULL_MAX : sh.hullMax; }
+// the best weapon the flagship has the ammo to fire this salvo (falls back to free kinetic)
+function escortFlagWeapon() {
+  let best = "kinetic";
+  Object.keys(WEAPONS).forEach(w => { if (weaponAvailable(w) && weaponAffordable(w) && WEAPONS[w].mult > WEAPONS[best].mult) best = w; });
+  return best;
+}
+function escFlagshipFP() {
+  const ratio = WEAPONS[escortFlagWeapon()].mult / bestWeaponMult();   // dialed back if you're out of premium ammo
+  return estPlayerDPS() * condFactor("weapons") * ratio;
+}
 function escShipFP(sh) {
   if (!escShipAlive(sh)) return 0;
-  if (sh.role === "flagship") return estPlayerDPS() * condFactor("weapons");
+  if (sh.role === "flagship") return escFlagshipFP();
   return sh.str * (0.5 + 0.5 * (sh.hull / sh.hullMax));   // a battered ship shoots less
 }
 function escortFirepower() { return Math.round(escortFleet().reduce((s, sh) => s + escShipFP(sh), 0) * escortPosture().off); }
@@ -6163,6 +6173,10 @@ function escortFire() {
   if (!targets.length) return escortWaveCleared();   // nothing left to shoot — the lane is clear
   let F = escortFirepower();
   if (e.jam) { F = Math.round(F * 0.7); e.jam = false; log("📡 A jammer fouled your firing solution — this salvo lands at 70%.", "bad"); }
+  // the flagship expends ammo for its weapon each salvo (escorts/freighters use organic guns)
+  if (escShipAlive(escortFleet().find(s => s.role === "flagship") || {})) {
+    const fw = escortFlagWeapon(); payAmmo(fw); noteWeaponUse && noteWeaponUse(fw);
+  }
   const per = F / targets.length;
   const killed = [];
   targets.forEach(i => {
@@ -6345,7 +6359,8 @@ function renderEscort() {
   const roster = e.fleet.map((sh, fi) => {
     const alive = escShipAlive(sh), h = escShipHull(sh), hm = escShipHullMax(sh);
     const fp = Math.round(escShipFP(sh));
-    const tag = sh.role === "flagship" ? "flagship" : sh.role === "escort" ? "escort" : "cargo";
+    let tag = sh.role === "flagship" ? "flagship" : sh.role === "escort" ? "escort" : "cargo";
+    if (sh.role === "flagship" && alive) { const fw = WEAPONS[escortFlagWeapon()]; tag += ` · ${fw.ico}${Object.keys(fw.ammo).length ? " " + matsString(fw.ammo) : ""}`; }
     const inc = threatenedBy[fi];
     const mark = alive && inc ? ` <span title="incoming fire from ${inc.length}" style="color:var(--bad)">⤳${inc.join("")}</span>` : "";
     return `<div class="ship-stat" style="align-items:center;${alive ? "" : "opacity:.45"}">
@@ -6371,8 +6386,9 @@ function renderEscort() {
         <div class="row"><button class="btn btn-sm ${sel ? "btn-good" : ""}" onclick="escortToggleTarget(${i})">${sel ? "✓ Targeted" : "Target"}</button>
         <button class="btn btn-sm" onclick="escortFocus(${i})">Focus</button></div></div>`;
     }).join("");
+    const fw = WEAPONS[escortFlagWeapon()];
     combat = `<div class="card"><h4>🔥 Fire Control — round ${e.wave.round}</h4>
-      <div class="hint">Pooled fleet firepower <b>${fmt(F)}</b> splits equally across your targets: <b>${fmt(per)}</b> each to <b>${nT}</b> ${nT === 1 ? "target" : "targets"}${tgts.length ? "" : " (all, none picked)"}. Each foe shows who it's <b>aiming at</b> — kill the one about to hit a freighter first. <b>🛡️ Screen</b> makes escorts body-block the freighters. Field repair patches only your flagship and costs you the salvo.</div>
+      <div class="hint">Pooled fleet firepower <b>${fmt(F)}</b> splits equally across your targets: <b>${fmt(per)}</b> each to <b>${nT}</b> ${nT === 1 ? "target" : "targets"}${tgts.length ? "" : " (all, none picked)"}. Each foe shows who it's <b>aiming at</b> — kill the one about to hit a freighter first. <b>🛡️ Screen</b> makes escorts body-block the freighters. Your flagship spends <b>${fw.ico} ${fw.name}</b> ammo per salvo${Object.keys(fw.ammo).length ? ` (${matsString(fw.ammo)})` : " (free)"}; run dry and it drops to kinetic. Field repair patches only your flagship and costs you the salvo.</div>
       <div class="row" style="margin:8px 0">
         <button class="btn btn-primary" onclick="escortFire()">🔥 Open fire</button>
         <button class="btn btn-sm" onclick="escortRepair()" title="Patch the flagship (+${FIELD_REPAIR.hull} hull, ${matsString(FIELD_REPAIR.mats)}) — you hold fire this round">🔧 Field repair (flagship)</button>
@@ -6522,7 +6538,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.10.0";
+const APP_VERSION = "2.10.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
