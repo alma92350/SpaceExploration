@@ -1591,10 +1591,11 @@ function foeFleeCheck(foe) {
    shop, refit, repair, produce, research, move goods or end the cycle —
    no slipping away to re-arm against the threat. You can always resolve it
    without resources (flee/fight are free; complying needs no purchase). */
-function inCombat() { return !!(S.encounter || S.interdiction || S.prey); }
+function inCombat() { return !!(S.encounter || S.interdiction || S.prey || (typeof escortInCombat === "function" && escortInCombat())); }
+function combatHomeTab() { return (typeof escortInCombat === "function" && escortInCombat() && !(S.encounter || S.interdiction || S.prey)) ? "escort" : "raid"; }
 function combatLocked() {
   if (!inCombat()) return false;
-  const foe = S.encounter ? `the ${S.encounter.name}` : S.prey ? `the ${S.prey.name}` : "the navy patrol";
+  const foe = S.encounter ? `the ${S.encounter.name}` : S.prey ? `the ${S.prey.name}` : (typeof escortInCombat === "function" && escortInCombat()) ? "the convoy's attackers" : "the navy patrol";
   toast(`⚔️ You're in the middle of an engagement with ${foe} — finish it or disengage first.`, "bad");
   return true;
 }
@@ -5965,11 +5966,315 @@ function renderColonies() {
     ${here}`;
 }
 
+/* ============================================================
+   CONVOY ESCORT (expert tab) — command a fleet, pool its firepower,
+   split it equally across attackers, and shepherd freighters to port.
+   Reuses the raid combat math (estPlayerDPS, ship classes, foe profiles,
+   field repair); the player commands a *fleet*, not a single ship.
+   ============================================================ */
+const ESCORT_FLEET = { escorts: 2, freighters: 2 };
+const ESCORT_ESCORT_FP = 13;        // base firepower per escort (× ship class)
+const ESCORT_FREIGHTER_FP = 3;      // freighters can pop off a few shots
+const ESCORT_ESCORT_HULL = 55;      // base hull per escort (× ship class)
+const ESCORT_FREIGHTER_HULL = 42;
+const ESCORT_FOE_DMG = 9;           // base per-round damage a foe deals a fleet ship
+const ESCORT_POSTURES = {
+  screen:   { off: 0.85, def: 0.70, label: "🛡️ Screen",  hint: "escorts shield the convoy — less firepower, far less incoming" },
+  balanced: { off: 1.00, def: 1.00, label: "⚖️ Balanced", hint: "even footing" },
+  press:    { off: 1.18, def: 1.30, label: "⚔️ Press",    hint: "pour on fire — but the convoy takes more hits" },
+};
+function ensureEscort() {
+  if (!S.escort) S.escort = { active: false, offers: [], mission: null, fleet: [], wave: null, posture: "balanced", targets: [] };
+  return S.escort;
+}
+function escortPosture() { return ESCORT_POSTURES[(S.escort && S.escort.posture) || "balanced"] || ESCORT_POSTURES.balanced; }
+function escortInCombat() { return !!(S.escort && S.escort.wave && S.escort.wave.foes && S.escort.wave.foes.some(f => f.hp > 0)); }
+function escortFleet() { return (S.escort && S.escort.fleet) || []; }
+function escShipAlive(sh) { return sh.role === "flagship" ? S.pirate.hull > 0 : sh.alive; }
+function escShipHull(sh) { return sh.role === "flagship" ? Math.round(S.pirate.hull) : sh.hull; }
+function escShipHullMax(sh) { return sh.role === "flagship" ? HULL_MAX : sh.hullMax; }
+function escShipFP(sh) {
+  if (!escShipAlive(sh)) return 0;
+  if (sh.role === "flagship") return estPlayerDPS() * condFactor("weapons");
+  return sh.str * (0.5 + 0.5 * (sh.hull / sh.hullMax));   // a battered ship shoots less
+}
+function escortFirepower() { return Math.round(escortFleet().reduce((s, sh) => s + escShipFP(sh), 0) * escortPosture().off); }
+function escortAliveFoes() { const w = S.escort && S.escort.wave; return w ? w.foes.filter(f => f.hp > 0) : []; }
+function genEscortContract(dest) {
+  const here = currentPlanet();
+  const dist = (here.distances && here.distances[dest.id]) || 6;
+  const threat = Math.min(0.92, 0.22 + pirateLevel(dest.id) * 0.11 + dist * 0.018 + Math.random() * 0.14);
+  const legs = Math.max(2, Math.min(5, Math.round(dist / 3) + 1));
+  const payload = Math.round((2000 + dist * 400) * (0.8 + Math.random() * 0.5));
+  const reward = Math.round((payload * 0.5 + dist * 350) * (1 + threat));
+  return { from: here.id, to: dest.id, dist, threat, legs, payload, reward, bonus: Math.round(reward * 0.3) };
+}
+function refreshEscortOffers() {
+  const e = ensureEscort();
+  if (e.active) return;
+  const here = currentPlanet();
+  const dests = PLANETS.filter(p => isActive(p) && p.id !== here.id && galaxyKnown(p)).sort(() => Math.random() - 0.5).slice(0, 3);
+  e.offers = dests.map(genEscortContract);
+  saveGame(); renderEscort();
+}
+function buildEscortFleet() {
+  const fleet = [{ role: "flagship", name: "Your Flagship", ico: "🚀" }];
+  for (let i = 0; i < ESCORT_FLEET.escorts; i++) {
+    const clsId = pick(["corvette", "frigate", "frigate", "cruiser"]); const cls = SHIP_CLASSES[clsId];
+    fleet.push({ role: "escort", cls: clsId, name: `${cls.name} ${String.fromCharCode(65 + i)}`, ico: cls.ico,
+      hullMax: Math.round(ESCORT_ESCORT_HULL * cls.hull), str: Math.round(ESCORT_ESCORT_FP * cls.str), alive: true });
+  }
+  for (let i = 0; i < ESCORT_FLEET.freighters; i++) {
+    fleet.push({ role: "freighter", name: `Freighter ${i + 1}`, ico: "📦",
+      hullMax: ESCORT_FREIGHTER_HULL, str: ESCORT_FREIGHTER_FP, alive: true });
+  }
+  fleet.forEach(sh => { if (sh.role !== "flagship") sh.hull = sh.hullMax; });
+  return fleet;
+}
+function acceptEscort(idx) {
+  const e = ensureEscort();
+  if (e.active) return toast("Finish your current escort first.", "bad");
+  const m = e.offers[idx]; if (!m) return;
+  e.active = true;
+  e.mission = Object.assign({}, m, { legsLeft: m.legs, losses: 0 });
+  e.fleet = buildEscortFleet();
+  e.wave = null; e.posture = "balanced"; e.targets = []; e.offers = [];
+  const dn = PLANETS.find(p => p.id === m.to).name;
+  log(`🛡️ Accepted an escort: convoy to <span class="c">${dn}</span> — ${m.legs} legs, reward ${fmt(m.reward)} cr.`, "event");
+  toast("Escort contract accepted.", "good");
+  sfx("event"); saveGame(); renderAll(); setTab("escort");
+}
+function spawnEscortWave() {
+  const e = ensureEscort(); const m = e.mission;
+  const F = Math.max(20, escortFirepower());
+  const n = Math.max(2, Math.min(5, Math.round(2 + m.threat * 3)));
+  const lvl = Math.max(1, Math.min(5, 1 + Math.round(m.threat * 3 + veterancy() * 0.05)));
+  const foes = [];
+  for (let i = 0; i < n; i++) {
+    const p = genPirate(lvl); const cls = SHIP_CLASSES[p.cls] || SHIP_CLASSES.corvette;
+    const maxhp = Math.round(Math.max(18, F * (0.45 + Math.random() * 0.35)));
+    foes.push({ name: p.name, ico: p.ico, cls: p.cls, faction: p.faction, strength: p.strength,
+      hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.7 + m.threat)) });
+  }
+  e.wave = { foes, round: 1 }; e.targets = [];
+  log(`🚨 Ambush! ${n} raiders fall on the convoy — pool your guns and pick your targets.`, "bad");
+  toast(`Ambush — ${n} hostiles!`, "bad"); sfx("bad");
+}
+function escortAdvance() {
+  const e = ensureEscort(); if (!e.active) return;
+  if (escortInCombat()) return toast("Beat off the attackers first.", "bad");
+  const m = e.mission;
+  if (m.legsLeft <= 0) return escortDeliver();
+  m.legsLeft--;
+  if (Math.random() < m.threat) { spawnEscortWave(); saveGame(); renderAll(); return; }
+  log(`🛰️ Leg run clean — ${m.legsLeft} to go.`, "");
+  toast("Quiet leg.", "");
+  if (m.legsLeft <= 0) return escortDeliver();
+  saveGame(); renderAll();
+}
+function escortToggleTarget(i) {
+  const e = ensureEscort(); if (!e.wave) return;
+  const f = e.wave.foes[i]; if (!f || f.hp <= 0) return;
+  e.targets = e.targets || [];
+  const at = e.targets.indexOf(i);
+  if (at >= 0) e.targets.splice(at, 1); else e.targets.push(i);
+  saveGame(); renderEscort();
+}
+function escortFocus(i) { const e = ensureEscort(); if (e.wave && e.wave.foes[i] && e.wave.foes[i].hp > 0) { e.targets = [i]; saveGame(); renderEscort(); } }
+function escortFire() {
+  const e = ensureEscort(); const w = e.wave; if (!w) return;
+  let targets = (e.targets || []).filter(i => w.foes[i] && w.foes[i].hp > 0);
+  if (!targets.length) targets = w.foes.map((f, i) => (f.hp > 0 ? i : -1)).filter(i => i >= 0);   // default: spread across all
+  if (!targets.length) return escortWaveCleared();   // nothing left to shoot — the lane is clear
+  const F = escortFirepower();
+  const per = F / targets.length;
+  const killed = [];
+  targets.forEach(i => {
+    const f = w.foes[i];
+    const dmg = Math.max(1, Math.round(per * (0.85 + Math.random() * 0.3)));
+    f.hp = Math.max(0, f.hp - dmg);
+    if (f.hp <= 0) killed.push(f);
+  });
+  sfx("fire");
+  log(`🔥 Fleet salvo: ${fmt(F)} firepower split across ${targets.length} target(s) — ${fmt(per)} each${killed.length ? ` · destroyed ${killed.map(f => f.ico).join("")}` : ""}.`, killed.length ? "good" : "");
+  e.targets = (e.targets || []).filter(i => w.foes[i] && w.foes[i].hp > 0);
+  if (!escortInCombat()) return escortWaveCleared();
+  escortEnemyTurn();
+  if (e.active) { saveGame(); renderEscort(); }
+}
+function pickEscortVictim() {
+  const alive = escortFleet().filter(escShipAlive);
+  if (!alive.length) return null;
+  const weight = sh => (sh.role === "freighter" ? 5 : sh.role === "escort" ? 3 : 2);
+  const total = alive.reduce((s, sh) => s + weight(sh), 0);
+  let r = Math.random() * total;
+  for (const sh of alive) { r -= weight(sh); if (r <= 0) return sh; }
+  return alive[0];
+}
+function escortEnemyTurn() {
+  const e = ensureEscort(); const w = e.wave; if (!w) return;
+  const defMod = escortPosture().def;
+  w.foes.filter(f => f.hp > 0).forEach(f => {
+    if (!e.active) return;                                  // fleet already lost — stop
+    const sh = pickEscortVictim(); if (!sh) return;
+    const dmg = Math.max(1, Math.round(f.dmg * (0.7 + Math.random() * 0.6) * defMod));
+    if (sh.role === "flagship") {
+      S.pirate.hull = Math.max(0, S.pirate.hull - dmg); clampPirate();
+      if (Math.random() < 0.4) damageSubsys(pick(SUBSYS), dmg * 0.6);
+      if (S.pirate.hull <= 0) escortFail("flagship");
+    } else {
+      sh.hull = Math.max(0, sh.hull - dmg);
+      if (sh.hull <= 0 && sh.alive) {
+        sh.alive = false;
+        if (sh.role === "freighter") e.mission.losses++;
+        log(`💥 ${sh.ico} ${sh.name} was destroyed!`, "bad"); sfx("explode");
+      }
+    }
+  });
+  if (!e.active) return;
+  if (w) w.round++;
+  if (!escortFleet().some(s => s.role !== "flagship" && s.alive)) return escortFail("convoy");
+}
+function escortRepair() {
+  const e = ensureEscort(); if (!e.wave) return;
+  if (!fieldRepairWorthwhile()) return toast("Hull and systems are already sound.", "bad");
+  if (!canFieldRepair()) return toast(`Field patch needs ${matsString(FIELD_REPAIR.mats)}.`, "bad");
+  Object.entries(FIELD_REPAIR.mats).forEach(([c, q]) => { S.res[c] -= q; });
+  const before = S.pirate.hull;
+  S.pirate.hull = Math.min(HULL_MAX, S.pirate.hull + FIELD_REPAIR.hull);
+  const worst = SUBSYS.reduce((mn, k) => (shipCond(k) < shipCond(mn) ? k : mn), SUBSYS[0]);
+  if (shipCond(worst) < 100) S.pirate.subsys[worst] = Math.min(100, S.pirate.subsys[worst] + FIELD_REPAIR.sub);
+  log(`🔧 Field patch: +${Math.round(S.pirate.hull - before)} hull — the fleet held fire as the raiders pressed in.`, "");
+  sfx("event");
+  escortEnemyTurn();
+  if (e.active) { saveGame(); renderEscort(); }
+}
+function setEscortPosture(p) { const e = ensureEscort(); if (ESCORT_POSTURES[p]) { e.posture = p; saveGame(); renderEscort(); } }
+function escortWaveCleared() {
+  const e = ensureEscort();
+  e.wave = null; e.targets = [];
+  const dn = PLANETS.find(p => p.id === e.mission.to).name;
+  log(`✅ Ambush beaten off — ${e.mission.legsLeft} leg(s) to ${dn}.`, "good");
+  toast("Attackers driven off!", "good"); sfx("good");
+  if (e.mission.legsLeft <= 0) return escortDeliver();
+  saveGame(); renderAll();
+}
+function escortDeliver() {
+  const e = ensureEscort(); const m = e.mission; if (!m) return;
+  const totalFr = e.fleet.filter(s => s.role === "freighter").length;
+  const aliveFr = e.fleet.filter(s => s.role === "freighter" && s.alive).length;
+  const frac = totalFr ? aliveFr / totalFr : 1;
+  let pay = Math.round(m.reward * frac);
+  const flawless = m.losses === 0 && e.fleet.every(s => s.role === "flagship" || s.alive);
+  if (flawless) pay += m.bonus;
+  S.res.credits += pay;
+  addRep("frontier", 4); addRep("core", 2);
+  S.location = m.to;
+  const dn = PLANETS.find(p => p.id === m.to).name;
+  log(`🏁 Convoy delivered to <span class="c">${dn}</span>! Paid ${fmt(pay)} cr (${aliveFr}/${totalFr} freighters)${flawless ? " · ✨ flawless bonus" : ""}.`, "good");
+  toast(`Escort complete: +${fmt(pay)} cr`, "good");
+  if (typeof announce === "function") announce("🏁 Convoy Delivered", `${aliveFr}/${totalFr} freighters made port. Fee ${fmt(pay)} cr${flawless ? " + flawless bonus" : ""}.`, false);
+  sfx("good");
+  e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = [];
+  saveGame(); renderAll();
+}
+function abortEscort() {
+  const e = ensureEscort(); if (!e.active) return;
+  if (escortInCombat()) return toast("You can't abandon the convoy mid-ambush.", "bad");
+  const fee = Math.min(S.res.credits, Math.round(e.mission.reward * 0.2));
+  S.res.credits -= fee;
+  log(`🚪 You abandoned the escort — forfeit ${fmt(fee)} cr.`, "bad");
+  toast("Escort abandoned.", "bad");
+  e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = [];
+  saveGame(); renderAll();
+}
+function escortFail(reason) {
+  const e = ensureEscort();
+  if (reason === "flagship") {
+    S.pirate.hull = 30; clampPirate();
+    SUBSYS.forEach(k => damageSubsys(k, 12 + Math.random() * 18));
+    log(`💥 Your flagship buckled — the convoy scattered and the contract is lost.`, "bad");
+    if (typeof announce === "function") announce("💥 Escort Failed", "Your flagship gave out and the convoy scattered. No fee.", true);
+  } else {
+    log(`🏳️ The convoy was wiped out — escort failed.`, "bad");
+    if (typeof announce === "function") announce("💥 Escort Failed", "Every ship you were guarding is gone. No fee.", true);
+  }
+  toast("Escort failed.", "bad"); sfx("explode");
+  e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = [];
+}
+function renderEscort() {
+  const el = document.getElementById("panel-escort"); if (!el) return;
+  const e = ensureEscort();
+  const hullBar = (h, m) => { const pct = Math.max(0, Math.round(h / m * 100)); const col = pct >= 60 ? "var(--good)" : pct >= 30 ? "var(--warn)" : "var(--bad)"; return `<div class="bar"><span style="width:${pct}%;background:${col}"></span></div>`; };
+  if (!e.active) {
+    if (!e.offers || !e.offers.length) refreshEscortOffers();
+    const cards = (e.offers || []).map((m, i) => {
+      const dn = PLANETS.find(p => p.id === m.to); const tl = m.threat >= 0.7 ? "🔴 High" : m.threat >= 0.45 ? "🟠 Moderate" : "🟢 Low";
+      return `<div class="card"><h4>🛡️ Convoy to ${dn ? dn.name : "?"}</h4>
+        <div class="ship-stat"><span class="k">Distance</span><span class="v">${m.dist} ly · ${m.legs} legs</span></div>
+        <div class="ship-stat"><span class="k">Threat</span><span class="v">${tl} (${Math.round(m.threat * 100)}%)</span></div>
+        <div class="ship-stat"><span class="k">Payload</span><span class="v">${fmt(m.payload)} cr cargo</span></div>
+        <div class="ship-stat"><span class="k">Reward</span><span class="v" style="color:var(--gold)">${fmt(m.reward)} cr<span class="hint"> +${fmt(m.bonus)} flawless</span></span></div>
+        <button class="btn btn-primary" onclick="acceptEscort(${i})">Accept escort</button></div>`;
+    }).join("");
+    el.innerHTML = `<div class="panel-head"><h2>🛡️ Convoy Escort</h2>
+      <div class="subtitle">Take a contract to shepherd a convoy across the lanes. You command the whole fleet — <b>pool every ship's firepower</b> and split it across the attackers you choose. Keep the freighters alive to earn the full fee.</div></div>
+      <div class="row" style="margin:8px 0"><button class="btn btn-sm" onclick="refreshEscortOffers()">↻ New postings</button></div>
+      <div class="cards">${cards || '<div class="card"><div class="hint">No convoys need an escort from here right now — try another port.</div></div>'}</div>`;
+    return;
+  }
+  const m = e.mission; const dn = PLANETS.find(p => p.id === m.to);
+  const totalFr = e.fleet.filter(s => s.role === "freighter").length;
+  const aliveFr = e.fleet.filter(s => s.role === "freighter" && s.alive).length;
+  const F = escortFirepower();
+  // fleet roster
+  const roster = e.fleet.map(sh => {
+    const alive = escShipAlive(sh), h = escShipHull(sh), hm = escShipHullMax(sh);
+    const fp = Math.round(escShipFP(sh));
+    const tag = sh.role === "flagship" ? "flagship" : sh.role === "escort" ? "escort" : "cargo";
+    return `<div class="ship-stat" style="align-items:center;${alive ? "" : "opacity:.45"}">
+      <span class="k">${sh.ico} ${sh.name} <span class="hint">${tag}</span></span>
+      <span class="v" style="min-width:120px">${alive ? hullBar(h, hm) + `<span class="hint">${h}/${hm} · 🔥${fp}</span>` : '<span style="color:var(--bad)">— lost —</span>'}</span></div>`;
+  }).join("");
+  const postBtns = Object.entries(ESCORT_POSTURES).map(([k, p]) =>
+    `<button class="btn btn-sm ${e.posture === k ? "btn-primary" : ""}" title="${p.hint}" onclick="setEscortPosture('${k}')">${p.label}</button>`).join(" ");
+  let combat = "";
+  if (escortInCombat()) {
+    const tgts = (e.targets || []).filter(i => e.wave.foes[i] && e.wave.foes[i].hp > 0);
+    const nT = tgts.length || escortAliveFoes().length;
+    const per = nT ? Math.round(F / nT) : F;
+    const foeCards = e.wave.foes.map((f, i) => {
+      if (f.hp <= 0) return `<div class="card" style="opacity:.4"><h4>${f.ico} ${f.name}</h4><div class="hint">destroyed</div></div>`;
+      const sel = (e.targets || []).includes(i);
+      return `<div class="card" style="${sel ? "border-color:var(--accent)" : ""}"><h4>${f.ico} ${f.name}</h4>
+        ${hullBar(f.hp, f.maxhp)}<div class="hint">${f.hp}/${f.maxhp} hull · ⚔️ ${f.dmg}/hit</div>
+        <div class="row"><button class="btn btn-sm ${sel ? "btn-good" : ""}" onclick="escortToggleTarget(${i})">${sel ? "✓ Targeted" : "Target"}</button>
+        <button class="btn btn-sm" onclick="escortFocus(${i})">Focus</button></div></div>`;
+    }).join("");
+    combat = `<div class="card"><h4>🔥 Fire Control — round ${e.wave.round}</h4>
+      <div class="hint">Pooled fleet firepower <b>${fmt(F)}</b> splits equally across your targets: <b>${fmt(per)}</b> each to <b>${nT}</b> ${nT === 1 ? "target" : "targets"}${tgts.length ? "" : " (all, none picked)"}. Pick targets below, then open fire. Field repair patches only your flagship and costs you the salvo.</div>
+      <div class="row" style="margin:8px 0">
+        <button class="btn btn-primary" onclick="escortFire()">🔥 Open fire</button>
+        <button class="btn btn-sm" onclick="escortRepair()" title="Patch the flagship (+${FIELD_REPAIR.hull} hull, ${matsString(FIELD_REPAIR.mats)}) — you hold fire this round">🔧 Field repair (flagship)</button>
+        ${postBtns}
+      </div>
+      <div class="cards raid-action-cards">${foeCards}</div></div>`;
+  } else {
+    combat = `<div class="card"><h4>🛰️ Underway</h4>
+      <div class="hint">${m.legsLeft > 0 ? `${m.legsLeft} leg(s) to ${dn ? dn.name : "port"}. Each leg risks an ambush (${Math.round(m.threat * 100)}% threat).` : "Final approach — bring them in."}</div>
+      <div class="row" style="margin-top:8px"><button class="btn btn-primary" onclick="escortAdvance()">${m.legsLeft > 0 ? "▶ Advance one leg" : "🏁 Deliver convoy"}</button>${postBtns}</div></div>`;
+  }
+  el.innerHTML = `<div class="panel-head"><h2>🛡️ Escort — convoy to ${dn ? dn.name : "?"}</h2>
+    <div class="subtitle">Leg ${m.legs - m.legsLeft}/${m.legs} · freighters ${aliveFr}/${totalFr} intact · reward ${fmt(m.reward)} cr${m.losses === 0 ? ` <span class="hint">(+${fmt(m.bonus)} flawless)</span>` : ""}</div></div>
+    ${combat}
+    <div class="card"><h4>🚢 Fleet — pooled firepower 🔥 ${fmt(F)}</h4>${roster}</div>
+    <div class="row" style="margin-top:8px">${escortInCombat() ? '<span class="hint">Drive off the attackers to continue.</span>' : `<button class="btn btn-sm btn-bad" onclick="abortEscort()">🚪 Abandon escort (−20% fee)</button>`}</div>`;
+}
 function renderAll() {
   if (typeof document === "undefined") return;
   checkUnlocks(); checkDisclosure(); applyTabVisibility();
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
-  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderShipPanel(); renderLog();
+  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderEscort(); renderShipPanel(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
 }
 
@@ -5992,6 +6297,8 @@ const TAB_LADDER = [
     hint: "Unlocks when you carry raw materials", test: s => RAW_IDS.some(c => (s.res[c] || 0) > 0) || s.turn >= 4 },
   { id: "raid",      blurb: "hunt pirates or prey on shipping",
     hint: "Unlocks as your trade empire grows (35,000 cr in sales) — or the moment you arm up or get attacked", test: s => (s.upgrades.cannons || 0) > 0 || s.prey || s.encounter || s.interdiction || (s.stats && s.stats.sales >= 35000) || s.turn >= 70 },
+  { id: "escort",    blurb: "command a fleet and escort convoys for hire",
+    hint: "An expert posting — prove yourself in combat first (12 kills/raids, or earn a Letter of Marque)", test: s => !!(s.unlocked && s.unlocked.raid) && !!s.pirate && (((s.pirate.bountyKills || 0) + (s.pirate.raids || 0)) >= 12 || (s.pirate.commissionsDone || 0) > 0) },
   { id: "bases",     blurb: "automated off-world production",
     hint: "Unlocks once you can afford a base (~5,000 cr)", test: s => (s.res.credits || 0) >= 5000 || Object.keys(s.bases || {}).length > 0 || s.turn >= 7 },
   { id: "politics",  blurb: "factions, influence, office & law",
@@ -6059,7 +6366,7 @@ function applyTabVisibility() {
     const base = btn.dataset.label;
     if (tabUnlocked(id)) {
       btn.style.display = ""; btn.textContent = base; btn.classList.remove("locked");
-      if (inCombat() && id !== "raid") { btn.style.opacity = "0.4"; btn.title = "⚔️ Resolve the current engagement first"; btn.classList.add("combat-lock"); }
+      if (inCombat() && id !== combatHomeTab()) { btn.style.opacity = "0.4"; btn.title = "⚔️ Resolve the current engagement first"; btn.classList.add("combat-lock"); }
       else { btn.style.opacity = ""; btn.title = ""; btn.classList.remove("combat-lock"); }
     }
     else if (teasers.has(id)) { btn.style.display = ""; btn.style.opacity = "0.45"; btn.title = "🔒 " + tabHint(id); btn.textContent = "🔒 " + base; btn.classList.add("locked"); }
@@ -6072,8 +6379,8 @@ function toggleShowAllTabs() {
   applyTabVisibility(); saveGame();
 }
 function setTab(name) {
-  // surface the combat lock early: while engaged you can't leave the Raider tab
-  if (typeof document !== "undefined" && name !== "raid" && combatLocked()) return;
+  // surface the combat lock early: while engaged you can't leave the active battle tab
+  if (typeof document !== "undefined" && name !== combatHomeTab() && combatLocked()) return;
   if (typeof document !== "undefined" && !tabUnlocked(name)) {
     if (typeof toast === "function") toast("🔒 " + (tabHint(name) || "Not available yet."), "bad");
     return;
@@ -6090,7 +6397,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.6.2";
+const APP_VERSION = "2.7.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6160,6 +6467,7 @@ function helpHTML() {
       <li>🏗️ <b>Bases</b> — automated off-world production.</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions.</li>
+      <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Keep the freighters alive across each leg to earn the full fee; only your flagship can field-repair. Unlocks once you've proven yourself in combat.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
     </ul>
 
@@ -6485,6 +6793,7 @@ function init() {
   if (S.allies === undefined) S.allies = null;
   if (S.interdiction === undefined) S.interdiction = null;
   if (S.haven === undefined) S.haven = null;
+  if (S.escort === undefined) S.escort = null;
   if (S.commission === undefined) S.commission = null;
   UPGRADES.forEach(u => { if (S.upgrades[u.id] == null) S.upgrades[u.id] = 0; });  // backfill new upgrades (cannons)
   syncObjectives();
@@ -6528,6 +6837,7 @@ Object.assign(window, {
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, repairShip,
+  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortToggleTarget, escortFocus, setEscortPosture, abortEscort,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,

@@ -1,5 +1,5 @@
 {
-  "version": "2.6.2",
+  "version": "2.7.0",
   "saveVersion": "v2",
-  "notes": "Base trade: import and export are now mutually exclusive per commodity, so a finished good can no longer be imported from one colony and exported back to another in the same loop (wasting freight). Finished goods default to import; click a good's export chip to flip it the other way (locked direction shows ⇄). Raw materials still export as before."
+  "notes": "New expert tab: 🛡️ Convoy Escort. Once you've proven yourself in combat (12 kills/raids or a Letter of Marque), take a contract to shepherd a convoy across the lanes. You command a whole fleet — your flagship plus armed escorts and freighters — and pool every ship's firepower, splitting it equally across the attackers you target. Beat off ambushes leg by leg; keep the freighters alive for the full fee (flawless runs pay a bonus). Only the flagship can field-repair, and doing so costs you the salvo."
 }
