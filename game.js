@@ -5979,10 +5979,43 @@ const ESCORT_ESCORT_HULL = 55;      // base hull per escort (× ship class)
 const ESCORT_FREIGHTER_HULL = 42;
 const ESCORT_FOE_DMG = 9;           // base per-round damage a foe deals a fleet ship
 const ESCORT_POSTURES = {
-  screen:   { off: 0.85, def: 0.70, label: "🛡️ Screen",  hint: "escorts shield the convoy — less firepower, far less incoming" },
+  screen:   { off: 0.85, def: 0.70, label: "🛡️ Screen",  hint: "escorts body-block the freighters — less firepower, far less cargo lost" },
   balanced: { off: 1.00, def: 1.00, label: "⚖️ Balanced", hint: "even footing" },
   press:    { off: 1.18, def: 1.30, label: "⚔️ Press",    hint: "pour on fire — but the convoy takes more hits" },
 };
+// Attacker archetypes — each prefers a different fleet target, telegraphed as
+// "intent" so you can prioritise the foe about to hit something you can't lose.
+const ESCORT_FOE_ROLES = {
+  raider:      { ico: "🏴‍☠️", name: "Raider",      pref: "freighter" },
+  interceptor: { ico: "⚡",   name: "Interceptor", pref: "escort" },
+  gunship:     { ico: "💢",   name: "Gunship",     pref: "flagship" },
+  elite:       { ico: "☠️",   name: "Marauder Lead", pref: "value" },
+};
+function escortFoeRole(f) { return ESCORT_FOE_ROLES[f && f.role] || ESCORT_FOE_ROLES.raider; }
+function escortTargetValue(sh) { return sh.role === "freighter" ? 5 : sh.role === "escort" ? 3 : 2; }   // what an attacker covets
+function chooseIntent(f, screen) {
+  const fleet = escortFleet();
+  const alive = fleet.map((s, i) => ({ s, i })).filter(o => escShipAlive(o.s));
+  if (!alive.length) return -1;
+  const want = escortFoeRole(f).pref;
+  let cands;
+  if (want === "value") cands = alive.slice().sort((a, b) => escortTargetValue(b.s) - escortTargetValue(a.s)).slice(0, Math.max(1, Math.ceil(alive.length / 2)));
+  else { cands = alive.filter(o => o.s.role === want); if (!cands.length) cands = alive; }
+  let chosen = want === "escort"
+    ? cands.slice().sort((a, b) => escShipFP(b.s) - escShipFP(a.s))[0]   // interceptors hit your biggest guns
+    : cands[Math.floor(Math.random() * cands.length)];
+  // body-block: under a Screen posture, fire bound for a freighter is intercepted by an escort
+  if (screen && chosen.s.role === "freighter") {
+    const escorts = alive.filter(o => o.s.role === "escort");
+    if (escorts.length && Math.random() < 0.8) chosen = escorts[Math.floor(Math.random() * escorts.length)];
+  }
+  return chosen.i;
+}
+function assignIntents() {
+  const e = ensureEscort(), w = e.wave; if (!w) return;
+  const screen = e.posture === "screen";
+  w.foes.forEach(f => { if (f.hp > 0) f.intent = chooseIntent(f, screen); else f.intent = -1; });
+}
 function ensureEscort() {
   if (!S.escort) S.escort = { active: false, offers: [], mission: null, fleet: [], wave: null, posture: "balanced", targets: [] };
   return S.escort;
@@ -6049,16 +6082,27 @@ function spawnEscortWave() {
   const F = Math.max(20, escortFirepower());
   const n = Math.max(2, Math.min(5, Math.round(2 + m.threat * 3)));
   const lvl = Math.max(1, Math.min(5, 1 + Math.round(m.threat * 3 + veterancy() * 0.05)));
+  const rollRole = () => { const r = Math.random(); return r < 0.55 ? "raider" : r < 0.8 ? "interceptor" : "gunship"; };
   const foes = [];
   for (let i = 0; i < n; i++) {
     const p = genPirate(lvl); const cls = SHIP_CLASSES[p.cls] || SHIP_CLASSES.corvette;
     const maxhp = Math.round(Math.max(18, F * (0.45 + Math.random() * 0.35)));
-    foes.push({ name: p.name, ico: p.ico, cls: p.cls, faction: p.faction, strength: p.strength,
+    foes.push({ name: p.name, ico: p.ico, cls: p.cls, faction: p.faction, strength: p.strength, role: rollRole(),
       hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.7 + m.threat)) });
   }
+  // a dangerous wave is anchored by an elite leader: tougher hull, heavier guns
+  let elite = false;
+  if (m.threat >= 0.6 && Math.random() < 0.6) {
+    const p = genPirate(Math.min(5, lvl + 1)); const cls = SHIP_CLASSES[p.cls] || SHIP_CLASSES.cruiser;
+    const maxhp = Math.round(Math.max(40, F * (0.9 + Math.random() * 0.5)));
+    foes.unshift({ name: p.name, ico: ESCORT_FOE_ROLES.elite.ico, cls: p.cls, faction: p.faction, strength: p.strength, role: "elite",
+      hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.9 + m.threat) * 1.3) });
+    elite = true;
+  }
   e.wave = { foes, round: 1 }; e.targets = [];
-  log(`🚨 Ambush! ${n} raiders fall on the convoy — pool your guns and pick your targets.`, "bad");
-  toast(`Ambush — ${n} hostiles!`, "bad"); sfx("bad");
+  assignIntents();
+  log(`🚨 Ambush! ${foes.length} hostiles fall on the convoy${elite ? " — led by a ☠️ Marauder Lead" : ""}. Watch their intent and pick your targets.`, "bad");
+  toast(`Ambush — ${foes.length} hostiles!`, "bad"); sfx("bad");
 }
 function escortAdvance() {
   const e = ensureEscort(); if (!e.active) return;
@@ -6102,21 +6146,15 @@ function escortFire() {
   escortEnemyTurn();
   if (e.active) { saveGame(); renderEscort(); }
 }
-function pickEscortVictim() {
-  const alive = escortFleet().filter(escShipAlive);
-  if (!alive.length) return null;
-  const weight = sh => (sh.role === "freighter" ? 5 : sh.role === "escort" ? 3 : 2);
-  const total = alive.reduce((s, sh) => s + weight(sh), 0);
-  let r = Math.random() * total;
-  for (const sh of alive) { r -= weight(sh); if (r <= 0) return sh; }
-  return alive[0];
-}
 function escortEnemyTurn() {
   const e = ensureEscort(); const w = e.wave; if (!w) return;
   const defMod = escortPosture().def;
   w.foes.filter(f => f.hp > 0).forEach(f => {
     if (!e.active) return;                                  // fleet already lost — stop
-    const sh = pickEscortVictim(); if (!sh) return;
+    const fleet = escortFleet();
+    let sh = (f.intent != null && f.intent >= 0 && fleet[f.intent] && escShipAlive(fleet[f.intent])) ? fleet[f.intent] : null;
+    if (!sh) sh = fleet[chooseIntent(f, e.posture === "screen")];   // intended target gone — re-pick now
+    if (!sh) return;
     const dmg = Math.max(1, Math.round(f.dmg * (0.7 + Math.random() * 0.6) * defMod));
     if (sh.role === "flagship") {
       S.pirate.hull = Math.max(0, S.pirate.hull - dmg); clampPirate();
@@ -6134,6 +6172,7 @@ function escortEnemyTurn() {
   if (!e.active) return;
   if (w) w.round++;
   if (!escortFleet().some(s => s.role !== "flagship" && s.alive)) return escortFail("convoy");
+  assignIntents();                                          // telegraph next round's targets
 }
 function escortRepair() {
   const e = ensureEscort(); if (!e.wave) return;
@@ -6149,7 +6188,7 @@ function escortRepair() {
   escortEnemyTurn();
   if (e.active) { saveGame(); renderEscort(); }
 }
-function setEscortPosture(p) { const e = ensureEscort(); if (ESCORT_POSTURES[p]) { e.posture = p; saveGame(); renderEscort(); } }
+function setEscortPosture(p) { const e = ensureEscort(); if (ESCORT_POSTURES[p]) { e.posture = p; if (e.wave) assignIntents(); saveGame(); renderEscort(); } }
 function escortWaveCleared() {
   const e = ensureEscort();
   e.wave = null; e.targets = [];
@@ -6227,13 +6266,18 @@ function renderEscort() {
   const totalFr = e.fleet.filter(s => s.role === "freighter").length;
   const aliveFr = e.fleet.filter(s => s.role === "freighter" && s.alive).length;
   const F = escortFirepower();
+  // who is being targeted this round (telegraphed intent)
+  const threatenedBy = {};
+  if (escortInCombat()) e.wave.foes.forEach(f => { if (f.hp > 0 && f.intent != null && f.intent >= 0) (threatenedBy[f.intent] = threatenedBy[f.intent] || []).push(escortFoeRole(f).ico); });
   // fleet roster
-  const roster = e.fleet.map(sh => {
+  const roster = e.fleet.map((sh, fi) => {
     const alive = escShipAlive(sh), h = escShipHull(sh), hm = escShipHullMax(sh);
     const fp = Math.round(escShipFP(sh));
     const tag = sh.role === "flagship" ? "flagship" : sh.role === "escort" ? "escort" : "cargo";
+    const inc = threatenedBy[fi];
+    const mark = alive && inc ? ` <span title="incoming fire from ${inc.length}" style="color:var(--bad)">⤳${inc.join("")}</span>` : "";
     return `<div class="ship-stat" style="align-items:center;${alive ? "" : "opacity:.45"}">
-      <span class="k">${sh.ico} ${sh.name} <span class="hint">${tag}</span></span>
+      <span class="k">${sh.ico} ${sh.name} <span class="hint">${tag}</span>${mark}</span>
       <span class="v" style="min-width:120px">${alive ? hullBar(h, hm) + `<span class="hint">${h}/${hm} · 🔥${fp}</span>` : '<span style="color:var(--bad)">— lost —</span>'}</span></div>`;
   }).join("");
   const postBtns = Object.entries(ESCORT_POSTURES).map(([k, p]) =>
@@ -6246,13 +6290,16 @@ function renderEscort() {
     const foeCards = e.wave.foes.map((f, i) => {
       if (f.hp <= 0) return `<div class="card" style="opacity:.4"><h4>${f.ico} ${f.name}</h4><div class="hint">destroyed</div></div>`;
       const sel = (e.targets || []).includes(i);
+      const role = escortFoeRole(f);
+      const aim = (f.intent != null && f.intent >= 0 && e.fleet[f.intent]) ? `${e.fleet[f.intent].ico} ${e.fleet[f.intent].name}` : "—";
       return `<div class="card" style="${sel ? "border-color:var(--accent)" : ""}"><h4>${f.ico} ${f.name}</h4>
+        <div class="hint">${role.ico} ${role.name} · aiming at <b>${aim}</b></div>
         ${hullBar(f.hp, f.maxhp)}<div class="hint">${f.hp}/${f.maxhp} hull · ⚔️ ${f.dmg}/hit</div>
         <div class="row"><button class="btn btn-sm ${sel ? "btn-good" : ""}" onclick="escortToggleTarget(${i})">${sel ? "✓ Targeted" : "Target"}</button>
         <button class="btn btn-sm" onclick="escortFocus(${i})">Focus</button></div></div>`;
     }).join("");
     combat = `<div class="card"><h4>🔥 Fire Control — round ${e.wave.round}</h4>
-      <div class="hint">Pooled fleet firepower <b>${fmt(F)}</b> splits equally across your targets: <b>${fmt(per)}</b> each to <b>${nT}</b> ${nT === 1 ? "target" : "targets"}${tgts.length ? "" : " (all, none picked)"}. Pick targets below, then open fire. Field repair patches only your flagship and costs you the salvo.</div>
+      <div class="hint">Pooled fleet firepower <b>${fmt(F)}</b> splits equally across your targets: <b>${fmt(per)}</b> each to <b>${nT}</b> ${nT === 1 ? "target" : "targets"}${tgts.length ? "" : " (all, none picked)"}. Each foe shows who it's <b>aiming at</b> — kill the one about to hit a freighter first. <b>🛡️ Screen</b> makes escorts body-block the freighters. Field repair patches only your flagship and costs you the salvo.</div>
       <div class="row" style="margin:8px 0">
         <button class="btn btn-primary" onclick="escortFire()">🔥 Open fire</button>
         <button class="btn btn-sm" onclick="escortRepair()" title="Patch the flagship (+${FIELD_REPAIR.hull} hull, ${matsString(FIELD_REPAIR.mats)}) — you hold fire this round">🔧 Field repair (flagship)</button>
@@ -6397,7 +6444,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.7.0";
+const APP_VERSION = "2.8.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6467,7 +6514,7 @@ function helpHTML() {
       <li>🏗️ <b>Bases</b> — automated off-world production.</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions.</li>
-      <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Keep the freighters alive across each leg to earn the full fee; only your flagship can field-repair. Unlocks once you've proven yourself in combat.</li>
+      <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Keep the freighters alive across each leg for the full fee; only your flagship can field-repair. Unlocks once you've proven yourself in combat.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
     </ul>
 

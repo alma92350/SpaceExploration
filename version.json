@@ -1,5 +1,5 @@
 {
-  "version": "2.7.0",
+  "version": "2.8.0",
   "saveVersion": "v2",
-  "notes": "New expert tab: 🛡️ Convoy Escort. Once you've proven yourself in combat (12 kills/raids or a Letter of Marque), take a contract to shepherd a convoy across the lanes. You command a whole fleet — your flagship plus armed escorts and freighters — and pool every ship's firepower, splitting it equally across the attackers you target. Beat off ambushes leg by leg; keep the freighters alive for the full fee (flawless runs pay a bonus). Only the flagship can field-repair, and doing so costs you the salvo."
+  "notes": "Convoy Escort phase 2 — tactical command. Attackers now come in archetypes that telegraph who they're aiming at: 🏴‍☠️ Raiders hunt your freighters, ⚡ Interceptors go for your biggest-gun escorts, 💢 Gunships press your flagship, and a ☠️ Marauder Lead anchors dangerous waves. Each foe card shows its target and threatened fleet ships are flagged, so you can kill the one about to hit cargo first. The 🛡️ Screen stance now genuinely body-blocks — your escorts intercept fire bound for the freighters."
 }
