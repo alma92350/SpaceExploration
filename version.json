@@ -1,5 +1,5 @@
 {
-  "version": "2.8.0",
+  "version": "2.9.0",
   "saveVersion": "v2",
-  "notes": "Convoy Escort phase 2 — tactical command. Attackers now come in archetypes that telegraph who they're aiming at: 🏴‍☠️ Raiders hunt your freighters, ⚡ Interceptors go for your biggest-gun escorts, 💢 Gunships press your flagship, and a ☠️ Marauder Lead anchors dangerous waves. Each foe card shows its target and threatened fleet ships are flagged, so you can kill the one about to hit cargo first. The 🛡️ Screen stance now genuinely body-blocks — your escorts intercept fire bound for the freighters."
+  "notes": "Convoy Escort phase 3 — the journey. Each leg is now a real cycle on the clock and burns fuel, and the lanes grow more dangerous the closer you get to port. Completed runs build your Escort Guild reputation: rank up from Freelancer to Fleet Commander for steadily better pay and a larger escort fleet (up to 4 escorts). Elite Marauder Leads now wield telegraphed battlefield abilities — 💥 Alpha Strike (a doubled hit), 📣 Rally (the whole wave hits harder) and 📡 Jammer (saps your next salvo) — so read their cards and prioritise."
 }
