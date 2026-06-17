@@ -1,5 +1,5 @@
 {
-  "version": "2.10.1",
+  "version": "2.11.0",
   "saveVersion": "v2",
-  "notes": "Escort fix: your flagship now spends ammo when it fires, just like in a raid. Each fleet salvo, the flagship fires the best weapon it can afford (energy/torpedo/antimatter cost their ammo; kinetic is free) — and if you run those rounds dry, it drops back to kinetic with reduced firepower. The flagship's current weapon and ammo cost are shown in the fleet roster and Fire Control."
+  "notes": "Escort combat depth: you can now pick which system your pooled fire hits on every target — 🎯 Hull (full damage), 🔫 Weapons (blunt their return fire), 🛡️ Defenses (strip armor so your hits land harder) or 🚀 Engines. Cripple every attacker's engines and the convoy can break off and run to the next leg. And destroyed attackers now drop their bounty, credits and cargo — salvage on top of the contract fee."
 }

@@ -29,6 +29,15 @@ Pooled firepower `escortFirepower()` = Σ each living ship's FP × posture offen
 ## Combat
 - **Equal split** (the signature mechanic): selected targets each take
   `F / |targets|`. Focus-fire = one target; spread = suppress many.
+- **Sub-system targeting** (applies to every selected foe): 🎯 Hull = full
+  damage; 🔫 Weapons / 🛡️ Defenses / 🚀 Engines deal half damage but blunt the
+  foe's return fire (`dmgMul`), strip its armor so your hits land harder
+  (`vuln`), or cripple its drive (`eng`).
+- **Break off**: once every *living* attacker's engines are crippled none can
+  pursue, so the convoy can disengage and continue to the next leg (forfeiting
+  any loot from the survivors).
+- **Loot**: a destroyed attacker drops its bounty + credits (to your purse) and
+  cargo (into the hold if there's room) — on top of the contract fee.
 - **Postures**: 🛡️ Screen (escorts body-block freighters via intent redirection,
   −offense), ⚖️ Balanced, ⚔️ Press (+offense, +incoming).
 - **Enemy archetypes & telegraphed intent**: 🏴‍☠️ Raider→freighters,

@@ -6105,7 +6105,7 @@ function acceptEscort(idx) {
   e.active = true;
   e.mission = Object.assign({}, m, { legsLeft: m.legs, losses: 0 });
   e.fleet = buildEscortFleet();
-  e.wave = null; e.posture = "balanced"; e.targets = []; e.offers = []; e.jam = false;
+  e.wave = null; e.posture = "balanced"; e.targets = []; e.offers = []; e.jam = false; e.fireTarget = "hull";
   const dn = PLANETS.find(p => p.id === m.to).name;
   log(`🛡️ Accepted an escort: convoy to <span class="c">${dn}</span> — ${m.legs} legs, reward ${fmt(m.reward)} cr.`, "event");
   toast("Escort contract accepted.", "good");
@@ -6122,7 +6122,9 @@ function spawnEscortWave() {
     const p = genPirate(lvl); const cls = SHIP_CLASSES[p.cls] || SHIP_CLASSES.corvette;
     const maxhp = Math.round(Math.max(18, F * (0.45 + Math.random() * 0.35)));
     foes.push({ name: p.name, ico: p.ico, cls: p.cls, faction: p.faction, strength: p.strength, role: rollRole(),
-      hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.7 + m.threat)) });
+      hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.7 + m.threat)),
+      eng: cls.engines || 1, engMax: cls.engines || 1, dmgMul: 1, vuln: 1,
+      cargo: p.cargo || {}, credits: p.credits || 0, bounty: p.bounty || 0 });
   }
   // a dangerous wave is anchored by an elite leader: tougher hull, heavier guns
   let elite = false;
@@ -6131,7 +6133,9 @@ function spawnEscortWave() {
     const maxhp = Math.round(Math.max(40, F * (0.9 + Math.random() * 0.5)));
     foes.unshift({ name: p.name, ico: ESCORT_FOE_ROLES.elite.ico, cls: p.cls, faction: p.faction, strength: p.strength, role: "elite",
       ability: pick(Object.keys(ESCORT_BOSS_ABILITIES)),
-      hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.9 + m.threat) * 1.3) });
+      hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.9 + m.threat) * 1.3),
+      eng: (cls.engines || 2) + 1, engMax: (cls.engines || 2) + 1, dmgMul: 1, vuln: 1,
+      cargo: p.cargo || {}, credits: Math.round((p.credits || 0) * 1.5), bounty: Math.round((p.bounty || 0) * 1.5) });
     elite = true;
   }
   e.wave = { foes, round: 1 }; e.targets = [];
@@ -6166,6 +6170,32 @@ function escortToggleTarget(i) {
   saveGame(); renderEscort();
 }
 function escortFocus(i) { const e = ensureEscort(); if (e.wave && e.wave.foes[i] && e.wave.foes[i].hp > 0) { e.targets = [i]; saveGame(); renderEscort(); } }
+function setEscortTarget(t) { const e = ensureEscort(); if (COMBAT_TARGETS[t]) { e.fireTarget = t; saveGame(); renderEscort(); } }
+// what you'd recover from wrecking a foe: its bounty + credits + cargo (into the hold if there's room)
+function escortAwardLoot(foe, tally) {
+  const cr = (foe.bounty || 0) + (foe.credits || 0);
+  S.res.credits += cr; tally.credits += cr;
+  Object.keys(foe.cargo || {}).forEach(c => {
+    const q = Math.min(foe.cargo[c] || 0, cargoFree());
+    if (q > 0) { S.res[c] = (S.res[c] || 0) + q; tally.cargo[c] = (tally.cargo[c] || 0) + q; }
+  });
+}
+// a foe's drive is crippled once its engines are shot out; with every attacker pinned the convoy can slip away
+function escortFoeCrippled(f) { return (f.eng || 0) <= 0; }
+function escortCanBreakOff() {
+  const w = S.escort && S.escort.wave; if (!w) return false;
+  const live = w.foes.filter(f => f.hp > 0);
+  return live.length > 0 && live.every(escortFoeCrippled);
+}
+function escortBreakOff() {
+  const e = ensureEscort(); const w = e.wave; if (!w) return;
+  if (!escortCanBreakOff()) return toast("The attackers can still give chase — cripple their 🚀 engines first.", "bad");
+  e.wave = null; e.targets = [];
+  log(`🚀 Their drives crippled, the convoy slips away from the engagement and presses on.`, "good");
+  toast("Convoy broke off — attackers left behind.", "good"); sfx("travel");
+  if (e.mission.legsLeft <= 0) return escortDeliver();
+  saveGame(); renderAll();
+}
 function escortFire() {
   const e = ensureEscort(); const w = e.wave; if (!w) return;
   let targets = (e.targets || []).filter(i => w.foes[i] && w.foes[i].hp > 0);
@@ -6178,15 +6208,24 @@ function escortFire() {
     const fw = escortFlagWeapon(); payAmmo(fw); noteWeaponUse && noteWeaponUse(fw);
   }
   const per = F / targets.length;
+  const tgtType = (e.fireTarget && COMBAT_TARGETS[e.fireTarget]) ? e.fireTarget : "hull";
   const killed = [];
+  const loot = { credits: 0, cargo: {} };
+  const effects = [];
   targets.forEach(i => {
     const f = w.foes[i];
-    const dmg = Math.max(1, Math.round(per * (0.85 + Math.random() * 0.3)));
+    const hullFactor = tgtType === "hull" ? 1 : 0.5;                 // sub-targeting trades raw damage for an effect
+    const dmg = Math.max(1, Math.round(per * hullFactor * (f.vuln || 1) * (0.85 + Math.random() * 0.3)));
     f.hp = Math.max(0, f.hp - dmg);
-    if (f.hp <= 0) killed.push(f);
+    if (f.hp > 0) {
+      if (tgtType === "weapons") { f.dmgMul = Math.max(0.3, (f.dmgMul || 1) - 0.22); effects.push(`${f.ico}🔫`); }
+      else if (tgtType === "defense") { f.vuln = Math.min(1.6, (f.vuln || 1) + 0.15); effects.push(`${f.ico}🛡️`); }
+      else if (tgtType === "engines" && (f.eng || 0) > 0) { f.eng = Math.max(0, f.eng - 1); effects.push(`${f.ico}🚀${escortFoeCrippled(f) ? "✖" : ""}`); }
+    } else { killed.push(f); escortAwardLoot(f, loot); }
   });
   sfx("salvo");
-  log(`🔥 Fleet salvo: ${fmt(F)} firepower split across ${targets.length} target(s) — ${fmt(per)} each${killed.length ? ` · destroyed ${killed.map(f => f.ico).join("")}` : ""}.`, killed.length ? "good" : "");
+  const salvage = Object.entries(loot.cargo).map(([c, q]) => `${q}${COM[c].ico}`).join(" ");
+  log(`🔥 Fleet salvo (${COMBAT_TARGETS[tgtType].ico} ${COMBAT_TARGETS[tgtType].name}): ${fmt(F)} firepower / ${targets.length} → ${fmt(per)} each${effects.length ? ` · ${effects.join(" ")}` : ""}${killed.length ? ` · destroyed ${killed.map(f => f.ico).join("")}` : ""}${loot.credits ? ` · +${fmt(loot.credits)} cr${salvage ? " salvage " + salvage : ""}` : ""}.`, killed.length ? "good" : "");
   e.targets = (e.targets || []).filter(i => w.foes[i] && w.foes[i].hp > 0);
   if (!escortInCombat()) return escortWaveCleared();
   escortEnemyTurn();
@@ -6210,7 +6249,7 @@ function escortEnemyTurn() {
     let sh = (f.intent != null && f.intent >= 0 && fleet[f.intent] && escShipAlive(fleet[f.intent])) ? fleet[f.intent] : null;
     if (!sh) sh = fleet[chooseIntent(f, e.posture === "screen")];   // intended target gone — re-pick now
     if (!sh) return;
-    let dmg = Math.max(1, Math.round(f.dmg * (0.7 + Math.random() * 0.6) * defMod * rally));
+    let dmg = Math.max(1, Math.round(f.dmg * (f.dmgMul || 1) * (0.7 + Math.random() * 0.6) * defMod * rally));
     if (f._alpha) { dmg = Math.round(dmg * 2); f._alpha = false; log(`💥 ${f.ico} ${f.name} unloads an alpha strike!`, "bad"); }
     if (sh.role === "flagship") {
       S.pirate.hull = Math.max(0, S.pirate.hull - dmg); clampPirate();
@@ -6380,17 +6419,27 @@ function renderEscort() {
       const role = escortFoeRole(f);
       const aim = (f.intent != null && f.intent >= 0 && e.fleet[f.intent]) ? `${e.fleet[f.intent].ico} ${e.fleet[f.intent].name}` : "—";
       const ab = f.ability && ESCORT_BOSS_ABILITIES[f.ability] ? ` · <span style="color:var(--warn)">${ESCORT_BOSS_ABILITIES[f.ability].ico} ${ESCORT_BOSS_ABILITIES[f.ability].name}</span>` : "";
+      const subs = `🚀 ${escortFoeCrippled(f) ? '<span style="color:var(--good)">crippled</span>' : `${f.eng}/${f.engMax}`}`
+        + (((f.dmgMul || 1) < 1) ? ` · 🔫 −${Math.round((1 - f.dmgMul) * 100)}%` : "")
+        + (((f.vuln || 1) > 1) ? ` · 🛡️ +${Math.round((f.vuln - 1) * 100)}% dmg taken` : "");
+      const haul = Object.keys(f.cargo || {}).length ? ` · 📦 ${Object.keys(f.cargo).map(c => COM[c].ico).join("")}` : "";
       return `<div class="card" style="${sel ? "border-color:var(--accent)" : ""}"><h4>${f.ico} ${f.name}</h4>
         <div class="hint">${role.ico} ${role.name} · aiming at <b>${aim}</b>${ab}</div>
-        ${hullBar(f.hp, f.maxhp)}<div class="hint">${f.hp}/${f.maxhp} hull · ⚔️ ${f.dmg}/hit</div>
+        ${hullBar(f.hp, f.maxhp)}<div class="hint">${f.hp}/${f.maxhp} hull · ⚔️ ${Math.round(f.dmg * (f.dmgMul || 1))}/hit · ${subs}</div>
+        <div class="hint">bounty ${fmt((f.bounty || 0) + (f.credits || 0))} cr${haul}</div>
         <div class="row"><button class="btn btn-sm ${sel ? "btn-good" : ""}" onclick="escortToggleTarget(${i})">${sel ? "✓ Targeted" : "Target"}</button>
         <button class="btn btn-sm" onclick="escortFocus(${i})">Focus</button></div></div>`;
     }).join("");
+    const tgtBtns = Object.entries(COMBAT_TARGETS).map(([k, t]) =>
+      `<button class="btn btn-sm ${(e.fireTarget || "hull") === k ? "btn-primary" : ""}" title="${t.hint}" onclick="setEscortTarget('${k}')">${t.ico} ${t.name}</button>`).join(" ");
+    const canRun = escortCanBreakOff();
     const fw = WEAPONS[escortFlagWeapon()];
     combat = `<div class="card"><h4>🔥 Fire Control — round ${e.wave.round}</h4>
-      <div class="hint">Pooled fleet firepower <b>${fmt(F)}</b> splits equally across your targets: <b>${fmt(per)}</b> each to <b>${nT}</b> ${nT === 1 ? "target" : "targets"}${tgts.length ? "" : " (all, none picked)"}. Each foe shows who it's <b>aiming at</b> — kill the one about to hit a freighter first. <b>🛡️ Screen</b> makes escorts body-block the freighters. Your flagship spends <b>${fw.ico} ${fw.name}</b> ammo per salvo${Object.keys(fw.ammo).length ? ` (${matsString(fw.ammo)})` : " (free)"}; run dry and it drops to kinetic. Field repair patches only your flagship and costs you the salvo.</div>
+      <div class="hint">Pooled fleet firepower <b>${fmt(F)}</b> splits equally across your targets: <b>${fmt(per)}</b> each to <b>${nT}</b> ${nT === 1 ? "target" : "targets"}${tgts.length ? "" : " (all, none picked)"}. Pick what to hit on every target — <b>${COMBAT_TARGETS.hull.ico} Hull</b> kills fastest, while <b>${COMBAT_TARGETS.weapons.ico} Weapons</b>/<b>${COMBAT_TARGETS.defense.ico} Defenses</b>/<b>${COMBAT_TARGETS.engines.ico} Engines</b> deal half damage but blunt fire, strip armor, or cripple drives. <b>Cripple every attacker's engines</b> and the convoy can break off and run. Destroyed foes drop their bounty &amp; cargo. Your flagship spends <b>${fw.ico} ${fw.name}</b> ammo per salvo${Object.keys(fw.ammo).length ? ` (${matsString(fw.ammo)})` : " (free)"}.</div>
+      <div class="row" style="margin:6px 0"><span class="hint">Target system:</span> ${tgtBtns}</div>
       <div class="row" style="margin:8px 0">
         <button class="btn btn-primary" onclick="escortFire()">🔥 Open fire</button>
+        <button class="btn btn-sm ${canRun ? "btn-good" : ""}" ${canRun ? "" : "disabled"} title="${canRun ? "Every attacker's drive is crippled — slip away and continue" : "Cripple every attacker's 🚀 engines to break off"}" onclick="escortBreakOff()">🚀 Break off &amp; run</button>
         <button class="btn btn-sm" onclick="escortRepair()" title="Patch the flagship (+${FIELD_REPAIR.hull} hull, ${matsString(FIELD_REPAIR.mats)}) — you hold fire this round">🔧 Field repair (flagship)</button>
         ${postBtns}
       </div>
@@ -6538,7 +6587,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.10.1";
+const APP_VERSION = "2.11.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6979,7 +7028,7 @@ Object.assign(window, {
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, repairShip,
-  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, abortEscort,
+  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
