@@ -36,8 +36,10 @@ Pooled firepower `escortFirepower()` = Σ each living ship's FP × posture offen
 - **Break off**: once every *living* attacker's engines are crippled none can
   pursue, so the convoy can disengage and continue to the next leg (forfeiting
   any loot from the survivors).
-- **Loot**: a destroyed attacker drops its bounty + credits (to your purse) and
-  cargo (into the hold if there's room) — on top of the contract fee.
+- **Loot**: a destroyed attacker drops a fraction (`ESCORT_LOOT_FRAC = 0.3`) of
+  its bounty + credits (to your purse) and cargo (into the hold) — the rest is
+  slag. On top of the contract fee, but deliberately tempered so escorting isn't
+  a money fountain.
 - **Postures**: 🛡️ Screen (escorts body-block freighters via intent redirection,
   −offense), ⚖️ Balanced, ⚔️ Press (+offense, +incoming).
 - **Enemy archetypes & telegraphed intent**: 🏴‍☠️ Raider→freighters,
@@ -49,8 +51,10 @@ Pooled firepower `escortFirepower()` = Σ each living ship's FP × posture offen
 - **Field repair** patches only the flagship and costs that round's salvo.
 
 ## The journey (phase 3)
-- Each leg = one cycle (`endTurn`) + `ESCORT_LEG_FUEL` fuel; ambush risk ramps as
-  the convoy nears its destination. Low fuel blocks the next leg.
+- Each leg = one cycle (`endTurn`) + fuel. Per-leg fuel = `fuelCost(dest) × 1.15
+  / legs`, i.e. the whole run costs about a normal one-way jump plus 15% for the
+  convoy, spread over the legs (stored as `mission.legFuel`). Ambush risk ramps
+  as the convoy nears its destination; low fuel blocks the next leg.
 - **Between-leg yard repair** (phase 4): out of combat, repair escorts &
   freighters to full for credits + metals + electronics — a sink that keeps long
   runs viable.

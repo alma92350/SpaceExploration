@@ -6023,7 +6023,8 @@ function assignIntents() {
 }
 // Phase 3: an Escort Guild reputation track — completed runs raise your rank,
 // which pays better and lets you field a larger fleet.
-const ESCORT_LEG_FUEL = 3;          // each leg of the journey burns fuel and a cycle
+const ESCORT_LEG_FUEL = 3;          // fallback per-leg fuel (old saves); contracts carry their own legFuel
+const ESCORT_LOOT_FRAC = 0.3;       // you recover only a share of a wreck's bounty/cargo (the rest is slag)
 const ESCORT_RANKS = [
   { rep: 0,   name: "Freelancer",      mult: 1.00, escorts: 2 },
   { rep: 60,  name: "Contractor",      mult: 1.12, escorts: 2 },
@@ -6072,8 +6073,10 @@ function genEscortContract(dest) {
   const threat = Math.min(0.92, 0.22 + pirateLevel(dest.id) * 0.11 + dist * 0.018 + Math.random() * 0.14);
   const legs = Math.max(2, Math.min(5, Math.round(dist / 3) + 1));
   const payload = Math.round((2000 + dist * 400) * (0.8 + Math.random() * 0.5));
-  const reward = Math.round((payload * 0.5 + dist * 350) * (1 + threat) * escortRank().mult);
-  return { from: here.id, to: dest.id, dist, threat, legs, payload, reward, bonus: Math.round(reward * 0.3) };
+  const reward = Math.round((payload * 0.4 + dist * 280) * (1 + threat) * escortRank().mult);
+  // the convoy burns about as much fuel as a normal one-way jump (+15% for the escort), split over the legs
+  const legFuel = Math.max(1, Math.round(fuelCost(dest.id) * 1.15 / legs));
+  return { from: here.id, to: dest.id, dist, threat, legs, payload, reward, bonus: Math.round(reward * 0.3), legFuel };
 }
 function refreshEscortOffers() {
   const e = ensureEscort();
@@ -6149,8 +6152,9 @@ function escortAdvance() {
   if (inCombat()) return toast("Finish your current engagement first.", "bad");
   const m = e.mission;
   if (m.legsLeft <= 0) return escortDeliver();
-  if ((S.res.fuel || 0) < ESCORT_LEG_FUEL) return toast(`The convoy needs ${ESCORT_LEG_FUEL} fuel to make the next leg.`, "bad");
-  S.res.fuel -= ESCORT_LEG_FUEL;
+  const legFuel = m.legFuel || ESCORT_LEG_FUEL;
+  if ((S.res.fuel || 0) < legFuel) return toast(`The convoy needs ${legFuel} fuel to make the next leg.`, "bad");
+  S.res.fuel -= legFuel;
   m.legsLeft--;
   endTurn(true);                                          // a leg of the journey is a cycle on the clock
   // deeper in the run, through worse space, the lanes get more dangerous
@@ -6173,10 +6177,10 @@ function escortFocus(i) { const e = ensureEscort(); if (e.wave && e.wave.foes[i]
 function setEscortTarget(t) { const e = ensureEscort(); if (COMBAT_TARGETS[t]) { e.fireTarget = t; saveGame(); renderEscort(); } }
 // what you'd recover from wrecking a foe: its bounty + credits + cargo (into the hold if there's room)
 function escortAwardLoot(foe, tally) {
-  const cr = (foe.bounty || 0) + (foe.credits || 0);
+  const cr = Math.round(((foe.bounty || 0) + (foe.credits || 0)) * ESCORT_LOOT_FRAC);
   S.res.credits += cr; tally.credits += cr;
   Object.keys(foe.cargo || {}).forEach(c => {
-    const q = Math.min(foe.cargo[c] || 0, cargoFree());
+    const q = Math.min(Math.floor((foe.cargo[c] || 0) * ESCORT_LOOT_FRAC), cargoFree());
     if (q > 0) { S.res[c] = (S.res[c] || 0) + q; tally.cargo[c] = (tally.cargo[c] || 0) + q; }
   });
 }
@@ -6381,7 +6385,7 @@ function renderEscort() {
     const rk = escortRank(), nx = escortNextRank();
     const guild = `<div class="ship-stat"><span class="k">🎖️ Guild rank</span><span class="v"><b>${rk.name}</b> <span class="hint">${Math.round((rk.mult - 1) * 100)}% pay · ${rk.escorts} escorts${nx ? ` · ${Math.max(0, nx.rep - (S.escortRep || 0))} rep to ${nx.name}` : " · top rank"}</span></span></div>`;
     el.innerHTML = `<div class="panel-head"><h2>🛡️ Convoy Escort</h2>
-      <div class="subtitle">Take a contract to shepherd a convoy across the lanes. You command the whole fleet — <b>pool every ship's firepower</b> and split it across the attackers you choose. Keep the freighters alive to earn the full fee. Each leg is a cycle on the clock and burns ${ESCORT_LEG_FUEL} ⛽.</div></div>
+      <div class="subtitle">Take a contract to shepherd a convoy across the lanes. You command the whole fleet — <b>pool every ship's firepower</b> and split it across the attackers you choose. Keep the freighters alive to earn the full fee. Each leg is a cycle on the clock and burns fuel (about a normal one-way jump, +15%, split over the legs).</div></div>
       <div class="card">${guild}</div>
       <div class="row" style="margin:8px 0"><button class="btn btn-sm" onclick="refreshEscortOffers()">↻ New postings</button></div>
       <div class="cards">${cards || '<div class="card"><div class="hint">No convoys need an escort from here right now — try another port.</div></div>'}</div>`;
@@ -6445,11 +6449,12 @@ function renderEscort() {
       </div>
       <div class="cards raid-action-cards">${foeCards}</div></div>`;
   } else {
-    const lowFuel = (S.res.fuel || 0) < ESCORT_LEG_FUEL;
+    const legFuel = m.legFuel || ESCORT_LEG_FUEL;
+    const lowFuel = (S.res.fuel || 0) < legFuel;
     const rc = escortRepairCost();
     combat = `<div class="card"><h4>🛰️ Underway</h4>
-      <div class="hint">${m.legsLeft > 0 ? `${m.legsLeft} leg(s) to ${dn ? dn.name : "port"}. Each leg is a cycle and burns ${ESCORT_LEG_FUEL} ⛽ (you hold ${fmt(S.res.fuel || 0)}); risk of ambush climbs as you near the destination.` : "Final approach — bring them in."}</div>
-      <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${m.legsLeft > 0 && lowFuel ? "disabled" : ""} onclick="escortAdvance()">${m.legsLeft > 0 ? `▶ Advance one leg (${ESCORT_LEG_FUEL} ⛽)` : "🏁 Deliver convoy"}</button>
+      <div class="hint">${m.legsLeft > 0 ? `${m.legsLeft} leg(s) to ${dn ? dn.name : "port"}. Each leg is a cycle and burns ${legFuel} ⛽ (you hold ${fmt(S.res.fuel || 0)}); risk of ambush climbs as you near the destination.` : "Final approach — bring them in."}</div>
+      <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${m.legsLeft > 0 && lowFuel ? "disabled" : ""} onclick="escortAdvance()">${m.legsLeft > 0 ? `▶ Advance one leg (${legFuel} ⛽)` : "🏁 Deliver convoy"}</button>
         ${rc.miss > 0 ? `<button class="btn btn-sm" onclick="escortFleetRepair()" title="Repair the convoy's escorts & freighters to full">🔧 Repair convoy (${fmt(rc.credits)} cr · ${rc.metals}⛓️ · ${rc.electronics}🖥️)</button>` : ""}
         ${postBtns}</div>
       ${m.legsLeft > 0 && lowFuel ? '<div class="hint" style="color:var(--bad)">Not enough fuel for the next leg — refuel at the Market.</div>' : ""}</div>`;
@@ -6587,7 +6592,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.11.0";
+const APP_VERSION = "2.11.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
