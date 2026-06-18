@@ -1,5 +1,5 @@
 {
-  "version": "2.12.0",
+  "version": "2.12.1",
   "saveVersion": "v2",
-  "notes": "Escort: outfit your convoy. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in the new Outfit panel to bolt attack and defense onto any ship — your flagship or the freighters you're guarding. Weapons & drones add flat firepower/mitigation; AI cores multiply with diminishing returns. Finally a way to harden the freighters attackers love to pick off. Assets are consumed for the run (a credit/material sink); re-rig dockside or between legs for free, or mid-ambush at the cost of that round."
+  "notes": "Escort fix: the top resource/cargo bar (and Ship panel) now update immediately when you assign weapons, drones or AI cores to the convoy — previously only the Outfit panel refreshed, so your remaining stock looked stale until the next render. Same fix applied to escort firing (ammo), field repair and convoy yard repair."
 }

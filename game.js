@@ -6072,14 +6072,14 @@ function escortOutfitAdd(fi, slot) {
   else return toast(`No ${COM[asset].name} available.`, "bad");
   shipOutfit(sh)[slot]++;
   if (escortInCombat()) e.pendingRedeploy = true;
-  saveGame(); renderEscort();
+  saveGame(); renderAll();                                  // refresh the hold/cargo readouts everywhere, not just the panel
 }
 function escortOutfitRemove(fi, slot) {
   const e = ensureEscort(); const sh = e.fleet[fi]; if (!sh || !OUTFIT_SLOT_ASSET[slot]) return;
   const o = shipOutfit(sh); if (o[slot] <= 0) return;
   o[slot]--; escortPool()[OUTFIT_SLOT_ASSET[slot]]++;       // back to the fleet pool (not the hold — it's spent)
   if (escortInCombat()) e.pendingRedeploy = true;
-  saveGame(); renderEscort();
+  saveGame(); renderAll();
 }
 function escortBraceRound() {
   const e = ensureEscort(); if (!e.wave) return;
@@ -6290,7 +6290,7 @@ function escortFire() {
   e.targets = (e.targets || []).filter(i => w.foes[i] && w.foes[i].hp > 0);
   if (!escortInCombat()) return escortWaveCleared();
   escortEnemyTurn();
-  if (e.active) { saveGame(); renderEscort(); }
+  if (e.active) { saveGame(); renderAll(); }                // ammo/loot changed the hold — refresh all readouts
 }
 function escortEnemyTurn() {
   const e = ensureEscort(); const w = e.wave; if (!w) return;
@@ -6343,7 +6343,7 @@ function escortRepair() {
   log(`🔧 Field patch: +${Math.round(S.pirate.hull - before)} hull — the fleet held fire as the raiders pressed in.`, "");
   sfx("repair");
   escortEnemyTurn();
-  if (e.active) { saveGame(); renderEscort(); }
+  if (e.active) { saveGame(); renderAll(); }                // field-repair spent materials — refresh all readouts
 }
 function setEscortPosture(p) { const e = ensureEscort(); if (ESCORT_POSTURES[p]) { e.posture = p; if (e.wave) assignIntents(); saveGame(); renderEscort(); } }
 // Between legs (out of combat) you can patch up the convoy's escorts & freighters
@@ -6361,7 +6361,7 @@ function escortFleetRepair() {
   escortFleet().forEach(sh => { if (sh.role !== "flagship" && sh.alive) sh.hull = sh.hullMax; });
   log(`🔧 Convoy yard repair: patched the escorts & freighters for ${fmt(c.credits)} cr.`, "good");
   toast("Convoy repaired.", "good"); sfx("repair");
-  saveGame(); renderEscort();
+  saveGame(); renderAll();                                  // spent credits + materials — refresh all readouts
 }
 function escortWaveCleared() {
   const e = ensureEscort();
@@ -6677,7 +6677,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.12.0";
+const APP_VERSION = "2.12.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
