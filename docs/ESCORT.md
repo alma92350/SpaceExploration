@@ -61,6 +61,23 @@ Pooled firepower `escortFirepower()` = Σ each living ship's FP × posture offen
 - Delivery pays `reward × survivingFreighters/total` (+flawless bonus), moves the
   player to the destination, and grants guild reputation.
 
+## Outfitting the convoy (assign weapons / drones / AI cores)
+Spend your hold of 🔫 weapons, 🛸 combat drones and 🧠 AI cores to bolt
+**attack** and **defense** onto any fleet ship (flagship or the freighters/escorts
+you guard). Assets are **consumed** (a money sink); once committed they sit in a
+fleet pool you can shuffle between ships, and are gone when the run ends.
+
+- 🔫 Weapons → flat attack (`OUTFIT_WPN_AP`).
+- 🛸 Drones → flat attack (strike) **or** mitigation (screen, `OUTFIT_DRONE_DP`).
+- 🧠 AI cores → **multiply** a ship's attack or defense with diminishing returns
+  (`outfitAiBoost`, caps at +60%); mitigation overall caps at 60%.
+- Per-ship capacity by hull (`shipOutfitCap`): flagship 8, freighters 2, escorts
+  scale with class — harden a couple of ships, not all.
+- `escOutfitAttack` feeds `escShipFP` (more pooled firepower); `escOutfitMitig`
+  cuts incoming damage in `escortEnemyTurn` (best spent on freighters).
+- Re-rig dockside or between legs for free; **mid-ambush re-rigging forfeits the
+  round** (`pendingRedeploy` → `escortBraceRound`).
+
 ## Escort Guild ranks
 `ESCORT_RANKS`: Freelancer (0) → Contractor (60) → Convoy Master (160) → Fleet
 Commander (320). Higher rank → reward multiplier (up to ×1.40) and more escorts.

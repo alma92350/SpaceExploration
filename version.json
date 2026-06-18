@@ -1,5 +1,5 @@
 {
-  "version": "2.11.1",
+  "version": "2.12.0",
   "saveVersion": "v2",
-  "notes": "Escort balance: credit gains tempered (contract fees trimmed and salvage from wrecks cut to ~30% of value) so escorting isn't a money fountain. Fuel now matters — each leg burns about a normal one-way jump's fuel plus 15% for the convoy, split across the legs (instead of a flat 3). In-fight flagship repair already uses the same materials as a normal raid field patch."
+  "notes": "Escort: outfit your convoy. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in the new Outfit panel to bolt attack and defense onto any ship — your flagship or the freighters you're guarding. Weapons & drones add flat firepower/mitigation; AI cores multiply with diminishing returns. Finally a way to harden the freighters attackers love to pick off. Assets are consumed for the run (a credit/material sink); re-rig dockside or between legs for free, or mid-ambush at the cost of that round."
 }

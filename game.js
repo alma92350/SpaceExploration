@@ -6040,8 +6040,64 @@ const ESCORT_BOSS_ABILITIES = {
   rally: { ico: "📣", name: "Rally",        hint: "can spur the whole wave to hit harder" },
   jam:   { ico: "📡", name: "Jammer",       hint: "can sap your next salvo's firepower" },
 };
+/* ---- Convoy outfitting: spend weapons / combat drones / AI cores to bolt
+   attack & defense onto any fleet ship. Assets are CONSUMED (a money sink);
+   committed assets sit in a fleet pool you can shuffle between ships freely,
+   and are gone for good when the run ends. AI cores multiply (diminishing). ---- */
+const OUTFIT_WPN_AP = 4;        // firepower per weapon bolted on
+const OUTFIT_DRONE_AP = 3;      // firepower per strike drone
+const OUTFIT_DRONE_DP = 0.06;   // mitigation per interceptor drone (pre-AI)
+const OUTFIT_AI_MAX = 0.6;      // AI multiplier caps at +60%
+const OUTFIT_AI_DECAY = 0.55;
+const OUTFIT_MIT_CAP = 0.6;     // a ship can never dodge more than 60% of a hit
+const OUTFIT_SLOT_ASSET = { wpn: "weapons", datk: "drones", ddef: "drones", aiatk: "ai", aidef: "ai" };
+function outfitAiBoost(n) { return OUTFIT_AI_MAX * (1 - Math.pow(OUTFIT_AI_DECAY, n || 0)); }
+function shipOutfit(sh) { if (!sh.outfit) sh.outfit = { wpn: 0, datk: 0, ddef: 0, aiatk: 0, aidef: 0 }; return sh.outfit; }
+function escortPool() { const e = ensureEscort(); if (!e.pool) e.pool = { weapons: 0, drones: 0, ai: 0 }; return e.pool; }
+function shipOutfitUsed(sh) { const o = shipOutfit(sh); return o.wpn + o.datk + o.ddef + o.aiatk + o.aidef; }
+function shipOutfitCap(sh) {
+  if (sh.role === "flagship") return 8;
+  if (sh.role === "freighter") return 2;
+  return 2 + Math.max(1, CLASS_ORDER.indexOf(sh.cls || "corvette"));   // bigger escorts hold more
+}
+function escOutfitAttack(sh) { const o = shipOutfit(sh); return (o.wpn * OUTFIT_WPN_AP + o.datk * OUTFIT_DRONE_AP) * (1 + outfitAiBoost(o.aiatk)); }
+function escOutfitMitig(sh) { const o = shipOutfit(sh); return Math.min(OUTFIT_MIT_CAP, o.ddef * OUTFIT_DRONE_DP * (1 + outfitAiBoost(o.aidef))); }
+function escortOutfitAdd(fi, slot) {
+  const e = ensureEscort(); const sh = e.fleet[fi]; if (!sh || !OUTFIT_SLOT_ASSET[slot]) return;
+  if (sh.role !== "flagship" && !sh.alive) return toast("That ship is gone.", "bad");
+  if (shipOutfitUsed(sh) >= shipOutfitCap(sh)) return toast(`${sh.name} is at capacity (${shipOutfitCap(sh)} systems).`, "bad");
+  const asset = OUTFIT_SLOT_ASSET[slot]; const pool = escortPool();
+  if (pool[asset] > 0) pool[asset]--;                       // pull from the fleet pool first (already committed)
+  else if ((S.res[asset] || 0) > 0) S.res[asset]--;        // else consume one from the hold
+  else return toast(`No ${COM[asset].name} available.`, "bad");
+  shipOutfit(sh)[slot]++;
+  if (escortInCombat()) e.pendingRedeploy = true;
+  saveGame(); renderEscort();
+}
+function escortOutfitRemove(fi, slot) {
+  const e = ensureEscort(); const sh = e.fleet[fi]; if (!sh || !OUTFIT_SLOT_ASSET[slot]) return;
+  const o = shipOutfit(sh); if (o[slot] <= 0) return;
+  o[slot]--; escortPool()[OUTFIT_SLOT_ASSET[slot]]++;       // back to the fleet pool (not the hold — it's spent)
+  if (escortInCombat()) e.pendingRedeploy = true;
+  saveGame(); renderEscort();
+}
+function escortBraceRound() {
+  const e = ensureEscort(); if (!e.wave) return;
+  e.pendingRedeploy = false;
+  log("🔧 Under fire, the convoy re-rigs its loadout and braces — the attackers get a free pass.", "");
+  escortEnemyTurn();
+  if (e.active) { saveGame(); renderEscort(); }
+}
+function escortDiscardOutfit(verb) {
+  const e = ensureEscort();
+  let n = (e.pool ? e.pool.weapons + e.pool.drones + e.pool.ai : 0);
+  (e.fleet || []).forEach(sh => { n += shipOutfitUsed(sh); });
+  e.pool = { weapons: 0, drones: 0, ai: 0 };
+  return n;   // total assets expended (already deducted from hold) — caller may log
+}
 function ensureEscort() {
-  if (!S.escort) S.escort = { active: false, offers: [], mission: null, fleet: [], wave: null, posture: "balanced", targets: [] };
+  if (!S.escort) S.escort = { active: false, offers: [], mission: null, fleet: [], wave: null, posture: "balanced", targets: [], pool: { weapons: 0, drones: 0, ai: 0 } };
+  if (!S.escort.pool) S.escort.pool = { weapons: 0, drones: 0, ai: 0 };
   return S.escort;
 }
 function escortPosture() { return ESCORT_POSTURES[(S.escort && S.escort.posture) || "balanced"] || ESCORT_POSTURES.balanced; }
@@ -6062,8 +6118,8 @@ function escFlagshipFP() {
 }
 function escShipFP(sh) {
   if (!escShipAlive(sh)) return 0;
-  if (sh.role === "flagship") return escFlagshipFP();
-  return sh.str * (0.5 + 0.5 * (sh.hull / sh.hullMax));   // a battered ship shoots less
+  const base = sh.role === "flagship" ? escFlagshipFP() : sh.str * (0.5 + 0.5 * (sh.hull / sh.hullMax));   // a battered ship shoots less
+  return base + escOutfitAttack(sh);                        // bolted-on weapons/drones add flat firepower
 }
 function escortFirepower() { return Math.round(escortFleet().reduce((s, sh) => s + escShipFP(sh), 0) * escortPosture().off); }
 function escortAliveFoes() { const w = S.escort && S.escort.wave; return w ? w.foes.filter(f => f.hp > 0) : []; }
@@ -6098,7 +6154,7 @@ function buildEscortFleet() {
     fleet.push({ role: "freighter", name: `Freighter ${i + 1}`, ico: "📦",
       hullMax: ESCORT_FREIGHTER_HULL, str: ESCORT_FREIGHTER_FP, alive: true });
   }
-  fleet.forEach(sh => { if (sh.role !== "flagship") sh.hull = sh.hullMax; });
+  fleet.forEach(sh => { if (sh.role !== "flagship") sh.hull = sh.hullMax; sh.outfit = { wpn: 0, datk: 0, ddef: 0, aiatk: 0, aidef: 0 }; });
   return fleet;
 }
 function acceptEscort(idx) {
@@ -6109,6 +6165,7 @@ function acceptEscort(idx) {
   e.mission = Object.assign({}, m, { legsLeft: m.legs, losses: 0 });
   e.fleet = buildEscortFleet();
   e.wave = null; e.posture = "balanced"; e.targets = []; e.offers = []; e.jam = false; e.fireTarget = "hull";
+  e.pool = { weapons: 0, drones: 0, ai: 0 }; e.pendingRedeploy = false;
   const dn = PLANETS.find(p => p.id === m.to).name;
   log(`🛡️ Accepted an escort: convoy to <span class="c">${dn}</span> — ${m.legs} legs, reward ${fmt(m.reward)} cr.`, "event");
   toast("Escort contract accepted.", "good");
@@ -6255,6 +6312,7 @@ function escortEnemyTurn() {
     if (!sh) return;
     let dmg = Math.max(1, Math.round(f.dmg * (f.dmgMul || 1) * (0.7 + Math.random() * 0.6) * defMod * rally));
     if (f._alpha) { dmg = Math.round(dmg * 2); f._alpha = false; log(`💥 ${f.ico} ${f.name} unloads an alpha strike!`, "bad"); }
+    dmg = Math.max(1, Math.round(dmg * (1 - escOutfitMitig(sh))));   // interceptor drones / evasion AI soak the hit
     if (sh.role === "flagship") {
       S.pirate.hull = Math.max(0, S.pirate.hull - dmg); clampPirate();
       if (Math.random() < 0.4) damageSubsys(pick(SUBSYS), dmg * 0.6);
@@ -6334,7 +6392,9 @@ function escortDeliver() {
   toast(`Escort complete: +${fmt(pay)} cr`, "good");
   if (typeof announce === "function") announce("🏁 Convoy Delivered", `${aliveFr}/${totalFr} freighters made port. Fee ${fmt(pay)} cr${flawless ? " + flawless bonus" : ""}.`, false);
   sfx("good");
-  e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = []; e.jam = false;
+  const spent = escortDiscardOutfit();
+  if (spent > 0) log(`🔧 The convoy expended ${spent} outfitted system(s) over the run.`, "");
+  e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = []; e.jam = false; e.pendingRedeploy = false;
   if (escortRankIndex() > beforeRank) {
     const rk = escortRank();
     log(`🎖️ Escort Guild promotion — you're now a <b>${rk.name}</b>: ${Math.round((rk.mult - 1) * 100)}% better pay and a fleet of ${rk.escorts} escorts.`, "event");
@@ -6350,7 +6410,8 @@ function abortEscort() {
   S.res.credits -= fee;
   log(`🚪 You abandoned the escort — forfeit ${fmt(fee)} cr.`, "bad");
   toast("Escort abandoned.", "bad");
-  e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = [];
+  escortDiscardOutfit();
+  e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = []; e.pendingRedeploy = false;
   saveGame(); renderAll();
 }
 function escortFail(reason) {
@@ -6365,7 +6426,8 @@ function escortFail(reason) {
     if (typeof announce === "function") announce("💥 Escort Failed", "Every ship you were guarding is gone. No fee.", true);
   }
   toast("Escort failed.", "bad"); sfx("explode");
-  e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = [];
+  escortDiscardOutfit();
+  e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = []; e.pendingRedeploy = false;
 }
 function renderEscort() {
   const el = document.getElementById("panel-escort"); if (!el) return;
@@ -6406,8 +6468,10 @@ function renderEscort() {
     if (sh.role === "flagship" && alive) { const fw = WEAPONS[escortFlagWeapon()]; tag += ` · ${fw.ico}${Object.keys(fw.ammo).length ? " " + matsString(fw.ammo) : ""}`; }
     const inc = threatenedBy[fi];
     const mark = alive && inc ? ` <span title="incoming fire from ${inc.length}" style="color:var(--bad)">⤳${inc.join("")}</span>` : "";
+    const oa = Math.round(escOutfitAttack(sh)), om = Math.round(escOutfitMitig(sh) * 100);
+    const obadge = alive && (oa || om) ? ` <span class="hint">${oa ? "➕🔥" + oa : ""}${om ? " 🛡️" + om + "%" : ""}</span>` : "";
     return `<div class="ship-stat" style="align-items:center;${alive ? "" : "opacity:.45"}">
-      <span class="k">${sh.ico} ${sh.name} <span class="hint">${tag}</span>${mark}</span>
+      <span class="k">${sh.ico} ${sh.name} <span class="hint">${tag}</span>${mark}${obadge}</span>
       <span class="v" style="min-width:120px">${alive ? hullBar(h, hm) + `<span class="hint">${h}/${hm} · 🔥${fp}</span>` : '<span style="color:var(--bad)">— lost —</span>'}</span></div>`;
   }).join("");
   const postBtns = Object.entries(ESCORT_POSTURES).map(([k, p]) =>
@@ -6441,8 +6505,11 @@ function renderEscort() {
     combat = `<div class="card"><h4>🔥 Fire Control — round ${e.wave.round}</h4>
       <div class="hint">Pooled fleet firepower <b>${fmt(F)}</b> splits equally across your targets: <b>${fmt(per)}</b> each to <b>${nT}</b> ${nT === 1 ? "target" : "targets"}${tgts.length ? "" : " (all, none picked)"}. Pick what to hit on every target — <b>${COMBAT_TARGETS.hull.ico} Hull</b> kills fastest, while <b>${COMBAT_TARGETS.weapons.ico} Weapons</b>/<b>${COMBAT_TARGETS.defense.ico} Defenses</b>/<b>${COMBAT_TARGETS.engines.ico} Engines</b> deal half damage but blunt fire, strip armor, or cripple drives. <b>Cripple every attacker's engines</b> and the convoy can break off and run. Destroyed foes drop their bounty &amp; cargo. Your flagship spends <b>${fw.ico} ${fw.name}</b> ammo per salvo${Object.keys(fw.ammo).length ? ` (${matsString(fw.ammo)})` : " (free)"}.</div>
       <div class="row" style="margin:6px 0"><span class="hint">Target system:</span> ${tgtBtns}</div>
+      ${e.pendingRedeploy ? '<div class="hint" style="color:var(--warn)">⚠️ Re-rigging under fire — you must brace this round (the attackers get a free pass).</div>' : ""}
       <div class="row" style="margin:8px 0">
-        <button class="btn btn-primary" onclick="escortFire()">🔥 Open fire</button>
+        ${e.pendingRedeploy
+          ? `<button class="btn btn-primary" onclick="escortBraceRound()">🛡️ Brace (end round)</button>`
+          : `<button class="btn btn-primary" onclick="escortFire()">🔥 Open fire</button>`}
         <button class="btn btn-sm ${canRun ? "btn-good" : ""}" ${canRun ? "" : "disabled"} title="${canRun ? "Every attacker's drive is crippled — slip away and continue" : "Cripple every attacker's 🚀 engines to break off"}" onclick="escortBreakOff()">🚀 Break off &amp; run</button>
         <button class="btn btn-sm" onclick="escortRepair()" title="Patch the flagship (+${FIELD_REPAIR.hull} hull, ${matsString(FIELD_REPAIR.mats)}) — you hold fire this round">🔧 Field repair (flagship)</button>
         ${postBtns}
@@ -6459,10 +6526,28 @@ function renderEscort() {
         ${postBtns}</div>
       ${m.legsLeft > 0 && lowFuel ? '<div class="hint" style="color:var(--bad)">Not enough fuel for the next leg — refuel at the Market.</div>' : ""}</div>`;
   }
+  // ---- outfit panel: spend weapons / drones / AI cores onto fleet ships ----
+  const pool = escortPool();
+  const slot = (fi, key, lbl) => { const v = shipOutfit(e.fleet[fi])[key]; return `<span class="hint" title="${lbl}">${lbl}${v}</span><button class="btn btn-sm" onclick="escortOutfitRemove(${fi},'${key}')">−</button><button class="btn btn-sm" onclick="escortOutfitAdd(${fi},'${key}')">+</button>`; };
+  const outfitRows = e.fleet.map((sh, fi) => {
+    if (sh.role !== "flagship" && !sh.alive) return "";
+    const used = shipOutfitUsed(sh), cap = shipOutfitCap(sh);
+    const ap = Math.round(escOutfitAttack(sh)), mit = Math.round(escOutfitMitig(sh) * 100);
+    return `<div class="ship-stat" style="flex-wrap:wrap;gap:6px;align-items:center">
+      <span class="k">${sh.ico} ${sh.name} <span class="hint">${used}/${cap}</span></span>
+      <span class="v" style="display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+        ${slot(fi, "wpn", "🔫")} ${slot(fi, "datk", "🛸⚔️")} ${slot(fi, "ddef", "🛸🛡️")} ${slot(fi, "aiatk", "🧠⚔️")} ${slot(fi, "aidef", "🧠🛡️")}
+        <span class="hint">→ 🔥${ap} 🛡️${mit}%</span></span></div>`;
+  }).join("");
+  const outfit = `<div class="card"><h4>🔧 Outfit convoy</h4>
+    <div class="hint">Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores to bolt attack (🔥) and defense (🛡️) onto any ship — your flagship or the freighters you guard. Weapons/drones add flat points; AI cores multiply with diminishing returns. Assets are <b>consumed</b> for the run.${escortInCombat() ? " Re-rigging mid-ambush forfeits the round (you brace)." : ""}</div>
+    <div class="hint" style="margin:4px 0">In hold: 🔫${fmt(S.res.weapons || 0)} 🛸${fmt(S.res.drones || 0)} 🧠${fmt(S.res.ai || 0)} · Fleet pool: 🔫${pool.weapons} 🛸${pool.drones} 🧠${pool.ai} <span class="hint">(🛸⚔️ strike / 🛸🛡️ screen · 🧠⚔️ targeting / 🧠🛡️ evasion)</span></div>
+    ${outfitRows}</div>`;
   el.innerHTML = `<div class="panel-head"><h2>🛡️ Escort — convoy to ${dn ? dn.name : "?"}</h2>
     <div class="subtitle">Leg ${m.legs - m.legsLeft}/${m.legs} · freighters ${aliveFr}/${totalFr} intact · reward ${fmt(m.reward)} cr${m.losses === 0 ? ` <span class="hint">(+${fmt(m.bonus)} flawless)</span>` : ""}</div></div>
     ${combat}
     <div class="card"><h4>🚢 Fleet — pooled firepower 🔥 ${fmt(F)}</h4>${roster}</div>
+    ${outfit}
     <div class="row" style="margin-top:8px">${escortInCombat() ? '<span class="hint">Drive off the attackers to continue.</span>' : `<button class="btn btn-sm btn-bad" onclick="abortEscort()">🚪 Abandon escort (−20% fee)</button>`}</div>`;
 }
 function renderAll() {
@@ -6592,7 +6677,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.11.1";
+const APP_VERSION = "2.12.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6662,7 +6747,7 @@ function helpHTML() {
       <li>🏗️ <b>Bases</b> — automated off-world production.</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions.</li>
-      <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Unlocks once you've proven yourself in combat.</li>
+      <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Unlocks once you've proven yourself in combat.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
     </ul>
 
@@ -7033,7 +7118,7 @@ Object.assign(window, {
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, repairShip,
-  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort,
+  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, escortOutfitAdd, escortOutfitRemove, escortBraceRound,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
   establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
