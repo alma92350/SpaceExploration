@@ -6349,7 +6349,7 @@ function setEscortPosture(p) { const e = ensureEscort(); if (ESCORT_POSTURES[p])
 // Between legs (out of combat) you can patch up the convoy's escorts & freighters
 // at a yard cost — a credit/material sink that keeps long, dangerous runs viable.
 function escortFleetMissing() { return escortFleet().reduce((s, sh) => s + (sh.role !== "flagship" && sh.alive ? (sh.hullMax - sh.hull) : 0), 0); }
-function escortRepairCost() { const miss = escortFleetMissing(); return { miss, credits: miss * 7, metals: Math.ceil(miss / 14), electronics: Math.ceil(miss / 22) }; }
+function escortRepairCost() { const miss = escortFleetMissing(); return { miss, credits: Math.round(miss * 7 * 1.5), metals: Math.ceil(miss / 14) * 2, electronics: Math.ceil(miss / 22) * 2 }; }
 function escortFleetRepair() {
   const e = ensureEscort(); if (!e.active) return;
   if (escortInCombat()) return toast("You can't run repairs mid-ambush.", "bad");
@@ -6677,7 +6677,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.12.1";
+const APP_VERSION = "2.12.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

@@ -1,5 +1,5 @@
 {
-  "version": "2.12.1",
+  "version": "2.12.2",
   "saveVersion": "v2",
-  "notes": "Escort fix: the top resource/cargo bar (and Ship panel) now update immediately when you assign weapons, drones or AI cores to the convoy — previously only the Outfit panel refreshed, so your remaining stock looked stale until the next render. Same fix applied to escort firing (ammo), field repair and convoy yard repair."
+  "notes": "Balance: between-leg convoy yard repair is pricier — material cost (metals & electronics) doubled (+100%) and the credit cost raised +50%. Patching your escorts and freighters now bites harder, so it's a real trade-off rather than a cheap reset."
 }
