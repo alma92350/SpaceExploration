@@ -32,7 +32,9 @@ player's cut) = `max(0.1, 1 − Σ ally.share)`. Sworn-enemy bands (Hostile) ref
 to rally at all.
 
 ## Escort recruitment
-Friendly/neutral bands hire on as escort ships (`escortRecruitBand`, max 2):
+Friendly/neutral bands hire on as escort ships (`escortRecruitBand`, up to
+`ESCORT_MAX_HIRED` = 5; `escortDismissBand` releases one to free a slot, no
+refund, returning any outfitted gear to the fleet pool):
 `escortRecruitFee = (800 + level·700)·(1 − rep/100·0.4)` — friends cheaper. The
 hired ship's hull/firepower scale with band level. Each leg, `escortBetrayalCheck`
 rolls desertion at `bandBetrayChance = clamp(0..0.5, 0.26 − rep/100·0.32 −

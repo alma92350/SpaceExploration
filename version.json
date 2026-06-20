@@ -1,5 +1,5 @@
 {
-  "version": "2.15.0",
+  "version": "2.15.1",
   "saveVersion": "v2",
-  "notes": "Pirate bands polish: every crew now has a personality — 🤑 Greedy, 🛡️ Loyal, ⚔️ Bold, 🦊 Cunning, ⚖️ Honorable — that shapes the loot cut they demand, their hire fee, how readily they desert, and how hard they fight. Bands can hold blood feuds: rivals refuse to serve together, and siding with one angers the other. Beat a pirate crew down and you can now Spare them for a big standing boost instead of finishing them. And a greedy/cunning turncoat no longer just bolts — it makes off with one of your freighters."
+  "notes": "Fixes: bases can now import 🛸 Combat Drones from colonies (they're a Component, so they were wrongly excluded from the import list). Escort hiring raised from 2 to 5 pirate bands, and you can now Dismiss a hired crew to free a slot for another (no refund; any gear you outfitted on them returns to the fleet pool)."
 }

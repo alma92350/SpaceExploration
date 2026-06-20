@@ -3894,6 +3894,8 @@ const BASE_TRADE_THROUGHPUT = 30;    // units per commodity per route per cycle
 const TRADE_SEIZE_CHANCE = 0.18;     // per-cycle customs risk for routing contraband
 function worldDist(a, b) { const pa = PLANETS.find(p => p.id === a); return (pa && pa.distances[b]) || 1; }
 function isFinishedGood(c) { return ["Finished", "Luxury", "Strategic"].includes(COM[c].tier) || c === "medicine"; }
+// what a base will import from colonies: finished goods + combat drones (a Component colonies manufacture)
+function baseImportable(c) { return isFinishedGood(c) || c === "drones"; }
 function colonyFinishedReserve(col, c) {
   if (c === "goods") return col.pop;                       // mirror the colony's own happiness reserve
   if (c === "luxury" || c === "medicine") return Math.ceil(col.pop / 3);
@@ -3906,7 +3908,7 @@ function tradeImpOk(b, c) { return !(b.trade && b.trade.imp && b.trade.imp[c] ==
 // (imported from one colony then exported back to another, paying freight each way).
 // Only finished goods can be imported, so they're the only ones that can conflict;
 // when both flags are on (the default) import wins and export is locked out.
-function baseImporting(b, c) { return isFinishedGood(c) && tradeImpOk(b, c); }
+function baseImporting(b, c) { return baseImportable(c) && tradeImpOk(b, c); }
 function baseExporting(b, c) { return tradeExpOk(b, c) && !baseImporting(b, c); }
 function tradeColOk(b, cid) { return !(b.trade && b.trade.cols && b.trade.cols[cid] === false); }
 let _trade = null;
@@ -3956,7 +3958,7 @@ function runBaseImport(col, cid, cp) {
     const dist = worldDist(bid, cid);
     if (!tradeColOk(b, cid)) return;
     const tariff = col.faction ? 1.25 : 1;
-    CARGO_IDS.filter(isFinishedGood).forEach(c => {
+    CARGO_IDS.filter(baseImportable).forEach(c => {
       if (!tradeImpOk(b, c)) return;
       const reserve = colonyFinishedReserve(col, c) + (col.orders[c] || 0);
       const surplus = (col.storage[c] || 0) - reserve;
@@ -5742,7 +5744,7 @@ function setBaseTradeGood(pid, dir, c) {
   if (on) {                                          // turn this direction off — the good is no longer traded that way
     if (isExp) t.exp[c] = false; else t.imp[c] = false;
   } else {                                           // turn it on, and disable the opposite so it can't loop
-    if (isExp) { delete t.exp[c]; if (isFinishedGood(c)) t.imp[c] = false; }
+    if (isExp) { delete t.exp[c]; if (baseImportable(c)) t.imp[c] = false; }
     else       { delete t.imp[c]; t.exp[c] = false; }
   }
   saveGame(); renderBases();
@@ -5850,7 +5852,7 @@ function renderBases() {
       } else {
         // eligible commodities to offer as toggles
         const expGoods = CARGO_IDS.filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.orders[c] || 0) > 0));
-        const impGoods = CARGO_IDS.filter(isFinishedGood).filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.storage[c] || 0) > 0));
+        const impGoods = CARGO_IDS.filter(baseImportable).filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.storage[c] || 0) > 0));
         const chip = (dir, c) => {
           const on = dir === "imp" ? baseImporting(b, c) : baseExporting(b, c);
           const otherActive = !on && (dir === "imp" ? baseExporting(b, c) : baseImporting(b, c));   // locked by the opposite direction
@@ -5862,7 +5864,7 @@ function renderBases() {
         const colRows = cols.map(([cid, col]) => {
           const cpl = PLANETS.find(p => p.id === cid), on = tradeColOk(b, cid), dist = worldDist(pid, cid);
           const needs = CARGO_IDS.filter(c => (col.orders[c] || 0) > (col.storage[c] || 0)).map(c => COM[c].ico).join("") || "—";
-          const offers = CARGO_IDS.filter(c => isFinishedGood(c) && (col.storage[c] || 0) > colonyFinishedReserve(col, c) + (col.orders[c] || 0)).map(c => COM[c].ico).join("") || "—";
+          const offers = CARGO_IDS.filter(c => baseImportable(c) && (col.storage[c] || 0) > colonyFinishedReserve(col, c) + (col.orders[c] || 0)).map(c => COM[c].ico).join("") || "—";
           return `<div class="ship-stat" style="align-items:center"><span class="k"><button class="btn btn-sm ${t.on && on ? "btn-good" : ""}" ${t.on ? "" : "disabled"} onclick="setBaseTradeColony('${pid}','${cid}')">${on ? "✓" : "✗"} ${cpl.name}</button> <span class="hint">${dist} ly${col.faction ? " · " + FACTIONS[col.faction].ico + " tariff" : ""}</span></span>
             <span class="v hint">needs ${needs} · offers ${offers}</span></div>`;
         }).join("");
@@ -6142,6 +6144,7 @@ function renderColonies() {
    field repair); the player commands a *fleet*, not a single ship.
    ============================================================ */
 const ESCORT_FLEET = { escorts: 2, freighters: 2 };
+const ESCORT_MAX_HIRED = 5;         // how many pirate bands you can field as hired escorts
 const ESCORT_ESCORT_FP = 13;        // base firepower per escort (× ship class)
 const ESCORT_FREIGHTER_FP = 3;      // freighters can pop off a few shots
 const ESCORT_ESCORT_HULL = 55;      // base hull per escort (× ship class)
@@ -6553,7 +6556,7 @@ function escortRecruitBand(id) {
   if (escortInCombat()) return toast("You can't strike a deal mid-ambush.", "bad");
   const b = bandById(id); if (!b) return;
   if (e.fleet.some(s => s.hired && s.bandId === id)) return toast(`The ${b.name} already flies with you.`, "bad");
-  if (e.fleet.filter(s => s.hired).length >= 2) return toast("You can field at most two hired bands.", "bad");
+  if (e.fleet.filter(s => s.hired && s.alive).length >= ESCORT_MAX_HIRED) return toast(`You can field at most ${ESCORT_MAX_HIRED} hired bands — dismiss one first.`, "bad");
   const rival = bandFoe(b);
   if (rival && e.fleet.some(s => s.hired && s.alive && s.bandId === rival.id)) return toast(`The ${b.name} won't fly with their blood rivals the ${rival.name}.`, "bad");
   const fee = escortRecruitFee(b);
@@ -6568,6 +6571,17 @@ function escortRecruitBand(id) {
   if (rival) bandRepAdd(rival, -8);                        // hiring a crew slights its rival
   log(`🤝 Hired the ${b.ico} ${b.name} as an escort for ${fmt(fee)} cr — ${bandBetrayChance(b) > 0.18 ? "watch them, their loyalty's thin." : "a dependable crew."}`, "event");
   toast(`${b.name} hired (${fmt(fee)} cr)`, "good"); sfx("event"); saveGame(); renderAll();
+}
+function escortDismissBand(id) {                          // let a hired crew go to free a slot (fee already paid, no refund)
+  const e = ensureEscort(); if (!e.active) return;
+  if (escortInCombat()) return toast("You can't dismiss a crew mid-ambush.", "bad");
+  const idx = e.fleet.findIndex(s => s.hired && s.alive && s.bandId === id); if (idx < 0) return;
+  const sh = e.fleet[idx]; const b = bandById(id);
+  // return any outfitted systems on that ship to the fleet pool (not lost)
+  if (sh.outfit) { const pool = escortPool(); Object.entries(OUTFIT_SLOT_ASSET).forEach(([slot, asset]) => { pool[asset] = (pool[asset] || 0) + (sh.outfit[slot] || 0); }); }
+  e.fleet.splice(idx, 1);
+  log(`👋 You released the ${sh.ico} ${sh.name} from the contract.`, "");
+  toast(`${b ? b.name : sh.name} dismissed`, ""); saveGame(); renderAll();
 }
 function escortBetrayalCheck() {                          // cheap loyalties bolt when the going gets tough
   const e = ensureEscort();
@@ -6795,15 +6809,19 @@ function renderEscort() {
   let recruit = "";
   const hiredN = e.fleet.filter(s => s.hired && s.alive).length;
   if (!escortInCombat()) {
-    const avail = escortRecruitableBands().filter(b => !e.fleet.some(s => s.hired && s.bandId === b.id));
+    const hiredRows = e.fleet.filter(s => s.hired && s.alive).map(s =>
+      `<div class="ship-stat" style="align-items:center"><span class="k">${s.ico} ${s.name} <span class="hint">hired</span></span>
+        <span class="v"><button class="btn btn-sm btn-bad" title="Release this crew to free a slot (no refund)" onclick="escortDismissBand('${s.bandId}')">✖ Dismiss</button></span></div>`).join("");
+    const avail = escortRecruitableBands().filter(b => !e.fleet.some(s => s.hired && s.alive && s.bandId === b.id));
     const rows = avail.map(b => {
-      const fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100);
-      return `<div class="ship-stat" style="align-items:center"><span class="k">${b.ico} ${b.name} <span class="hint">${bandTier(b).label} · L${b.level} · desert risk ${risk}%</span></span>
-        <span class="v"><button class="btn btn-sm" ${hiredN < 2 && S.res.credits >= fee ? "" : "disabled"} onclick="escortRecruitBand('${b.id}')">Hire (${fmt(fee)} cr)</button></span></div>`;
+      const fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100), rival = bandFoe(b);
+      const blocked = rival && e.fleet.some(s => s.hired && s.alive && s.bandId === rival.id);
+      return `<div class="ship-stat" style="align-items:center"><span class="k">${b.ico} ${b.name} <span class="hint">${bandPers(b).ico}${bandPers(b).name} · ${bandTier(b).label} · L${b.level} · desert risk ${risk}%${blocked ? ` · ⚔️ rivals ${rival.name}` : ""}</span></span>
+        <span class="v"><button class="btn btn-sm" ${hiredN < ESCORT_MAX_HIRED && S.res.credits >= fee && !blocked ? "" : "disabled"} title="${blocked ? "Won't fly with their rival aboard" : ""}" onclick="escortRecruitBand('${b.id}')">Hire (${fmt(fee)} cr)</button></span></div>`;
     }).join("");
-    recruit = `<div class="card"><h4>🤝 Hire pirate escorts <span class="hint">${hiredN}/2 hired</span></h4>
-      <div class="hint">Friendly crews from your 🏴‍☠️ Pirate Contacts will fly escort for a fee — higher standing means a cheaper, more loyal hire. Low-standing hires may desert when the shooting starts; your Dread keeps them in line.</div>
-      ${rows || '<div class="hint">No willing bands right now — build standing in the Raider tab.</div>'}</div>`;
+    recruit = `<div class="card"><h4>🤝 Hire pirate escorts <span class="hint">${hiredN}/${ESCORT_MAX_HIRED} hired</span></h4>
+      <div class="hint">Friendly crews from your 🏴‍☠️ Pirate Contacts will fly escort for a fee — higher standing means a cheaper, more loyal hire. Low-standing hires may desert when the shooting starts; your Dread keeps them in line. Dismiss a crew to free a slot for another.</div>
+      ${hiredRows}${rows || (hiredRows ? "" : '<div class="hint">No willing bands right now — build standing in the Raider tab.</div>')}</div>`;
   }
   const liveThreat = Math.round(escortLiveThreat(m) * 100);
   const cyclesLeft = m.deadline != null ? Math.max(0, m.deadline - S.turn) : null;
@@ -6942,7 +6960,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.15.0";
+const APP_VERSION = "2.15.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7384,7 +7402,7 @@ Object.assign(window, {
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, repairShip,
-  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, escortOutfitAdd, escortOutfitRemove, escortBraceRound, escortRecruitBand,
+  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, escortOutfitAdd, escortOutfitRemove, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
