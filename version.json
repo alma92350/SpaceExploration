@@ -1,5 +1,5 @@
 {
-  "version": "2.12.2",
+  "version": "2.13.0",
   "saveVersion": "v2",
-  "notes": "Balance: between-leg convoy yard repair is pricier — material cost (metals & electronics) doubled (+100%) and the credit cost raised +50%. Patching your escorts and freighters now bites harder, so it's a real trade-off rather than a cheap reset."
+  "notes": "Escort prep window: after you accept a contract, threat is now dynamic — it tracks live pirate activity at the route's origin and destination. Hunt those pirates in the Raider tab (or use any other tab) before you set out to lower the convoy's threat, while the fee stays locked at the original contract. But each contract now has a cycle deadline: prep, travel and legs all burn the clock, and overrunning it cancels the contract (no fee, but your flagship is unharmed). Live threat and cycles-left show in the escort panel."
 }

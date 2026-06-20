@@ -4461,6 +4461,7 @@ function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
   processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent();
+  if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -6123,16 +6124,25 @@ function escShipFP(sh) {
 }
 function escortFirepower() { return Math.round(escortFleet().reduce((s, sh) => s + escShipFP(sh), 0) * escortPosture().off); }
 function escortAliveFoes() { const w = S.escort && S.escort.wave; return w ? w.foes.filter(f => f.hp > 0) : []; }
+// Live threat tracks pirate activity at BOTH ends of the route, so hunting
+// pirates there (Raider tab) before you set out genuinely lowers the danger.
+function escortLiveThreat(m) {
+  const det = 0.22 + 0.11 * ((pirateLevel(m.from) + pirateLevel(m.to)) / 2) + 0.018 * (m.dist || 0);
+  return Math.max(0.05, Math.min(0.95, det + (m.threatRand || 0)));
+}
 function genEscortContract(dest) {
   const here = currentPlanet();
   const dist = (here.distances && here.distances[dest.id]) || 6;
-  const threat = Math.min(0.92, 0.22 + pirateLevel(dest.id) * 0.11 + dist * 0.018 + Math.random() * 0.14);
   const legs = Math.max(2, Math.min(5, Math.round(dist / 3) + 1));
-  const payload = Math.round((2000 + dist * 400) * (0.8 + Math.random() * 0.5));
-  const reward = Math.round((payload * 0.4 + dist * 280) * (1 + threat) * escortRank().mult);
+  const m = { from: here.id, to: dest.id, dist, legs, threatRand: Math.random() * 0.14 };
+  m.threat = escortLiveThreat(m);
+  m.payload = Math.round((2000 + dist * 400) * (0.8 + Math.random() * 0.5));
+  m.reward = Math.round((m.payload * 0.4 + dist * 280) * (1 + m.threat) * escortRank().mult);   // fee locked at the contract threat — cleaning up keeps the pay, cuts the risk
+  m.bonus = Math.round(m.reward * 0.3);
   // the convoy burns about as much fuel as a normal one-way jump (+15% for the escort), split over the legs
-  const legFuel = Math.max(1, Math.round(fuelCost(dest.id) * 1.15 / legs));
-  return { from: here.id, to: dest.id, dist, threat, legs, payload, reward, bonus: Math.round(reward * 0.3), legFuel };
+  m.legFuel = Math.max(1, Math.round(fuelCost(dest.id) * 1.15 / legs));
+  m.cycleBudget = legs + Math.max(4, Math.round(dist / 3));   // legs + a prep/slack window before the contract lapses
+  return m;
 }
 function refreshEscortOffers() {
   const e = ensureEscort();
@@ -6162,7 +6172,7 @@ function acceptEscort(idx) {
   if (e.active) return toast("Finish your current escort first.", "bad");
   const m = e.offers[idx]; if (!m) return;
   e.active = true;
-  e.mission = Object.assign({}, m, { legsLeft: m.legs, losses: 0 });
+  e.mission = Object.assign({}, m, { legsLeft: m.legs, losses: 0, deadline: S.turn + (m.cycleBudget || (m.legs + 4)) });
   e.fleet = buildEscortFleet();
   e.wave = null; e.posture = "balanced"; e.targets = []; e.offers = []; e.jam = false; e.fireTarget = "hull";
   e.pool = { weapons: 0, drones: 0, ai: 0 }; e.pendingRedeploy = false;
@@ -6173,27 +6183,28 @@ function acceptEscort(idx) {
 }
 function spawnEscortWave() {
   const e = ensureEscort(); const m = e.mission;
+  const threat = escortLiveThreat(m);                       // reflects any pre-mission clean-up
   const F = Math.max(20, escortFirepower());
-  const n = Math.max(2, Math.min(5, Math.round(2 + m.threat * 3)));
-  const lvl = Math.max(1, Math.min(5, 1 + Math.round(m.threat * 3 + veterancy() * 0.05)));
+  const n = Math.max(2, Math.min(5, Math.round(2 + threat * 3)));
+  const lvl = Math.max(1, Math.min(5, 1 + Math.round(threat * 3 + veterancy() * 0.05)));
   const rollRole = () => { const r = Math.random(); return r < 0.55 ? "raider" : r < 0.8 ? "interceptor" : "gunship"; };
   const foes = [];
   for (let i = 0; i < n; i++) {
     const p = genPirate(lvl); const cls = SHIP_CLASSES[p.cls] || SHIP_CLASSES.corvette;
     const maxhp = Math.round(Math.max(18, F * (0.45 + Math.random() * 0.35)));
     foes.push({ name: p.name, ico: p.ico, cls: p.cls, faction: p.faction, strength: p.strength, role: rollRole(),
-      hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.7 + m.threat)),
+      hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.7 + threat)),
       eng: cls.engines || 1, engMax: cls.engines || 1, dmgMul: 1, vuln: 1,
       cargo: p.cargo || {}, credits: p.credits || 0, bounty: p.bounty || 0 });
   }
   // a dangerous wave is anchored by an elite leader: tougher hull, heavier guns
   let elite = false;
-  if (m.threat >= 0.6 && Math.random() < 0.6) {
+  if (threat >= 0.6 && Math.random() < 0.6) {
     const p = genPirate(Math.min(5, lvl + 1)); const cls = SHIP_CLASSES[p.cls] || SHIP_CLASSES.cruiser;
     const maxhp = Math.round(Math.max(40, F * (0.9 + Math.random() * 0.5)));
     foes.unshift({ name: p.name, ico: ESCORT_FOE_ROLES.elite.ico, cls: p.cls, faction: p.faction, strength: p.strength, role: "elite",
       ability: pick(Object.keys(ESCORT_BOSS_ABILITIES)),
-      hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.9 + m.threat) * 1.3),
+      hp: maxhp, maxhp, dmg: Math.round(ESCORT_FOE_DMG * cls.str * (0.9 + threat) * 1.3),
       eng: (cls.engines || 2) + 1, engMax: (cls.engines || 2) + 1, dmgMul: 1, vuln: 1,
       cargo: p.cargo || {}, credits: Math.round((p.credits || 0) * 1.5), bounty: Math.round((p.bounty || 0) * 1.5) });
     elite = true;
@@ -6214,8 +6225,9 @@ function escortAdvance() {
   S.res.fuel -= legFuel;
   m.legsLeft--;
   endTurn(true);                                          // a leg of the journey is a cycle on the clock
+  if (!e.active) return;                                  // the cycle may have tripped the contract deadline
   // deeper in the run, through worse space, the lanes get more dangerous
-  const legThreat = Math.min(0.97, m.threat * (1 + 0.10 * (m.legs - m.legsLeft - 1)));
+  const legThreat = Math.min(0.97, escortLiveThreat(m) * (1 + 0.10 * (m.legs - m.legsLeft - 1)));
   if (Math.random() < legThreat) { spawnEscortWave(); saveGame(); renderAll(); return; }
   log(`🛰️ Leg run clean — ${m.legsLeft} to go.`, "");
   toast("Quiet leg.", "");
@@ -6421,13 +6433,21 @@ function escortFail(reason) {
     SUBSYS.forEach(k => damageSubsys(k, 12 + Math.random() * 18));
     log(`💥 Your flagship buckled — the convoy scattered and the contract is lost.`, "bad");
     if (typeof announce === "function") announce("💥 Escort Failed", "Your flagship gave out and the convoy scattered. No fee.", true);
+  } else if (reason === "timeout") {
+    log(`⏰ The escort contract lapsed before the convoy reached port — the client cancelled. No fee.`, "bad");
+    if (typeof announce === "function") announce("⏳ Escort Expired", "You ran out the clock before delivering. The contract is void.", true);
   } else {
     log(`🏳️ The convoy was wiped out — escort failed.`, "bad");
     if (typeof announce === "function") announce("💥 Escort Failed", "Every ship you were guarding is gone. No fee.", true);
   }
-  toast("Escort failed.", "bad"); sfx("explode");
+  toast(reason === "timeout" ? "Escort contract expired." : "Escort failed.", "bad"); sfx(reason === "timeout" ? "bad" : "explode");
   escortDiscardOutfit();
   e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = []; e.pendingRedeploy = false;
+}
+function escortDeadlineCheck() {
+  const e = S.escort;
+  if (!e || !e.active || !e.mission || e.mission.deadline == null) return;
+  if (S.turn > e.mission.deadline && !escortInCombat()) escortFail("timeout");   // don't yank a convoy mid-ambush
 }
 function renderEscort() {
   const el = document.getElementById("panel-escort"); if (!el) return;
@@ -6437,11 +6457,14 @@ function renderEscort() {
     if (!e.offers || !e.offers.length) refreshEscortOffers();
     const cards = (e.offers || []).map((m, i) => {
       const dn = PLANETS.find(p => p.id === m.to); const tl = m.threat >= 0.7 ? "🔴 High" : m.threat >= 0.45 ? "🟠 Moderate" : "🟢 Low";
+      const oFrom = PLANETS.find(p => p.id === m.from);
       return `<div class="card"><h4>🛡️ Convoy to ${dn ? dn.name : "?"}</h4>
         <div class="ship-stat"><span class="k">Distance</span><span class="v">${m.dist} ly · ${m.legs} legs</span></div>
         <div class="ship-stat"><span class="k">Threat</span><span class="v">${tl} (${Math.round(m.threat * 100)}%)</span></div>
+        <div class="ship-stat"><span class="k">Deadline</span><span class="v">${m.cycleBudget} cycles to deliver</span></div>
         <div class="ship-stat"><span class="k">Payload</span><span class="v">${fmt(m.payload)} cr cargo</span></div>
         <div class="ship-stat"><span class="k">Reward</span><span class="v" style="color:var(--gold)">${fmt(m.reward)} cr<span class="hint"> +${fmt(m.bonus)} flawless</span></span></div>
+        <div class="hint">Threat tracks pirate activity at ${oFrom ? oFrom.name : "origin"} &amp; ${dn ? dn.name : "dest"} — clear them in the ⚔️ Raider tab before you set out to lower it (but the clock runs).</div>
         <button class="btn btn-primary" onclick="acceptEscort(${i})">Accept escort</button></div>`;
     }).join("");
     const rk = escortRank(), nx = escortNextRank();
@@ -6519,9 +6542,15 @@ function renderEscort() {
     const legFuel = m.legFuel || ESCORT_LEG_FUEL;
     const lowFuel = (S.res.fuel || 0) < legFuel;
     const rc = escortRepairCost();
-    combat = `<div class="card"><h4>🛰️ Underway</h4>
+    const notDeparted = m.legsLeft === m.legs;             // still in the prep window — no leg run yet
+    const oFrom = PLANETS.find(p => p.id === m.from);
+    const prep = notDeparted
+      ? `<div class="hint" style="color:var(--accent)">🧹 Prep window: before you set out you can use the <b>⚔️ Raider</b> tab (and any others) to hunt pirates at <b>${oFrom ? oFrom.name : "origin"}</b> and <b>${dn ? dn.name : "dest"}</b> — every kill there lowers this convoy's threat. Each cycle you spend counts against the deadline.</div>`
+      : "";
+    combat = `<div class="card"><h4>🛰️ ${notDeparted ? "Staging — prep then depart" : "Underway"}</h4>
       <div class="hint">${m.legsLeft > 0 ? `${m.legsLeft} leg(s) to ${dn ? dn.name : "port"}. Each leg is a cycle and burns ${legFuel} ⛽ (you hold ${fmt(S.res.fuel || 0)}); risk of ambush climbs as you near the destination.` : "Final approach — bring them in."}</div>
-      <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${m.legsLeft > 0 && lowFuel ? "disabled" : ""} onclick="escortAdvance()">${m.legsLeft > 0 ? `▶ Advance one leg (${legFuel} ⛽)` : "🏁 Deliver convoy"}</button>
+      ${prep}
+      <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${m.legsLeft > 0 && lowFuel ? "disabled" : ""} onclick="escortAdvance()">${m.legsLeft > 0 ? `▶ ${notDeparted ? "Set out" : "Advance one leg"} (${legFuel} ⛽)` : "🏁 Deliver convoy"}</button>
         ${rc.miss > 0 ? `<button class="btn btn-sm" onclick="escortFleetRepair()" title="Repair the convoy's escorts & freighters to full">🔧 Repair convoy (${fmt(rc.credits)} cr · ${rc.metals}⛓️ · ${rc.electronics}🖥️)</button>` : ""}
         ${postBtns}</div>
       ${m.legsLeft > 0 && lowFuel ? '<div class="hint" style="color:var(--bad)">Not enough fuel for the next leg — refuel at the Market.</div>' : ""}</div>`;
@@ -6543,8 +6572,10 @@ function renderEscort() {
     <div class="hint">Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores to bolt attack (🔥) and defense (🛡️) onto any ship — your flagship or the freighters you guard. Weapons/drones add flat points; AI cores multiply with diminishing returns. Assets are <b>consumed</b> for the run.${escortInCombat() ? " Re-rigging mid-ambush forfeits the round (you brace)." : ""}</div>
     <div class="hint" style="margin:4px 0">In hold: 🔫${fmt(S.res.weapons || 0)} 🛸${fmt(S.res.drones || 0)} 🧠${fmt(S.res.ai || 0)} · Fleet pool: 🔫${pool.weapons} 🛸${pool.drones} 🧠${pool.ai} <span class="hint">(🛸⚔️ strike / 🛸🛡️ screen · 🧠⚔️ targeting / 🧠🛡️ evasion)</span></div>
     ${outfitRows}</div>`;
+  const liveThreat = Math.round(escortLiveThreat(m) * 100);
+  const cyclesLeft = m.deadline != null ? Math.max(0, m.deadline - S.turn) : null;
   el.innerHTML = `<div class="panel-head"><h2>🛡️ Escort — convoy to ${dn ? dn.name : "?"}</h2>
-    <div class="subtitle">Leg ${m.legs - m.legsLeft}/${m.legs} · freighters ${aliveFr}/${totalFr} intact · reward ${fmt(m.reward)} cr${m.losses === 0 ? ` <span class="hint">(+${fmt(m.bonus)} flawless)</span>` : ""}</div></div>
+    <div class="subtitle">Leg ${m.legs - m.legsLeft}/${m.legs} · threat ${liveThreat}%${cyclesLeft != null ? ` · <span style="color:${cyclesLeft <= 1 ? "var(--bad)" : cyclesLeft <= 3 ? "var(--warn)" : "inherit"}">⏳ ${cyclesLeft} cycle${cyclesLeft === 1 ? "" : "s"} left</span>` : ""} · freighters ${aliveFr}/${totalFr} intact · reward ${fmt(m.reward)} cr${m.losses === 0 ? ` <span class="hint">(+${fmt(m.bonus)} flawless)</span>` : ""}</div></div>
     ${combat}
     <div class="card"><h4>🚢 Fleet — pooled firepower 🔥 ${fmt(F)}</h4>${roster}</div>
     ${outfit}
@@ -6677,7 +6708,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.12.2";
+const APP_VERSION = "2.13.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -6747,7 +6778,7 @@ function helpHTML() {
       <li>🏗️ <b>Bases</b> — automated off-world production.</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions.</li>
-      <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Unlocks once you've proven yourself in combat.</li>
+      <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Unlocks once you've proven yourself in combat.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
     </ul>
 

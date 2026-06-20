@@ -50,6 +50,21 @@ Pooled firepower `escortFirepower()` = Σ each living ship's FP × posture offen
   📣 Rally (whole wave +40% this round), 📡 Jammer (next salvo → 70%).
 - **Field repair** patches only the flagship and costs that round's salvo.
 
+## Pre-mission prep & the deadline
+Threat is **dynamic** (`escortLiveThreat`): it tracks current pirate activity at
+both route endpoints (`pirateLevel(from)`/`pirateLevel(to)`). After accepting a
+contract you get a **prep window** — roam freely (you're only combat-locked
+during an active ambush) and hunt pirates in the ⚔️ Raider tab at the origin or
+destination; every kill there (`pirateKillRewards` lowers `S.pirates[id]`) cuts
+the convoy's threat before you set out. The **fee is locked** at the contract's
+original threat, so cleaning up keeps the pay and cuts the risk.
+
+But the contract has a **cycle deadline** (`mission.deadline = accept turn +
+cycleBudget`, where `cycleBudget = legs + max(4, dist/3)`). Every cycle — prep,
+travel, or a leg — counts. `escortDeadlineCheck()` (called from `endTurn`) fails
+the run with `escortFail("timeout")` if you overrun (never mid-ambush; timeout
+doesn't cripple the flagship). Cycles-left and live threat show in the panel.
+
 ## The journey (phase 3)
 - Each leg = one cycle (`endTurn`) + fuel. Per-leg fuel = `fuelCost(dest) × 1.15
   / legs`, i.e. the whole run costs about a normal one-way jump plus 15% for the
