@@ -42,8 +42,10 @@ min(.18, dread/100·.18))` — low standing deserts, your dread keeps them hones
 Surviving a delivery raises the band's rep (+8); deserting drops it (−12).
 
 ## Surfacing
-- ⚔️ Raider tab → **🏴‍☠️ Pirate Contacts** card: roster with tier/rep/history,
-  tribute + gift buttons.
+- **🏴‍☠️ Contacts** sidebar tab (`renderContacts`, ladder-gated: unlocks once
+  `S.pirateBands` is non-empty): a card per band with standing bar,
+  personality, feud, history, ally cut / hire fee / desert risk, and tribute +
+  gift buttons.
 - Raid call-allies log shows each band and its negotiated cut.
 - 🛡️ Escort staging → **🤝 Hire pirate escorts** card (out of combat) with fee
   and desertion-risk per band.

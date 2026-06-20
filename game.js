@@ -5604,30 +5604,37 @@ function renderRaid() {
       <div class="desc">Charts reveal pirate activity by world for ${PIRATE_INTEL_DURATION} cycles — find hotspots to hunt (the path to pacifying the sector) or lanes to avoid. Activity shows on the 🪐 Galaxy map too.</div>
       <div class="row">${mapBtns}</div></div>`;
   }
-  // ---- Pirate Contacts: the bands you've built history with ----
-  let contactsCard = "";
-  const bands = bandList().sort((a, b) => (b.rep || 0) - (a.rep || 0));
-  if (bands.length) {
-    const giftCargo = ["weapons", "fuel", "luxury", "ai", "drones"].filter(c => (S.res[c] || 0) > 0);
-    const rows = bands.map(b => {
-      const t = bandTier(b), pr = bandPers(b), rival = bandFoe(b);
-      const cargoBtns = giftCargo.map(c => `<button class="btn btn-sm" title="Gift 1 ${COM[c].name}" onclick="giftBandCargo('${b.id}','${c}',1)">${COM[c].ico}+</button>`).join("");
-      const feud = rival ? ` <span class="hint" title="Blood rivals — won't serve alongside the ${rival.name}">⚔️feud: ${rival.name}</span>` : "";
-      return `<div class="ship-stat" style="align-items:center;flex-wrap:wrap;gap:6px">
-        <span class="k">${b.ico} ${b.name} <span class="hint">L${b.level} · ${pr.ico}${pr.name} · ${t.label} (${b.rep})</span>${feud}</span>
-        <span class="v" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
-          <span class="hint" title="allied ${b.allied||0}× · fought ${b.fought||0}×">🤝${b.allied || 0} ⚔️${b.fought || 0}</span>
-          <button class="btn btn-sm" ${S.res.credits >= 500 ? "" : "disabled"} title="Pay a 500 cr tribute" onclick="giftBandCredits('${b.id}',500)">💰 Tribute</button>
-          ${cargoBtns}</span></div>`;
-    }).join("");
-    contactsCard = `<div class="card"><h4>🏴‍☠️ Pirate Contacts</h4>
-      <div class="hint">Crews you've crossed. Higher standing means smaller loot cuts when they fight at your side, readier alliances, and cheaper, more loyal hires for 🛡️ Escort runs. Raise it with tributes, gifts they value, sparing them — and your Dread (they respect a fearsome name). Killing them craters it.</div>
-      ${rows}</div>`;
-  }
   el.innerHTML = `<h2>⚔️ Raider</h2>
     <div class="subtitle">Two trades, one gun: <b>prey on shipping</b> (build Dread, mind your Wanted — the navy interdicts the notorious; havens and letters of marque are an outlaw&#39;s tools) or <b>hunt pirates</b> for lawful bounties that scale with their rank — every kill calms the lanes, shielding your colonies and convoys. Travel through infested systems and the pirates may find <i>you</i>.</div>
     <div class="cards raid-top">${status}<div class="raid-action">${action}</div></div>
-    <div class="cards" style="margin-top:14px">${intelCard}${commCard}${havenCard}${lordCard}${marshalCard}${contactsCard}</div>`;
+    <div class="cards" style="margin-top:14px">${intelCard}${commCard}${havenCard}${lordCard}${marshalCard}</div>`;
+}
+// ---- Pirate Contacts tab: manage the bands you've built history with ----
+function renderContacts() {
+  const el = document.getElementById("panel-contacts"); if (!el) return;
+  const bands = bandList().sort((a, b) => (b.rep || 0) - (a.rep || 0));
+  const giftCargo = ["weapons", "fuel", "luxury", "ai", "drones"].filter(c => (S.res[c] || 0) > 0);
+  const cards = bands.map(b => {
+    const t = bandTier(b), pr = bandPers(b), rival = bandFoe(b);
+    const cargoBtns = giftCargo.map(c => `<button class="btn btn-sm" title="Gift 1 ${COM[c].name} (+standing)" onclick="giftBandCargo('${b.id}','${c}',1)">${COM[c].ico}+</button>`).join("");
+    const pct = Math.round((((b.rep || 0) + 100) / 200) * 100);
+    const cut = Math.round(bandLootShare(b) * 100), fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100);
+    return `<div class="card">
+      <h4>${b.ico} ${b.name}</h4>
+      <div class="hint">${pr.ico} ${pr.name} · L${b.level} · ${t.label} (${b.rep})${rival ? ` · <span style="color:var(--bad)">⚔️ feud: ${rival.name}</span>` : ""}</div>
+      <div class="bar"><span style="width:${pct}%;background:${(b.rep||0) >= 41 ? "var(--good)" : (b.rep||0) < -10 ? "var(--bad)" : "var(--warn)"}"></span></div>
+      <div class="ship-stat"><span class="k">History</span><span class="v">🤝 ${b.allied || 0} allied · ⚔️ ${b.fought || 0} fought · 🎁 ${fmt(b.gifted || 0)} cr</span></div>
+      <div class="ship-stat"><span class="k">As an ally</span><span class="v">${bandWillAlly(b) ? `wants ${cut}% of loot` : "won't fight for you"}</span></div>
+      <div class="ship-stat"><span class="k">As a hire</span><span class="v">${fmt(fee)} cr · ${risk}% desert risk</span></div>
+      <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px">
+        <button class="btn btn-sm" ${S.res.credits >= 500 ? "" : "disabled"} title="Pay a 500 cr tribute" onclick="giftBandCredits('${b.id}',500)">💰 500</button>
+        <button class="btn btn-sm" ${S.res.credits >= 2000 ? "" : "disabled"} title="Pay a 2,000 cr tribute" onclick="giftBandCredits('${b.id}',2000)">💰 2k</button>
+        ${cargoBtns || '<span class="hint">no giftable cargo held</span>'}
+      </div></div>`;
+  }).join("");
+  el.innerHTML = `<h2>🏴‍☠️ Pirate Contacts</h2>
+    <div class="subtitle">Crews you've crossed in the void. <b>Standing</b> rises when you ally with them, spare a beaten crew, pay tributes or gift cargo they value — and with your <b>Dread</b> (they respect a fearsome name); it craters when you kill them. Friendlier bands take a smaller loot cut at your side, rally readily, and hire on cheaper &amp; more loyally for 🛡️ Escort runs. Some bands hold blood feuds and won't serve alongside a rival.</div>
+    <div class="cards">${cards || '<div class="card"><div class="hint">No pirate bands on your books yet — hunt or ally with them from the ⚔️ Raider tab.</div></div>'}</div>`;
 }
 /* ---------- Generic in-panel sub-tabs ----------
    A lightweight tab strip inside a panel. View state is UI-only (not saved);
@@ -6840,7 +6847,7 @@ function renderAll() {
   if (typeof document === "undefined") return;
   checkUnlocks(); checkDisclosure(); applyTabVisibility();
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
-  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderEscort(); renderShipPanel(); renderLog();
+  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderEscort(); renderContacts(); renderShipPanel(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
 }
 
@@ -6865,6 +6872,8 @@ const TAB_LADDER = [
     hint: "Unlocks as your trade empire grows (35,000 cr in sales) — or the moment you arm up or get attacked", test: s => (s.upgrades.cannons || 0) > 0 || s.prey || s.encounter || s.interdiction || (s.stats && s.stats.sales >= 35000) || s.turn >= 70 },
   { id: "escort",    blurb: "command a fleet and escort convoys for hire",
     hint: "An expert posting — prove yourself in combat first (12 kills/raids, or earn a Letter of Marque)", test: s => !!(s.unlocked && s.unlocked.raid) && !!s.pirate && (((s.pirate.bountyKills || 0) + (s.pirate.raids || 0)) >= 12 || (s.pirate.commissionsDone || 0) > 0) },
+  { id: "contacts",  blurb: "manage your relationships with pirate bands",
+    hint: "Unlocks once you've crossed paths with a pirate band", test: s => Object.keys(s.pirateBands || {}).length > 0 },
   { id: "bases",     blurb: "automated off-world production",
     hint: "Unlocks once you can afford a base (~5,000 cr)", test: s => (s.res.credits || 0) >= 5000 || Object.keys(s.bases || {}).length > 0 || s.turn >= 7 },
   { id: "politics",  blurb: "factions, influence, office & law",
@@ -6963,7 +6972,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.15.2";
+const APP_VERSION = "2.16.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7034,6 +7043,7 @@ function helpHTML() {
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Unlocks once you've proven yourself in combat.</li>
+      <li>🏴‍☠️ <b>Contacts</b> — manage your relationships with named <b>pirate bands</b>: see each crew's standing, personality, feuds and history, and pay tributes or gift cargo to win them over. Friendlier bands take a smaller loot cut at your side and hire on cheaper &amp; more loyally for 🛡️ Escort runs. Appears once you've crossed a pirate band.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
     </ul>
 

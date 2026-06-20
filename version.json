@@ -1,5 +1,5 @@
 {
-  "version": "2.15.2",
+  "version": "2.16.0",
   "saveVersion": "v2",
-  "notes": "Escort hiring: the 'Hire pirate escorts' list now shows only dependable crews — desertion risk under 5% — ranked most-reliable first. Raise a band's standing and your Dread to bring flightier crews under the threshold."
+  "notes": "New 🏴‍☠️ Contacts tab: pirate-band relationships now have a dedicated sidebar tab (moved out of the Raider tab). It shows each crew as a card — standing bar, personality, feuds, history, plus their loot cut as an ally, hire fee and desertion risk — with tribute and gift buttons to win them over. The tab appears once you've crossed your first pirate band."
 }
