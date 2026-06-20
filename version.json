@@ -1,5 +1,5 @@
 {
-  "version": "2.14.0",
+  "version": "2.15.0",
   "saveVersion": "v2",
-  "notes": "Pirate bands: a persistent relationship layer. You now build lasting history with named pirate crews (🏴‍☠️ Pirate Contacts in the Raider tab) — some collaborative, some hostile. Ally with them, spare them, pay tributes or gift valued cargo to raise their standing; your Dread earns respect, killing them earns hatred. Friendlier bands take a smaller, auto-negotiated loot cut when they fight at your side, rally readily, and can be hired as Escort ships for a fee that drops with standing — while low-standing hires may desert mid-run (your Dread keeps them honest)."
+  "notes": "Pirate bands polish: every crew now has a personality — 🤑 Greedy, 🛡️ Loyal, ⚔️ Bold, 🦊 Cunning, ⚖️ Honorable — that shapes the loot cut they demand, their hire fee, how readily they desert, and how hard they fight. Bands can hold blood feuds: rivals refuse to serve together, and siding with one angers the other. Beat a pirate crew down and you can now Spare them for a big standing boost instead of finishing them. And a greedy/cunning turncoat no longer just bolts — it makes off with one of your freighters."
 }

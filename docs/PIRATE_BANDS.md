@@ -46,8 +46,32 @@ Surviving a delivery raises the band's rep (+8); deserting drops it (−12).
 - 🛡️ Escort staging → **🤝 Hire pirate escorts** card (out of combat) with fee
   and desertion-risk per band.
 
+## Personalities & feuds (polish)
+Each band rolls a **personality** (`BAND_PERSONALITIES`) that flavours its
+numbers: 🤑 Greedy (bigger cut/fee, flaky, *steals*), 🛡️ Loyal (cheaper, rarely
+deserts), ⚔️ Bold (+22% firepower as ally/hire), 🦊 Cunning (*steals*),
+⚖️ Honorable (loyal, slight firepower). Modifiers feed `bandLootShare` (+cut),
+`escortRecruitFee` (×fee), `bandBetrayChance` (+betray) and ally/hire firepower
+(×fp).
+
+~35% of new bands carry a **feud** with an existing band (`feudWith`, mutual).
+A band won't ally or hire on while its rival already serves you
+(`bandRivalServing` → `bandWillAlly` / recruit refusal), and **siding with one
+band angers its rival** (−8 rep on ally or hire, `bandFoe`).
+
+**Spare & recruit** (`raidSpareRecruit`): once a pirate is beaten to ≤35% hull
+(`raidCanSpare`) a "🤝 Spare crew" action appears in the raid — hold fire and the
+crew lives, owing you (+20 rep), then the engagement promotes/ends.
+
+**Richer betrayal:** a Greedy/Cunning turncoat (personality `steal`) doesn't just
+bolt — it makes off with a **freighter** (a delivered-cargo loss), not merely
+deserting.
+
 ## Tests
 `/tmp/bands.js` (19 checks): roster persistence, tiers, loot-share by
 rep/level/dread, gifts (rep + inventory spend), ally negotiation + player cut,
 hostile refusal, kill penalty, recruit fee scaling + hiring, betrayal odds +
 desertion.
+`/tmp/bands2.js` (12 checks): personality modifiers (cut/fee/betray/firepower),
+feud refusal to co-serve + rival anger, feud co-hire block, spare-&-recruit,
+thieving-turncoat freighter theft.

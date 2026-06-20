@@ -2097,19 +2097,35 @@ const BAND_TIERS = [
   { min: -40, key: "wary", label: "🤨 Wary" },
   { min: -101, key: "hostile", label: "☠️ Hostile" },
 ];
+// Personalities flavour how a band haggles, hires and holds the line.
+const BAND_PERSONALITIES = {
+  greedy:    { ico: "🤑", name: "Greedy",    cut: 0.06,  fee: 1.25, betray: 0.08,  fp: 1.0,  steal: true },
+  loyal:     { ico: "🛡️", name: "Loyal",     cut: -0.03, fee: 0.90, betray: -0.14, fp: 1.0,  steal: false },
+  bold:      { ico: "⚔️", name: "Bold",      cut: 0.0,   fee: 1.05, betray: 0.02,  fp: 1.22, steal: false },
+  cunning:   { ico: "🦊", name: "Cunning",   cut: 0.02,  fee: 1.0,  betray: 0.05,  fp: 1.0,  steal: true },
+  honorable: { ico: "⚖️", name: "Honorable", cut: -0.02, fee: 1.0,  betray: -0.20, fp: 1.06, steal: false },
+};
+const BAND_PERS_KEYS = Object.keys(BAND_PERSONALITIES);
+function bandPers(b) { return BAND_PERSONALITIES[(b && b.pers)] || BAND_PERSONALITIES.bold; }
 function ensureBands() { if (!S.pirateBands) S.pirateBands = {}; return S.pirateBands; }
 function bandList() { return Object.values(ensureBands()).filter(b => b.status !== "dead"); }
 function bandById(id) { return ensureBands()[id] || null; }
 function bandTier(b) { const r = (b && b.rep) || 0; return BAND_TIERS.find(t => r >= t.min) || BAND_TIERS[BAND_TIERS.length - 1]; }
 function bandRepAdd(b, n) { if (!b) return; b.rep = Math.max(-100, Math.min(100, Math.round((b.rep || 0) + n))); }
+function bandFoe(b) { return b && b.feudWith ? bandById(b.feudWith) : null; }
 function newBand(level) {
   ensureBands();
   const used = new Set(Object.values(S.pirateBands).map(b => b.name));
   const name = BAND_NAMES.filter(n => !used.has(n))[0] || ("Free Company " + (Object.keys(S.pirateBands).length + 1));
   const lvl = Math.max(1, Math.min(5, level || rint(1, 3)));
   const id = "b" + (S.turn || 0) + "_" + Object.keys(S.pirateBands).length + "_" + Math.floor(Math.random() * 1000);
-  const b = { id, name, ico: (PIRATE_RANKS[lvl] || PIRATE_RANKS[1]).ico, level: lvl, rep: 0, encounters: 0, fought: 0, allied: 0, gifted: 0, lastSeen: S.turn || 0, status: "active" };
-  S.pirateBands[id] = b; return b;
+  const b = { id, name, ico: (PIRATE_RANKS[lvl] || PIRATE_RANKS[1]).ico, level: lvl, rep: 0, pers: pick(BAND_PERS_KEYS),
+    encounters: 0, fought: 0, allied: 0, gifted: 0, lastSeen: S.turn || 0, status: "active", feudWith: null };
+  S.pirateBands[id] = b;
+  // some crews are blood rivals with an existing band — they won't serve together
+  const others = Object.values(S.pirateBands).filter(o => o.id !== id && !o.feudWith && o.status !== "dead");
+  if (others.length && Math.random() < 0.35) { const rival = pick(others); b.feudWith = rival.id; rival.feudWith = id; }
+  return b;
 }
 // tie a transient foe/ally to a band identity (reuse known crews so history accrues)
 function bindBand(foe, preferAlly) {
@@ -2130,9 +2146,17 @@ function bandLootShare(b) {
   let s = 0.18 + (b ? b.level : 2) * 0.04;
   s -= ((b && b.rep) || 0) / 100 * 0.12;
   s -= Math.min(0.10, ((S.pirate && S.pirate.dread) || 0) / 100 * 0.10);
+  s += bandPers(b).cut;                                   // greedy crews want more, honourable less
   return Math.max(0.05, Math.min(0.45, s));
 }
-function bandWillAlly(b) { return bandTier(b).key !== "hostile"; }     // only sworn enemies refuse to rally
+// a feuding band refuses to serve alongside its rival
+function bandRivalServing(b) {
+  const rivalId = b && b.feudWith; if (!rivalId) return false;
+  if ((S.allies || []).some(a => a.bandId === rivalId)) return true;
+  if (S.escort && S.escort.fleet && S.escort.fleet.some(s => s.hired && s.alive && s.bandId === rivalId)) return true;
+  return false;
+}
+function bandWillAlly(b) { return bandTier(b).key !== "hostile" && !bandRivalServing(b); }   // sworn enemies & rivals-of-an-ally refuse
 function giftRepFromCredits(amt) { return Math.min(15, Math.floor(amt / 400)); }
 const GIFT_VALUED = { weapons: 1.6, ai: 1.8, luxury: 1.5, fuel: 1.3, drones: 1.5 };
 function giftRepFromCargo(c, qty) { const base = (COM[c] ? COM[c].base : 50) * qty / 300; return Math.min(20, Math.max(1, Math.round(base * (GIFT_VALUED[c] || 1)))); }
@@ -2156,12 +2180,13 @@ function decayBands() {                                  // standings drift towa
   bandList().forEach(b => { if (b.rep > 0) b.rep = Math.max(0, b.rep - 1); else if (b.rep < 0) b.rep = Math.min(0, b.rep + 1); });
 }
 // escort recruitment: friendly bands hire on as escort ships for a negotiated fee
-function escortRecruitFee(b) { return Math.round((800 + b.level * 700) * (1 - ((b.rep || 0) / 100) * 0.4)); }
+function escortRecruitFee(b) { return Math.round((800 + b.level * 700) * (1 - ((b.rep || 0) / 100) * 0.4) * bandPers(b).fee); }
 function escortRecruitableBands() { return bandList().filter(b => ["neutral", "friendly", "sworn"].includes(bandTier(b).key)); }
-function bandBetrayChance(b) { return Math.max(0, Math.min(0.5, 0.26 - ((b.rep || 0) / 100) * 0.32 - Math.min(0.18, ((S.pirate && S.pirate.dread) || 0) / 100 * 0.18))); }
+function bandBetrayChance(b) { return Math.max(0, Math.min(0.6, 0.26 - ((b.rep || 0) / 100) * 0.32 - Math.min(0.18, ((S.pirate && S.pirate.dread) || 0) / 100 * 0.18) + bandPers(b).betray)); }
 // an allied pirate pours fire onto your current target
 function allyStrike(target, ally) {
-  const dmg = Math.max(1, Math.round(ally.strength * 0.45 + Math.random() * 6));
+  const fp = bandPers(bandById(ally.bandId)).fp;          // bold crews hit harder
+  const dmg = Math.max(1, Math.round((ally.strength * 0.45 + Math.random() * 6) * fp));
   target.hp = foeHp(target) - dmg;
   return dmg;
 }
@@ -2197,7 +2222,10 @@ function raidCallAllies() {
     a.share = bandLootShare(b); a.allyName = b ? b.name : a.name;
     S.allies.push(a); foeHp(a);
     S.prey._others = (S.prey._others || []).filter(o => o !== a);
-    if (b) { b.allied = (b.allied || 0) + 1; bandRepAdd(b, 6); }     // every call deepens the friendship
+    if (b) {
+      b.allied = (b.allied || 0) + 1; bandRepAdd(b, 6);              // every call deepens the friendship
+      const rival = bandFoe(b); if (rival) bandRepAdd(rival, -8);    // siding with a crew angers its blood rival
+    }
     notes.push(`${b ? b.ico + " " + b.name : a.name} (${Math.round(a.share * 100)}% cut)`);
   });
   const yours = Math.round(lootShare() * 100);
@@ -2319,6 +2347,17 @@ function raidExtort() {
   }
   if (S.commission && prey.faction === S.commission.patron) revokeCommission(true);
   clearEngagement();
+  afterAction();
+}
+// spare a beaten pirate crew instead of finishing them — they remember the mercy
+function raidCanSpare() { const p = S.prey; return !!(p && p.isPirate && p._engaged && foeHp(p) <= p.maxhp * 0.35); }
+function raidSpareRecruit() {
+  if (!raidCanSpare()) return toast("Cripple them first — a proud crew won't parley until they're beaten.", "bad");
+  const prey = S.prey; const b = bandById(prey.bandId) || bindBand(prey);
+  if (b) bandRepAdd(b, 20);
+  log(`🤝 You stayed your guns and let the ${prey.ico} ${prey.name}${b ? " of the " + b.name : ""} limp away — a debt they'll remember. Collaboration +20.`, "good");
+  toast(`${b ? b.name : "Crew"}: +20 standing (spared)`, "good"); sfx("event");
+  promoteOrEnd(prey);                                     // next consort steps up, or the engagement ends
   afterAction();
 }
 function raidVolley(n) {
@@ -5364,8 +5403,10 @@ function preyCombatCard(prey, al) {
   const squadLine = (packN > 0 || allyN > 0)
     ? `<div class="hint">${packN > 0 ? `<span class="pill bad">⚔️ ${packN + 1} hostiles</span> ` : ""}${allyN > 0 ? `<span class="pill good">🤝 ${allyN} ally${allyN > 1 ? "ies" : ""} · loot split ${allyN + 1} ways</span>` : ""}</div>`
     : "";
+  const spareBtn = (typeof raidCanSpare === "function" && raidCanSpare())
+    ? `<button class="btn btn-sm btn-good" title="Hold fire and let the beaten crew live — a big boost to their collaboration" onclick="raidSpareRecruit()">🤝 Spare crew (+standing)</button>` : "";
   const buttons = isPirate
-    ? `${callBtn}<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
+    ? `${spareBtn}${callBtn}<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
     : `<button class="btn btn-bad" title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
        <button class="btn btn-sm" title="Spend Dread to extort tribute — no fight (Dread −12)" onclick="raidExtort()">💀 Extort</button>
        ${callBtn}<button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>`;
@@ -5567,10 +5608,11 @@ function renderRaid() {
   if (bands.length) {
     const giftCargo = ["weapons", "fuel", "luxury", "ai", "drones"].filter(c => (S.res[c] || 0) > 0);
     const rows = bands.map(b => {
-      const t = bandTier(b);
+      const t = bandTier(b), pr = bandPers(b), rival = bandFoe(b);
       const cargoBtns = giftCargo.map(c => `<button class="btn btn-sm" title="Gift 1 ${COM[c].name}" onclick="giftBandCargo('${b.id}','${c}',1)">${COM[c].ico}+</button>`).join("");
+      const feud = rival ? ` <span class="hint" title="Blood rivals — won't serve alongside the ${rival.name}">⚔️feud: ${rival.name}</span>` : "";
       return `<div class="ship-stat" style="align-items:center;flex-wrap:wrap;gap:6px">
-        <span class="k">${b.ico} ${b.name} <span class="hint">L${b.level} · ${t.label} (${b.rep})</span></span>
+        <span class="k">${b.ico} ${b.name} <span class="hint">L${b.level} · ${pr.ico}${pr.name} · ${t.label} (${b.rep})</span>${feud}</span>
         <span class="v" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap">
           <span class="hint" title="allied ${b.allied||0}× · fought ${b.fought||0}×">🤝${b.allied || 0} ⚔️${b.fought || 0}</span>
           <button class="btn btn-sm" ${S.res.credits >= 500 ? "" : "disabled"} title="Pay a 500 cr tribute" onclick="giftBandCredits('${b.id}',500)">💰 Tribute</button>
@@ -6512,15 +6554,18 @@ function escortRecruitBand(id) {
   const b = bandById(id); if (!b) return;
   if (e.fleet.some(s => s.hired && s.bandId === id)) return toast(`The ${b.name} already flies with you.`, "bad");
   if (e.fleet.filter(s => s.hired).length >= 2) return toast("You can field at most two hired bands.", "bad");
+  const rival = bandFoe(b);
+  if (rival && e.fleet.some(s => s.hired && s.alive && s.bandId === rival.id)) return toast(`The ${b.name} won't fly with their blood rivals the ${rival.name}.`, "bad");
   const fee = escortRecruitFee(b);
   if ((S.res.credits || 0) < fee) return toast(`The ${b.name} wants ${fmt(fee)} cr up front.`, "bad");
   S.res.credits -= fee;
   const sh = { role: "escort", hired: true, bandId: id, name: b.name, ico: b.ico,
     hullMax: Math.round(ESCORT_ESCORT_HULL * (0.9 + b.level * 0.25)),
-    str: Math.round(ESCORT_ESCORT_FP * (0.9 + b.level * 0.3)), alive: true,
+    str: Math.round(ESCORT_ESCORT_FP * (0.9 + b.level * 0.3) * bandPers(b).fp), alive: true,
     outfit: { wpn: 0, datk: 0, ddef: 0, aiatk: 0, aidef: 0 } };
   sh.hull = sh.hullMax; e.fleet.push(sh);
   bandRepAdd(b, 5); b.lastSeen = S.turn || 0;
+  if (rival) bandRepAdd(rival, -8);                        // hiring a crew slights its rival
   log(`🤝 Hired the ${b.ico} ${b.name} as an escort for ${fmt(fee)} cr — ${bandBetrayChance(b) > 0.18 ? "watch them, their loyalty's thin." : "a dependable crew."}`, "event");
   toast(`${b.name} hired (${fmt(fee)} cr)`, "good"); sfx("event"); saveGame(); renderAll();
 }
@@ -6530,8 +6575,16 @@ function escortBetrayalCheck() {                          // cheap loyalties bol
     const b = bandById(s.bandId); if (!b) return;
     if (Math.random() < bandBetrayChance(b)) {
       s.alive = false; s.betrayed = true; bandRepAdd(b, -12);
-      log(`🏴‍☠️ The ${s.ico} ${s.name} broke their contract and slipped away — cheap loyalty cuts both ways.`, "bad");
-      toast(`${s.name} deserted!`, "bad");
+      // a greedy/cunning turncoat doesn't just leave — it makes off with a freighter
+      const loot = bandPers(b).steal ? e.fleet.find(x => x.role === "freighter" && x.alive) : null;
+      if (loot) {
+        loot.alive = false; e.mission.losses = (e.mission.losses || 0) + 1; bandRepAdd(b, -8);
+        log(`🏴‍☠️ The ${s.ico} ${s.name} turned coat and made off with ${loot.ico} ${loot.name} and its cargo!`, "bad");
+        toast(`${s.name} stole a freighter!`, "bad"); sfx("explode");
+      } else {
+        log(`🏴‍☠️ The ${s.ico} ${s.name} broke their contract and slipped away — cheap loyalty cuts both ways.`, "bad");
+        toast(`${s.name} deserted!`, "bad");
+      }
     }
   });
 }
@@ -6889,7 +6942,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.14.0";
+const APP_VERSION = "2.15.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7330,7 +7383,7 @@ Object.assign(window, {
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
-  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, repairShip,
+  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, repairShip,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, escortOutfitAdd, escortOutfitRemove, escortBraceRound, escortRecruitBand,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,
