@@ -1,5 +1,5 @@
 {
-  "version": "2.13.0",
+  "version": "2.13.1",
   "saveVersion": "v2",
-  "notes": "Escort prep window: after you accept a contract, threat is now dynamic — it tracks live pirate activity at the route's origin and destination. Hunt those pirates in the Raider tab (or use any other tab) before you set out to lower the convoy's threat, while the fee stays locked at the original contract. But each contract now has a cycle deadline: prep, travel and legs all burn the clock, and overrunning it cancels the contract (no fee, but your flagship is unharmed). Live threat and cycles-left show in the escort panel."
+  "notes": "Escort contracts now vary: the deadline window ranges from a 🔴 Rush job to a 🟢 Relaxed run (1-5 cycles of slack), and the fee blends payload, distance, threat, guild rank, a rush premium for tight windows and a hidden market swing — so two similar postings can pay quite differently and the true reward/risk ratio isn't obvious. Delivering with cycles to spare adds a quiet promptness bonus, so prepping to cut threat trades against a faster, better-paid run."
 }

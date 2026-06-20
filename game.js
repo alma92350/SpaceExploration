@@ -6130,6 +6130,7 @@ function escortLiveThreat(m) {
   const det = 0.22 + 0.11 * ((pirateLevel(m.from) + pirateLevel(m.to)) / 2) + 0.018 * (m.dist || 0);
   return Math.max(0.05, Math.min(0.95, det + (m.threatRand || 0)));
 }
+function escortUrgencyLabel(slack) { return slack <= 1 ? "🔴 Rush" : slack <= 3 ? "🟠 Standard" : "🟢 Relaxed"; }
 function genEscortContract(dest) {
   const here = currentPlanet();
   const dist = (here.distances && here.distances[dest.id]) || 6;
@@ -6137,11 +6138,19 @@ function genEscortContract(dest) {
   const m = { from: here.id, to: dest.id, dist, legs, threatRand: Math.random() * 0.14 };
   m.threat = escortLiveThreat(m);
   m.payload = Math.round((2000 + dist * 400) * (0.8 + Math.random() * 0.5));
-  m.reward = Math.round((m.payload * 0.4 + dist * 280) * (1 + m.threat) * escortRank().mult);   // fee locked at the contract threat — cleaning up keeps the pay, cuts the risk
+  // how long the client gives you (prep + travel slack): 1 = a rush job, 5 = relaxed
+  const slack = rint(1, 5);
+  m.cycleBudget = legs + slack;
+  m.urgency = slack;
+  // reward is a multi-parameter blend — payload, distance, threat, guild rank, a
+  // rush premium for tight windows, and a hidden market swing — so two similar
+  // postings can pay differently and the true reward/risk ratio stays opaque.
+  const rush = 1 + (5 - slack) * 0.07;             // tighter deadline -> rush premium
+  const swing = 0.85 + Math.random() * 0.32;       // hidden ± so value isn't transparent
+  m.reward = Math.round((m.payload * 0.4 + dist * 280) * (1 + m.threat) * escortRank().mult * rush * swing);
   m.bonus = Math.round(m.reward * 0.3);
   // the convoy burns about as much fuel as a normal one-way jump (+15% for the escort), split over the legs
   m.legFuel = Math.max(1, Math.round(fuelCost(dest.id) * 1.15 / legs));
-  m.cycleBudget = legs + Math.max(4, Math.round(dist / 3));   // legs + a prep/slack window before the contract lapses
   return m;
 }
 function refreshEscortOffers() {
@@ -6392,6 +6401,11 @@ function escortDeliver() {
   let pay = Math.round(m.reward * frac);
   const flawless = m.losses === 0 && e.fleet.every(s => s.role === "flagship" || s.alive);
   if (flawless) pay += m.bonus;
+  // promptness: cycles left under the deadline pay a quiet bonus — so the time you
+  // spend prepping trades against a faster, better-paid delivery (and isn't advertised)
+  const spare = m.deadline != null ? Math.max(0, m.deadline - S.turn) : 0;
+  const promptBonus = spare > 0 ? spare * Math.round(m.reward * 0.03) : 0;
+  pay += promptBonus;
   S.res.credits += pay;
   addRep("frontier", 4); addRep("core", 2);
   // Escort Guild reputation — scaled by risk and how much cargo you saved
@@ -6400,7 +6414,7 @@ function escortDeliver() {
   S.escortRep = (S.escortRep || 0) + repGain;
   S.location = m.to;
   const dn = PLANETS.find(p => p.id === m.to).name;
-  log(`🏁 Convoy delivered to <span class="c">${dn}</span>! Paid ${fmt(pay)} cr (${aliveFr}/${totalFr} freighters)${flawless ? " · ✨ flawless bonus" : ""}. Guild standing +${repGain}.`, "good");
+  log(`🏁 Convoy delivered to <span class="c">${dn}</span>! Paid ${fmt(pay)} cr (${aliveFr}/${totalFr} freighters)${flawless ? " · ✨ flawless bonus" : ""}${promptBonus ? ` · ⏱️ +${fmt(promptBonus)} prompt` : ""}. Guild standing +${repGain}.`, "good");
   toast(`Escort complete: +${fmt(pay)} cr`, "good");
   if (typeof announce === "function") announce("🏁 Convoy Delivered", `${aliveFr}/${totalFr} freighters made port. Fee ${fmt(pay)} cr${flawless ? " + flawless bonus" : ""}.`, false);
   sfx("good");
@@ -6461,7 +6475,7 @@ function renderEscort() {
       return `<div class="card"><h4>🛡️ Convoy to ${dn ? dn.name : "?"}</h4>
         <div class="ship-stat"><span class="k">Distance</span><span class="v">${m.dist} ly · ${m.legs} legs</span></div>
         <div class="ship-stat"><span class="k">Threat</span><span class="v">${tl} (${Math.round(m.threat * 100)}%)</span></div>
-        <div class="ship-stat"><span class="k">Deadline</span><span class="v">${m.cycleBudget} cycles to deliver</span></div>
+        <div class="ship-stat"><span class="k">Deadline</span><span class="v">${m.cycleBudget} cycles <span class="hint">${escortUrgencyLabel(m.urgency != null ? m.urgency : 4)}</span></span></div>
         <div class="ship-stat"><span class="k">Payload</span><span class="v">${fmt(m.payload)} cr cargo</span></div>
         <div class="ship-stat"><span class="k">Reward</span><span class="v" style="color:var(--gold)">${fmt(m.reward)} cr<span class="hint"> +${fmt(m.bonus)} flawless</span></span></div>
         <div class="hint">Threat tracks pirate activity at ${oFrom ? oFrom.name : "origin"} &amp; ${dn ? dn.name : "dest"} — clear them in the ⚔️ Raider tab before you set out to lower it (but the clock runs).</div>
@@ -6708,7 +6722,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.13.0";
+const APP_VERSION = "2.13.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

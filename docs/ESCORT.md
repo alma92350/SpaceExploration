@@ -60,10 +60,18 @@ the convoy's threat before you set out. The **fee is locked** at the contract's
 original threat, so cleaning up keeps the pay and cuts the risk.
 
 But the contract has a **cycle deadline** (`mission.deadline = accept turn +
-cycleBudget`, where `cycleBudget = legs + max(4, dist/3)`). Every cycle — prep,
-travel, or a leg — counts. `escortDeadlineCheck()` (called from `endTurn`) fails
-the run with `escortFail("timeout")` if you overrun (never mid-ambush; timeout
-doesn't cripple the flagship). Cycles-left and live threat show in the panel.
+cycleBudget`, `cycleBudget = legs + slack`, `slack = 1..5` — 🔴 Rush to 🟢
+Relaxed). Every cycle — prep, travel, or a leg — counts. `escortDeadlineCheck()`
+(from `endTurn`) fails the run with `escortFail("timeout")` on overrun (never
+mid-ambush; timeout doesn't cripple the flagship). Cycles-left and live threat
+show in the panel.
+
+**Reward is multi-parameter & partly opaque.** The fee blends payload, distance,
+threat, guild-rank multiplier, a **rush premium** for tight windows, and a hidden
+**market swing** (~±16%) — so two similar postings can pay differently and the
+true reward/risk ratio isn't transparent. A quiet **promptness bonus** (≈3% of
+the fee per spare cycle at delivery) rewards fast runs, so prepping to cut threat
+trades against a quicker, better-paid delivery.
 
 ## The journey (phase 3)
 - Each leg = one cycle (`endTurn`) + fuel. Per-leg fuel = `fuelCost(dest) × 1.15
