@@ -6812,7 +6812,10 @@ function renderEscort() {
     const hiredRows = e.fleet.filter(s => s.hired && s.alive).map(s =>
       `<div class="ship-stat" style="align-items:center"><span class="k">${s.ico} ${s.name} <span class="hint">hired</span></span>
         <span class="v"><button class="btn btn-sm btn-bad" title="Release this crew to free a slot (no refund)" onclick="escortDismissBand('${s.bandId}')">✖ Dismiss</button></span></div>`).join("");
-    const avail = escortRecruitableBands().filter(b => !e.fleet.some(s => s.hired && s.alive && s.bandId === b.id));
+    const avail = escortRecruitableBands()
+      .filter(b => !e.fleet.some(s => s.hired && s.alive && s.bandId === b.id))
+      .filter(b => bandBetrayChance(b) < 0.05)            // only trustworthy crews (desert risk < 5%)
+      .sort((a, b) => bandBetrayChance(a) - bandBetrayChance(b));   // most reliable first
     const rows = avail.map(b => {
       const fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100), rival = bandFoe(b);
       const blocked = rival && e.fleet.some(s => s.hired && s.alive && s.bandId === rival.id);
@@ -6820,8 +6823,8 @@ function renderEscort() {
         <span class="v"><button class="btn btn-sm" ${hiredN < ESCORT_MAX_HIRED && S.res.credits >= fee && !blocked ? "" : "disabled"} title="${blocked ? "Won't fly with their rival aboard" : ""}" onclick="escortRecruitBand('${b.id}')">Hire (${fmt(fee)} cr)</button></span></div>`;
     }).join("");
     recruit = `<div class="card"><h4>🤝 Hire pirate escorts <span class="hint">${hiredN}/${ESCORT_MAX_HIRED} hired</span></h4>
-      <div class="hint">Friendly crews from your 🏴‍☠️ Pirate Contacts will fly escort for a fee — higher standing means a cheaper, more loyal hire. Low-standing hires may desert when the shooting starts; your Dread keeps them in line. Dismiss a crew to free a slot for another.</div>
-      ${hiredRows}${rows || (hiredRows ? "" : '<div class="hint">No willing bands right now — build standing in the Raider tab.</div>')}</div>`;
+      <div class="hint">Trustworthy crews (desert risk under 5%) from your 🏴‍☠️ Pirate Contacts will fly escort for a fee — higher standing &amp; your Dread make a crew cheaper and more loyal; flightier bands won't sign on. Listed most reliable first. Dismiss a crew to free a slot for another.</div>
+      ${hiredRows}${rows || (hiredRows ? "" : '<div class="hint">No dependable bands will sign on right now — raise standing (and Dread) in the Raider tab.</div>')}</div>`;
   }
   const liveThreat = Math.round(escortLiveThreat(m) * 100);
   const cyclesLeft = m.deadline != null ? Math.max(0, m.deadline - S.turn) : null;
@@ -6960,7 +6963,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.15.1";
+const APP_VERSION = "2.15.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

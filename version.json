@@ -1,5 +1,5 @@
 {
-  "version": "2.15.1",
+  "version": "2.15.2",
   "saveVersion": "v2",
-  "notes": "Fixes: bases can now import 🛸 Combat Drones from colonies (they're a Component, so they were wrongly excluded from the import list). Escort hiring raised from 2 to 5 pirate bands, and you can now Dismiss a hired crew to free a slot for another (no refund; any gear you outfitted on them returns to the fleet pool)."
+  "notes": "Escort hiring: the 'Hire pirate escorts' list now shows only dependable crews — desertion risk under 5% — ranked most-reliable first. Raise a band's standing and your Dread to bring flightier crews under the threshold."
 }
