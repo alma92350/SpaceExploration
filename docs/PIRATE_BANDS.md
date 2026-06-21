@@ -66,6 +66,19 @@ Surviving a delivery raises the band's rep (+8); deserting drops it (−12).
   - Escort: `escortRallyOnCall` adds an on-call band as a **free volunteer**
     escort ship (`support:true` — doesn't count against the hire cap, never betrays).
 
+## Pirate-proposed smuggling runs
+- A band you're friendly with (`eligiblePirateClients`: active, willing, rep ≥ 10)
+  may post a **smuggling contract** in the 🛡️ Escort offers
+  (`genPirateEscortContract`, ~55% chance one replaces a normal posting): run their
+  `PIRATE_CARGO` contraband to a destination.
+- vs a legit escort (`m.pirate` flag): **~1.5–2× pay** (better the higher your
+  standing), **+threat** (law patrols, `threatRand +0.12`), and on delivery —
+  **big crew standing** (`m.repBand`), **+Dread** (`m.dread`), **+Wanted**
+  (`m.heat`), and a **rep hit at the destination's faction** — but **no
+  Escort-Guild or legit-faction credit**. Accepting nudges standing up a little.
+- Bailing (`abortEscort`) or losing the cargo (`escortFail`) **burns the crew's
+  trust** (−rep). Tests: `smuggle.js`.
+
 ## Personalities & feuds (polish)
 Each band rolls a **personality** (`BAND_PERSONALITIES`) that flavours its
 numbers: 🤑 Greedy (bigger cut/fee, flaky, *steals*), 🛡️ Loyal (cheaper, rarely

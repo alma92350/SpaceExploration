@@ -6428,7 +6428,40 @@ function refreshEscortOffers() {
   const here = currentPlanet();
   const dests = PLANETS.filter(p => isActive(p) && p.id !== here.id && galaxyKnown(p)).sort(() => Math.random() - 0.5).slice(0, 3);
   e.offers = dests.map(genEscortContract);
+  // a friendly band may sidle up with a smuggling job — illegal cargo, fat pay, big standing, real heat
+  const clients = eligiblePirateClients();
+  if (clients.length && e.offers.length && Math.random() < 0.55) {
+    const pc = genPirateEscortContract(pick(clients));
+    if (pc) e.offers[Math.floor(Math.random() * e.offers.length)] = pc;
+  }
   saveGame(); renderEscort();
+}
+// pirate-proposed smuggling contracts: a band you're friendly with hires YOU to run their contraband
+const PIRATE_CARGO = [
+  { ico: "🔫", name: "unmarked weapons" },
+  { ico: "💊", name: "narcotics" },
+  { ico: "🧠", name: "stolen AI cores" },
+  { ico: "🛸", name: "black-market drones" },
+  { ico: "💎", name: "plundered luxuries" },
+];
+function eligiblePirateClients() { return bandList().filter(b => b.status === "active" && bandWillAlly(b) && (b.rep || 0) >= 10); }
+function genPirateEscortContract(b) {
+  const here = currentPlanet();
+  const dests = PLANETS.filter(p => isActive(p) && p.id !== here.id && galaxyKnown(p));
+  if (!dests.length) return null;
+  const dest = pick(dests);
+  const m = genEscortContract(dest);
+  m.pirate = b.id; m.pirateName = b.name; m.pirateIco = b.ico;
+  m.contraband = pick(PIRATE_CARGO);
+  m.threatRand = (m.threatRand || 0) + 0.12;            // law interdiction stacked on top of pirate activity
+  m.threat = escortLiveThreat(m);
+  m.reward = Math.round(m.reward * (1.55 + Math.min(0.4, (b.rep || 0) / 100 * 0.4)));  // pays well — better the tighter you are
+  m.bonus = Math.round(m.reward * 0.3);
+  m.repBand = 16 + Math.round((b.level || 1) * 2);      // big standing with the crew on delivery
+  m.heat = rint(2, 4);                                  // Wanted picked up running it past the patrols
+  m.dread = 5 + (b.level || 1);                         // contraband running burnishes your outlaw name
+  m.destFaction = dest.faction;
+  return m;
 }
 function buildEscortFleet() {
   const fleet = [{ role: "flagship", name: "Your Flagship", ico: "🚀" }];
@@ -6455,8 +6488,9 @@ function acceptEscort(idx) {
   e.wave = null; e.posture = "balanced"; e.targets = []; e.offers = []; e.jam = false; e.fireTarget = "hull";
   e.pool = { weapons: 0, drones: 0, ai: 0 }; e.pendingRedeploy = false;
   const dn = PLANETS.find(p => p.id === m.to).name;
-  log(`🛡️ Accepted an escort: convoy to <span class="c">${dn}</span> — ${m.legs} legs, reward ${fmt(m.reward)} cr.`, "event");
-  toast("Escort contract accepted.", "good");
+  if (m.pirate) { const b = bandById(m.pirate); if (b) bandRepAdd(b, 4); log(`🏴‍☠️ Took a smuggling run for the ${m.pirateIco} ${m.pirateName} — ${m.contraband.name} to <span class="c">${dn}</span>, ${m.legs} legs, ${fmt(m.reward)} cr.`, "event"); }
+  else log(`🛡️ Accepted an escort: convoy to <span class="c">${dn}</span> — ${m.legs} legs, reward ${fmt(m.reward)} cr.`, "event");
+  toast(m.pirate ? "Smuggling job accepted." : "Escort contract accepted.", "good");
   sfx("event"); saveGame(); renderAll(); setTab("escort");
 }
 function spawnEscortWave() {
@@ -6745,16 +6779,30 @@ function escortDeliver() {
   const promptBonus = spare > 0 ? spare * Math.round(m.reward * 0.03) : 0;
   pay += promptBonus;
   S.res.credits += pay;
-  addRep("frontier", 4); addRep("core", 2);
-  // Escort Guild reputation — scaled by risk and how much cargo you saved
   const beforeRank = escortRankIndex();
-  const repGain = Math.round((10 + m.threat * 40) * frac) + (flawless ? 10 : 0);
-  S.escortRep = (S.escortRep || 0) + repGain;
-  e.fleet.filter(s => s.hired && s.alive).forEach(s => { const b = bandById(s.bandId); if (b) bandRepAdd(b, 8); });   // paid, fought, and made port together
   S.location = m.to;
   const dn = PLANETS.find(p => p.id === m.to).name;
-  log(`🏁 Convoy delivered to <span class="c">${dn}</span>! Paid ${fmt(pay)} cr (${aliveFr}/${totalFr} freighters)${flawless ? " · ✨ flawless bonus" : ""}${promptBonus ? ` · ⏱️ +${fmt(promptBonus)} prompt` : ""}. Guild standing +${repGain}.`, "good");
-  toast(`Escort complete: +${fmt(pay)} cr`, "good");
+  let repGain = 0;
+  if (m.pirate) {
+    // a smuggling run: no legit guild/faction credit — instead crew standing, Dread, heat and angry authorities
+    const b = bandById(m.pirate);
+    if (b) bandRepAdd(b, m.repBand || 16);
+    S.pirate.wanted = Math.min(100, S.pirate.wanted + (m.heat || 2));
+    S.pirate.dread += (m.dread || 5);
+    if (m.destFaction) addRep(m.destFaction, -8);
+    clampPirate();
+    e.fleet.filter(s => s.hired && s.alive).forEach(s => { const hb = bandById(s.bandId); if (hb) bandRepAdd(hb, 8); });
+    log(`🏴‍☠️ Ran the ${b ? b.ico + " " + b.name : "crew"}'s ${m.contraband ? m.contraband.ico + " " + m.contraband.name : "contraband"} into <span class="c">${dn}</span>! Paid ${fmt(pay)} cr${flawless ? " · ✨ flawless" : ""}${promptBonus ? ` · ⏱️ +${fmt(promptBonus)}` : ""}. ${b ? b.name + " standing +" + (m.repBand || 16) : ""} · +${m.dread || 5} Dread · +${m.heat || 2} Wanted.`, "event");
+    toast(`Smuggling run done: +${fmt(pay)} cr`, "good");
+  } else {
+    addRep("frontier", 4); addRep("core", 2);
+    // Escort Guild reputation — scaled by risk and how much cargo you saved
+    repGain = Math.round((10 + m.threat * 40) * frac) + (flawless ? 10 : 0);
+    S.escortRep = (S.escortRep || 0) + repGain;
+    e.fleet.filter(s => s.hired && s.alive).forEach(s => { const b = bandById(s.bandId); if (b) bandRepAdd(b, 8); });   // paid, fought, and made port together
+    log(`🏁 Convoy delivered to <span class="c">${dn}</span>! Paid ${fmt(pay)} cr (${aliveFr}/${totalFr} freighters)${flawless ? " · ✨ flawless bonus" : ""}${promptBonus ? ` · ⏱️ +${fmt(promptBonus)} prompt` : ""}. Guild standing +${repGain}.`, "good");
+    toast(`Escort complete: +${fmt(pay)} cr`, "good");
+  }
   if (typeof announce === "function") announce("🏁 Convoy Delivered", `${aliveFr}/${totalFr} freighters made port. Fee ${fmt(pay)} cr${flawless ? " + flawless bonus" : ""}.`, false);
   sfx("good");
   const spent = escortDiscardOutfit();
@@ -6773,7 +6821,8 @@ function abortEscort() {
   if (escortInCombat()) return toast("You can't abandon the convoy mid-ambush.", "bad");
   const fee = Math.min(S.res.credits, Math.round(e.mission.reward * 0.2));
   S.res.credits -= fee;
-  log(`🚪 You abandoned the escort — forfeit ${fmt(fee)} cr.`, "bad");
+  if (e.mission.pirate) { const b = bandById(e.mission.pirate); if (b) { bandRepAdd(b, -14); log(`🚪 You ditched the ${b.ico} ${b.name}'s contraband run — forfeit ${fmt(fee)} cr and their trust.`, "bad"); } }
+  else log(`🚪 You abandoned the escort — forfeit ${fmt(fee)} cr.`, "bad");
   toast("Escort abandoned.", "bad");
   escortDiscardOutfit();
   e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = []; e.pendingRedeploy = false;
@@ -6794,6 +6843,7 @@ function escortFail(reason) {
     if (typeof announce === "function") announce("💥 Escort Failed", "Every ship you were guarding is gone. No fee.", true);
   }
   toast(reason === "timeout" ? "Escort contract expired." : "Escort failed.", "bad"); sfx(reason === "timeout" ? "bad" : "explode");
+  if (e.mission && e.mission.pirate) { const b = bandById(e.mission.pirate); if (b) { bandRepAdd(b, -12); log(`🏴‍☠️ Losing the ${b.name}'s cargo cost you dearly with them.`, "bad"); } }
   escortDiscardOutfit();
   e.active = false; e.mission = null; e.fleet = []; e.wave = null; e.targets = []; e.pendingRedeploy = false;
 }
@@ -6811,6 +6861,19 @@ function renderEscort() {
     const cards = (e.offers || []).map((m, i) => {
       const dn = PLANETS.find(p => p.id === m.to); const tl = m.threat >= 0.7 ? "🔴 High" : m.threat >= 0.45 ? "🟠 Moderate" : "🟢 Low";
       const oFrom = PLANETS.find(p => p.id === m.from);
+      if (m.pirate) {
+        const b = bandById(m.pirate);
+        return `<div class="card" style="border-color:var(--gold)"><h4>🏴‍☠️ Smuggling run to ${dn ? dn.name : "?"}</h4>
+          <div class="hint">${b ? bandTagMark(b) + m.pirateIco + " <b>" + b.name + "</b>" : "A crew"} wants you to run their ${m.contraband.ico} <b>${m.contraband.name}</b> — quietly.</div>
+          <div class="ship-stat"><span class="k">Distance</span><span class="v">${m.dist} ly · ${m.legs} legs</span></div>
+          <div class="ship-stat"><span class="k">Threat</span><span class="v">${tl} (${Math.round(m.threat * 100)}%) <span class="hint">incl. patrols</span></span></div>
+          <div class="ship-stat"><span class="k">Deadline</span><span class="v">${m.cycleBudget} cycles <span class="hint">${escortUrgencyLabel(m.urgency != null ? m.urgency : 4)}</span></span></div>
+          <div class="ship-stat"><span class="k">Pay</span><span class="v" style="color:var(--gold)">${fmt(m.reward)} cr<span class="hint"> +${fmt(m.bonus)} flawless</span></span></div>
+          <div class="ship-stat"><span class="k">On delivery</span><span class="v">${b ? b.name + " +" + m.repBand : "standing"} · +${m.dread} Dread</span></div>
+          <div class="ship-stat"><span class="k">Risk</span><span class="v" style="color:var(--bad)">+${m.heat} Wanted · ${dn ? dn.name + " authorities anger" : "law anger"}</span></div>
+          <div class="hint">Illegal cargo: fat pay and deep standing with the crew, but you'll take heat and the destination's law won't forget. Bail and you'll burn the crew's trust.</div>
+          <button class="btn btn-primary" onclick="acceptEscort(${i})">Take the job</button></div>`;
+      }
       return `<div class="card"><h4>🛡️ Convoy to ${dn ? dn.name : "?"}</h4>
         <div class="ship-stat"><span class="k">Distance</span><span class="v">${m.dist} ly · ${m.legs} legs</span></div>
         <div class="ship-stat"><span class="k">Threat</span><span class="v">${tl} (${Math.round(m.threat * 100)}%)</span></div>
@@ -6952,8 +7015,8 @@ function renderEscort() {
   }
   const liveThreat = Math.round(escortLiveThreat(m) * 100);
   const cyclesLeft = m.deadline != null ? Math.max(0, m.deadline - S.turn) : null;
-  el.innerHTML = `<div class="panel-head"><h2>🛡️ Escort — convoy to ${dn ? dn.name : "?"}</h2>
-    <div class="subtitle">Leg ${m.legs - m.legsLeft}/${m.legs} · threat ${liveThreat}%${cyclesLeft != null ? ` · <span style="color:${cyclesLeft <= 1 ? "var(--bad)" : cyclesLeft <= 3 ? "var(--warn)" : "inherit"}">⏳ ${cyclesLeft} cycle${cyclesLeft === 1 ? "" : "s"} left</span>` : ""} · freighters ${aliveFr}/${totalFr} intact · reward ${fmt(m.reward)} cr${m.losses === 0 ? ` <span class="hint">(+${fmt(m.bonus)} flawless)</span>` : ""}</div></div>
+  el.innerHTML = `<div class="panel-head"><h2>${m.pirate ? "🏴‍☠️ Smuggling run" : "🛡️ Escort — convoy"} to ${dn ? dn.name : "?"}</h2>
+    <div class="subtitle">${m.pirate ? `Running ${m.contraband.ico} ${m.contraband.name} for the ${m.pirateName} · ` : ""}Leg ${m.legs - m.legsLeft}/${m.legs} · threat ${liveThreat}%${cyclesLeft != null ? ` · <span style="color:${cyclesLeft <= 1 ? "var(--bad)" : cyclesLeft <= 3 ? "var(--warn)" : "inherit"}">⏳ ${cyclesLeft} cycle${cyclesLeft === 1 ? "" : "s"} left</span>` : ""} · freighters ${aliveFr}/${totalFr} intact · reward ${fmt(m.reward)} cr${m.losses === 0 ? ` <span class="hint">(+${fmt(m.bonus)} flawless)</span>` : ""}</div></div>
     ${combat}
     <div class="card"><h4>🚢 Fleet — pooled firepower 🔥 ${fmt(F)}</h4>${roster}</div>
     ${outfit}
@@ -7089,7 +7152,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.17.0";
+const APP_VERSION = "2.18.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7159,7 +7222,7 @@ function helpHTML() {
       <li>🏗️ <b>Bases</b> — automated off-world production.</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
-      <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Unlocks once you've proven yourself in combat.</li>
+      <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
       <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Appears once you've crossed a pirate band.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
     </ul>

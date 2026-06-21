@@ -1,5 +1,5 @@
 {
-  "version": "2.17.0",
+  "version": "2.18.0",
   "saveVersion": "v2",
-  "notes": "Pirate brotherhood: tag your contacts (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name in the Contacts tab, escort hire list, and raid cards. Each band now shows its home location and distance. New 📣 Call for support: summon a band even if it's far away — crews in your system fall in at once, distant ones travel in over a cycle (whether they come depends on standing, distance, your Dread and whether they're busy) and then stand by, ready to join a raid as an ally or an escort as a free volunteer. (Pirate-proposed cargo missions are coming next.)"
+  "notes": "Pirate-proposed smuggling runs: friendly bands (standing 10+) now post 🏴‍☠️ contraband contracts in the Escort offers. Run their unmarked weapons, narcotics, stolen AI cores, drones or plundered luxuries for ~1.5-2x the pay of a legit convoy and a big jump in crew standing — but the lanes carry law patrols too, delivery adds Wanted heat and Dread, and the destination's authorities won't forget. No Escort-Guild credit for dirty work, and bailing or losing the cargo burns the crew's trust. Builds on the 2.17 brotherhood (tags, locations, call-for-support)."
 }
