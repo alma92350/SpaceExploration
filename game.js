@@ -2120,7 +2120,9 @@ function newBand(level) {
   const lvl = Math.max(1, Math.min(5, level || rint(1, 3)));
   const id = "b" + (S.turn || 0) + "_" + Object.keys(S.pirateBands).length + "_" + Math.floor(Math.random() * 1000);
   const b = { id, name, ico: (PIRATE_RANKS[lvl] || PIRATE_RANKS[1]).ico, level: lvl, rep: 0, pers: pick(BAND_PERS_KEYS),
-    encounters: 0, fought: 0, allied: 0, gifted: 0, lastSeen: S.turn || 0, status: "active", feudWith: null };
+    encounters: 0, fought: 0, allied: 0, gifted: 0, lastSeen: S.turn || 0, status: "active", feudWith: null,
+    tag: null, loc: (PLANETS.filter(isActive)[Math.floor(Math.random() * Math.max(1, PLANETS.filter(isActive).length))] || PLANETS[0]).id,
+    inboundTurn: null, onCallUntil: 0, busyUntil: 0 };
   S.pirateBands[id] = b;
   // some crews are blood rivals with an existing band — they won't serve together
   const others = Object.values(S.pirateBands).filter(o => o.id !== id && !o.feudWith && o.status !== "dead");
@@ -2138,7 +2140,7 @@ function bindBand(foe, preferAlly) {
   }
   if (!b) b = newBand(foe.level || rint(1, 3));
   foe.bandId = b.id; foe.bandName = b.name;
-  b.encounters++; b.lastSeen = S.turn || 0;
+  b.encounters++; b.lastSeen = S.turn || 0; b.loc = S.location || b.loc;   // last seen here
   return b;
 }
 // the cut an allied band demands of the loot — stronger want more, friends & your dread shave it
@@ -2183,6 +2185,69 @@ function decayBands() {                                  // standings drift towa
 function escortRecruitFee(b) { return Math.round((800 + b.level * 700) * (1 - ((b.rep || 0) / 100) * 0.4) * bandPers(b).fee); }
 function escortRecruitableBands() { return bandList().filter(b => ["neutral", "friendly", "sworn"].includes(bandTier(b).key)); }
 function bandBetrayChance(b) { return Math.max(0, Math.min(0.6, 0.26 - ((b.rep || 0) / 100) * 0.32 - Math.min(0.18, ((S.pirate && S.pirate.dread) || 0) / 100 * 0.18) + bandPers(b).betray)); }
+/* ---- Tags (your loose brotherhood) + location + call-for-support ---- */
+const BAND_TAGS = {
+  brotherhood: { ico: "⭐", name: "Brotherhood", loyal: true },
+  ally:        { ico: "🟢", name: "Ally",        loyal: true },
+  watch:       { ico: "👁️", name: "Watch",       loyal: false },
+  rival:       { ico: "🔴", name: "Rival",       loyal: false },
+};
+const BAND_TAG_KEYS = Object.keys(BAND_TAGS);
+function bandTagMark(b) { return b && b.tag && BAND_TAGS[b.tag] ? BAND_TAGS[b.tag].ico : ""; }
+function bandTagLoyal(b) { return !!(b && b.tag && BAND_TAGS[b.tag] && BAND_TAGS[b.tag].loyal); }
+function setBandTag(id, tag) {
+  const b = bandById(id); if (!b) return;
+  b.tag = (b.tag === tag) ? null : (BAND_TAGS[tag] ? tag : null);   // toggle off if same
+  saveGame(); renderAll();
+}
+function bandLocName(b) { const p = b && b.loc && PLANETS.find(x => x.id === b.loc); return p ? p.name : "parts unknown"; }
+function bandDistance(b) { if (!b || !b.loc) return 6; if (b.loc === S.location) return 0; const d = currentPlanet().distances; return (d && d[b.loc]) || 6; }
+const BAND_ONCALL_DURATION = 4;     // cycles a summoned band loiters in your area, ready to fight
+function bandOnCall(b) { return !!(b && b.onCallUntil && S.turn <= b.onCallUntil); }
+function bandInbound(b) { return !!(b && b.inboundTurn != null); }
+function bandBusy(b) { return !!(b && b.busyUntil && S.turn < b.busyUntil); }
+function bandsOnCall() { return bandList().filter(bandOnCall); }
+// odds a band answers a call for support — rep, distance, brotherhood, your dread; nil if busy
+function bandSupportOdds(b) {
+  if (bandBusy(b) || !bandWillAlly(b)) return 0;
+  let p = 0.35 + ((b.rep || 0) / 100) * 0.4 - bandDistance(b) * 0.03 + Math.min(0.15, ((S.pirate && S.pirate.dread) || 0) / 100 * 0.15);
+  if (bandTagLoyal(b)) p += 0.2;
+  return Math.max(0, Math.min(0.95, p));
+}
+function callBandSupport(id) {
+  const b = bandById(id); if (!b) return;
+  if (bandOnCall(b)) return toast(`The ${b.name} are already standing by.`, "");
+  if (bandInbound(b)) return toast(`The ${b.name} are already inbound.`, "");
+  if (bandBusy(b)) return toast(`The ${b.name} are tied up with their own business right now.`, "bad");
+  if (!bandWillAlly(b)) return toast(`The ${b.name} bear you too much ill will to answer.`, "bad");
+  const dist = bandDistance(b);
+  if (dist === 0) { b.onCallUntil = S.turn + BAND_ONCALL_DURATION; log(`📣 The ${b.ico} ${b.name} are right here and fall in with you.`, "event"); toast(`${b.name} standing by`, "good"); sfx("event"); saveGame(); renderAll(); return; }
+  if (Math.random() < bandSupportOdds(b)) {
+    const travel = Math.max(1, Math.round(dist / 4));
+    b.inboundTurn = S.turn + travel;
+    log(`📣 The ${b.ico} ${b.name} answered your call from ${bandLocName(b)} — inbound in ${travel} cycle${travel === 1 ? "" : "s"}.`, "event");
+    toast(`${b.name} inbound (${travel} cyc)`, "good"); sfx("event");
+  } else {
+    b.busyUntil = S.turn + rint(1, 3);
+    log(`📣 The ${b.ico} ${b.name} declined — too far, or busy with their own affairs.`, "bad");
+    toast(`${b.name} declined`, "bad");
+  }
+  saveGame(); renderAll();
+}
+function processBandSupport() {                          // arrivals: inbound crews become on-call in your area
+  bandList().forEach(b => {
+    if (b.inboundTurn != null && S.turn >= b.inboundTurn) {
+      b.inboundTurn = null; b.onCallUntil = S.turn + BAND_ONCALL_DURATION; b.loc = S.location || b.loc;
+      log(`🛬 The ${b.ico} ${b.name} arrived and are standing by your position.`, "event");
+      if (typeof toast === "function") toast(`${b.name} has arrived`, "good");
+    }
+  });
+}
+// synthesize a raid ally / escort support ship from a band
+function bandAsAlly(b) {
+  return { isPirate: true, bandId: b.id, allyName: b.name, ico: b.ico, name: b.name,
+    strength: Math.round(((PIRATE_RANKS[b.level] || PIRATE_RANKS[1]).str) * 0.9), share: bandLootShare(b) };
+}
 // an allied pirate pours fire onto your current target
 function allyStrike(target, ally) {
   const fp = bandPers(bandById(ally.bandId)).fp;          // bold crews hit harder
@@ -2232,6 +2297,20 @@ function raidCallAllies() {
   log(`📣 ${notes.join(", ")} rally to your guns — they fire independently. Your share of the loot: <b>${yours}%</b>.`, "event");
   toast(`${take.length} band(s) joined — your cut ${yours}%`, "event");
   afterAction();
+}
+// bring an ON-CALL band (summoned earlier, now loitering nearby) into the current fight
+function raidSummonOnCall(id) {
+  if (!S.prey) return toast("No engagement.", "bad");
+  S.allies = S.allies || [];
+  if (S.allies.length >= 2) return toast("Your pirate band is already full.", "bad");
+  const b = bandById(id); if (!b || !bandOnCall(b)) return toast("They aren't standing by.", "bad");
+  if (S.allies.some(a => a.bandId === id)) return toast(`The ${b.name} are already at your side.`, "bad");
+  if (bandRivalServing(b)) { const r = bandFoe(b); return toast(`The ${b.name} won't fight beside their rivals the ${r ? r.name : "other crew"}.`, "bad"); }
+  const a = bandAsAlly(b); S.allies.push(a); foeHp(a);
+  b.allied = (b.allied || 0) + 1; bandRepAdd(b, 6);
+  const rival = bandFoe(b); if (rival) bandRepAdd(rival, -8);
+  log(`📣 The ${b.ico} ${b.name} swing in from nearby to your side (${Math.round(a.share * 100)}% cut). Your share: <b>${Math.round(lootShare() * 100)}%</b>.`, "event");
+  toast(`${b.name} joined the fight`, "event"); afterAction();
 }
 function plunder(prey) {
   const share = lootShare();
@@ -4605,6 +4684,7 @@ function endTurn(fromTravel = false) {
   processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent();
   if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (typeof decayBands === "function") decayBands();
+  if (typeof processBandSupport === "function") processBandSupport();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -5402,18 +5482,23 @@ function preyCombatCard(prey, al) {
   const callBtn = (areaPirates > 0 && allyN < 2)
     ? `<button class="btn btn-sm" title="Call ${areaPirates} pirate(s) in the area to your side — they fire independently, loot splits evenly" onclick="raidCallAllies()">📣 Call pirate allies (${areaPirates})</button>`
     : "";
+  const onCallBtns = (allyN < 2 ? bandsOnCall().filter(b => !(S.allies || []).some(a => a.bandId === b.id)) : [])
+    .map(b => `<button class="btn btn-sm btn-good" title="${bandTagMark(b)} ${b.name} are standing by nearby — bring them in (${Math.round(bandLootShare(b) * 100)}% cut)" onclick="raidSummonOnCall('${b.id}')">📣 ${bandTagMark(b)}${b.ico} ${b.name}</button>`).join("");
   const squadLine = (packN > 0 || allyN > 0)
     ? `<div class="hint">${packN > 0 ? `<span class="pill bad">⚔️ ${packN + 1} hostiles</span> ` : ""}${allyN > 0 ? `<span class="pill good">🤝 ${allyN} ally${allyN > 1 ? "ies" : ""} · loot split ${allyN + 1} ways</span>` : ""}</div>`
     : "";
   const spareBtn = (typeof raidCanSpare === "function" && raidCanSpare())
     ? `<button class="btn btn-sm btn-good" title="Hold fire and let the beaten crew live — a big boost to their collaboration" onclick="raidSpareRecruit()">🤝 Spare crew (+standing)</button>` : "";
   const buttons = isPirate
-    ? `${spareBtn}${callBtn}<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
+    ? `${spareBtn}${callBtn}${onCallBtns}<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
     : `<button class="btn btn-bad" title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
        <button class="btn btn-sm" title="Spend Dread to extort tribute — no fight (Dread −12)" onclick="raidExtort()">💀 Extort</button>
        ${callBtn}<button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>`;
+  const preyBand = prey.bandId ? bandById(prey.bandId) : null;
+  const bandLine = preyBand ? `<div class="hint">${bandTagMark(preyBand)} of the <b>${preyBand.name}</b> · ${bandPers(preyBand).ico} ${bandPers(preyBand).name} · ${bandTier(preyBand).label} (${preyBand.rep}) · based at ${bandLocName(preyBand)}</div>` : "";
   return `<div class="card" style="border-color:${isPirate ? "var(--good)" : "var(--warn)"}">
-    <h4>${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>
+    <h4>${preyBand ? bandTagMark(preyBand) : ""}${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>
+    ${bandLine}
     <div class="hint">${lawNote}</div>
     ${squadLine}
     ${tacticalHTML(prey, "raidAttack")}
@@ -5615,25 +5700,36 @@ function renderContacts() {
   const bands = bandList().sort((a, b) => (b.rep || 0) - (a.rep || 0));
   const giftCargo = ["weapons", "fuel", "luxury", "ai", "drones"].filter(c => (S.res[c] || 0) > 0);
   const cards = bands.map(b => {
-    const t = bandTier(b), pr = bandPers(b), rival = bandFoe(b);
+    const t = bandTier(b), pr = bandPers(b), rival = bandFoe(b), mark = bandTagMark(b);
     const cargoBtns = giftCargo.map(c => `<button class="btn btn-sm" title="Gift 1 ${COM[c].name} (+standing)" onclick="giftBandCargo('${b.id}','${c}',1)">${COM[c].ico}+</button>`).join("");
     const pct = Math.round((((b.rep || 0) + 100) / 200) * 100);
     const cut = Math.round(bandLootShare(b) * 100), fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100);
+    const dist = bandDistance(b);
+    const tagBtns = BAND_TAG_KEYS.map(k => `<button class="btn btn-sm ${b.tag === k ? "btn-primary" : ""}" title="Tag as ${BAND_TAGS[k].name}" onclick="setBandTag('${b.id}','${k}')">${BAND_TAGS[k].ico}</button>`).join("");
+    const supStatus = bandOnCall(b) ? `<span style="color:var(--good)">standing by (${b.onCallUntil - S.turn} cyc)</span>`
+      : bandInbound(b) ? `<span style="color:var(--warn)">inbound (${b.inboundTurn - S.turn} cyc)</span>`
+      : bandBusy(b) ? `<span class="hint">busy (${b.busyUntil - S.turn} cyc)</span>`
+      : `${Math.round(bandSupportOdds(b) * 100)}% to answer`;
+    const callDisabled = bandOnCall(b) || bandInbound(b) || bandBusy(b) || !bandWillAlly(b);
     return `<div class="card">
-      <h4>${b.ico} ${b.name}</h4>
+      <h4>${mark ? mark + " " : ""}${b.ico} ${b.name}</h4>
       <div class="hint">${pr.ico} ${pr.name} · L${b.level} · ${t.label} (${b.rep})${rival ? ` · <span style="color:var(--bad)">⚔️ feud: ${rival.name}</span>` : ""}</div>
       <div class="bar"><span style="width:${pct}%;background:${(b.rep||0) >= 41 ? "var(--good)" : (b.rep||0) < -10 ? "var(--bad)" : "var(--warn)"}"></span></div>
+      <div class="ship-stat"><span class="k">Based at</span><span class="v">${bandLocName(b)} <span class="hint">${dist === 0 ? "(here)" : dist + " ly"}</span></span></div>
       <div class="ship-stat"><span class="k">History</span><span class="v">🤝 ${b.allied || 0} allied · ⚔️ ${b.fought || 0} fought · 🎁 ${fmt(b.gifted || 0)} cr</span></div>
       <div class="ship-stat"><span class="k">As an ally</span><span class="v">${bandWillAlly(b) ? `wants ${cut}% of loot` : "won't fight for you"}</span></div>
       <div class="ship-stat"><span class="k">As a hire</span><span class="v">${fmt(fee)} cr · ${risk}% desert risk</span></div>
+      <div class="ship-stat"><span class="k">Support</span><span class="v">${supStatus}</span></div>
+      <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px"><span class="hint">Tag:</span> ${tagBtns}</div>
       <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px">
+        <button class="btn btn-sm" ${callDisabled ? "disabled" : ""} title="Call them to your side — nearby crews come at once, distant ones may travel in" onclick="callBandSupport('${b.id}')">📣 Call for support</button>
         <button class="btn btn-sm" ${S.res.credits >= 500 ? "" : "disabled"} title="Pay a 500 cr tribute" onclick="giftBandCredits('${b.id}',500)">💰 500</button>
         <button class="btn btn-sm" ${S.res.credits >= 2000 ? "" : "disabled"} title="Pay a 2,000 cr tribute" onclick="giftBandCredits('${b.id}',2000)">💰 2k</button>
-        ${cargoBtns || '<span class="hint">no giftable cargo held</span>'}
+        ${cargoBtns}
       </div></div>`;
   }).join("");
   el.innerHTML = `<h2>🏴‍☠️ Pirate Contacts</h2>
-    <div class="subtitle">Crews you've crossed in the void. <b>Standing</b> rises when you ally with them, spare a beaten crew, pay tributes or gift cargo they value — and with your <b>Dread</b> (they respect a fearsome name); it craters when you kill them. Friendlier bands take a smaller loot cut at your side, rally readily, and hire on cheaper &amp; more loyally for 🛡️ Escort runs. Some bands hold blood feuds and won't serve alongside a rival.</div>
+    <div class="subtitle">Crews you've crossed in the void — your loose brotherhood. <b>Tag</b> them to track who's who; the mark shows wherever they appear. <b>Standing</b> rises when you ally, spare a beaten crew, pay tributes or gift valued cargo — and with your <b>Dread</b>; it craters when you kill them. <b>📣 Call for support</b> to summon a crew: those in your system fall in at once, distant ones may travel in over a cycle (the odds depend on standing, distance, your Dread &amp; whether they're busy) and then stand by, ready to join a raid or escort. Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Feuding crews won't serve alongside a rival.</div>
     <div class="cards">${cards || '<div class="card"><div class="hint">No pirate bands on your books yet — hunt or ally with them from the ⚔️ Raider tab.</div></div>'}</div>`;
 }
 /* ---------- Generic in-panel sub-tabs ----------
@@ -6563,7 +6659,7 @@ function escortRecruitBand(id) {
   if (escortInCombat()) return toast("You can't strike a deal mid-ambush.", "bad");
   const b = bandById(id); if (!b) return;
   if (e.fleet.some(s => s.hired && s.bandId === id)) return toast(`The ${b.name} already flies with you.`, "bad");
-  if (e.fleet.filter(s => s.hired && s.alive).length >= ESCORT_MAX_HIRED) return toast(`You can field at most ${ESCORT_MAX_HIRED} hired bands — dismiss one first.`, "bad");
+  if (e.fleet.filter(s => s.hired && !s.support && s.alive).length >= ESCORT_MAX_HIRED) return toast(`You can field at most ${ESCORT_MAX_HIRED} hired bands — dismiss one first.`, "bad");
   const rival = bandFoe(b);
   if (rival && e.fleet.some(s => s.hired && s.alive && s.bandId === rival.id)) return toast(`The ${b.name} won't fly with their blood rivals the ${rival.name}.`, "bad");
   const fee = escortRecruitFee(b);
@@ -6590,9 +6686,26 @@ function escortDismissBand(id) {                          // let a hired crew go
   log(`👋 You released the ${sh.ico} ${sh.name} from the contract.`, "");
   toast(`${b ? b.name : sh.name} dismissed`, ""); saveGame(); renderAll();
 }
+// bring an ON-CALL band into the convoy as a free volunteer escort for the run
+function escortRallyOnCall(id) {
+  const e = ensureEscort(); if (!e.active) return;
+  if (escortInCombat()) return toast("Wait for a lull to bring them in.", "bad");
+  const b = bandById(id); if (!b || !bandOnCall(b)) return toast("They aren't standing by.", "bad");
+  if (e.fleet.some(s => s.hired && s.alive && s.bandId === id)) return toast(`The ${b.name} already fly with you.`, "bad");
+  const rival = bandFoe(b);
+  if (rival && e.fleet.some(s => s.hired && s.alive && s.bandId === rival.id)) return toast(`The ${b.name} won't fly with their rivals the ${rival.name}.`, "bad");
+  const sh = { role: "escort", hired: true, support: true, bandId: id, name: b.name, ico: b.ico,
+    hullMax: Math.round(ESCORT_ESCORT_HULL * (0.9 + b.level * 0.25)),
+    str: Math.round(ESCORT_ESCORT_FP * (0.9 + b.level * 0.3) * bandPers(b).fp), alive: true,
+    outfit: { wpn: 0, datk: 0, ddef: 0, aiatk: 0, aidef: 0 } };
+  sh.hull = sh.hullMax; e.fleet.push(sh);
+  b.onCallUntil = 0; bandRepAdd(b, 4);                     // they've thrown in with the convoy
+  log(`🤝 The ${b.ico} ${b.name} fall in as volunteer escorts for the run.`, "event");
+  toast(`${b.name} joined the convoy`, "good"); sfx("event"); saveGame(); renderAll();
+}
 function escortBetrayalCheck() {                          // cheap loyalties bolt when the going gets tough
   const e = ensureEscort();
-  (e.fleet || []).filter(s => s.hired && s.alive).forEach(s => {
+  (e.fleet || []).filter(s => s.hired && !s.support && s.alive).forEach(s => {   // free volunteers don't betray
     const b = bandById(s.bandId); if (!b) return;
     if (Math.random() < bandBetrayChance(b)) {
       s.alive = false; s.betrayed = true; bandRepAdd(b, -12);
@@ -6817,8 +6930,12 @@ function renderEscort() {
   const hiredN = e.fleet.filter(s => s.hired && s.alive).length;
   if (!escortInCombat()) {
     const hiredRows = e.fleet.filter(s => s.hired && s.alive).map(s =>
-      `<div class="ship-stat" style="align-items:center"><span class="k">${s.ico} ${s.name} <span class="hint">hired</span></span>
+      `<div class="ship-stat" style="align-items:center"><span class="k">${bandTagMark(bandById(s.bandId))}${s.ico} ${s.name} <span class="hint">${s.support ? "volunteer" : "hired"}</span></span>
         <span class="v"><button class="btn btn-sm btn-bad" title="Release this crew to free a slot (no refund)" onclick="escortDismissBand('${s.bandId}')">✖ Dismiss</button></span></div>`).join("");
+    // on-call brotherhood standing by — bring them in free
+    const onCallRows = bandsOnCall().filter(b => !e.fleet.some(s => s.hired && s.alive && s.bandId === b.id)).map(b =>
+      `<div class="ship-stat" style="align-items:center"><span class="k">${bandTagMark(b)}${b.ico} ${b.name} <span class="hint">standing by · L${b.level}</span></span>
+        <span class="v"><button class="btn btn-sm btn-good" onclick="escortRallyOnCall('${b.id}')">🤝 Rally (free)</button></span></div>`).join("");
     const avail = escortRecruitableBands()
       .filter(b => !e.fleet.some(s => s.hired && s.alive && s.bandId === b.id))
       .filter(b => bandBetrayChance(b) < 0.05)            // only trustworthy crews (desert risk < 5%)
@@ -6826,12 +6943,12 @@ function renderEscort() {
     const rows = avail.map(b => {
       const fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100), rival = bandFoe(b);
       const blocked = rival && e.fleet.some(s => s.hired && s.alive && s.bandId === rival.id);
-      return `<div class="ship-stat" style="align-items:center"><span class="k">${b.ico} ${b.name} <span class="hint">${bandPers(b).ico}${bandPers(b).name} · ${bandTier(b).label} · L${b.level} · desert risk ${risk}%${blocked ? ` · ⚔️ rivals ${rival.name}` : ""}</span></span>
+      return `<div class="ship-stat" style="align-items:center"><span class="k">${bandTagMark(b)}${b.ico} ${b.name} <span class="hint">${bandPers(b).ico}${bandPers(b).name} · ${bandTier(b).label} · L${b.level} · desert risk ${risk}%${blocked ? ` · ⚔️ rivals ${rival.name}` : ""}</span></span>
         <span class="v"><button class="btn btn-sm" ${hiredN < ESCORT_MAX_HIRED && S.res.credits >= fee && !blocked ? "" : "disabled"} title="${blocked ? "Won't fly with their rival aboard" : ""}" onclick="escortRecruitBand('${b.id}')">Hire (${fmt(fee)} cr)</button></span></div>`;
     }).join("");
     recruit = `<div class="card"><h4>🤝 Hire pirate escorts <span class="hint">${hiredN}/${ESCORT_MAX_HIRED} hired</span></h4>
-      <div class="hint">Trustworthy crews (desert risk under 5%) from your 🏴‍☠️ Pirate Contacts will fly escort for a fee — higher standing &amp; your Dread make a crew cheaper and more loyal; flightier bands won't sign on. Listed most reliable first. Dismiss a crew to free a slot for another.</div>
-      ${hiredRows}${rows || (hiredRows ? "" : '<div class="hint">No dependable bands will sign on right now — raise standing (and Dread) in the Raider tab.</div>')}</div>`;
+      <div class="hint">Trustworthy crews (desert risk under 5%) from your 🏴‍☠️ Pirate Contacts will fly escort for a fee — higher standing &amp; your Dread make a crew cheaper and more loyal; flightier bands won't sign on. Listed most reliable first. Crews you've <b>📣 called for support</b> (Contacts tab) stand by to join free. Dismiss a crew to free a slot for another.</div>
+      ${onCallRows}${hiredRows}${rows || (onCallRows || hiredRows ? "" : '<div class="hint">No dependable bands will sign on right now — raise standing (and Dread), or call for support, in the Raider/Contacts tabs.</div>')}</div>`;
   }
   const liveThreat = Math.round(escortLiveThreat(m) * 100);
   const cyclesLeft = m.deadline != null ? Math.max(0, m.deadline - S.turn) : null;
@@ -6972,7 +7089,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.16.0";
+const APP_VERSION = "2.17.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7043,7 +7160,7 @@ function helpHTML() {
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Unlocks once you've proven yourself in combat.</li>
-      <li>🏴‍☠️ <b>Contacts</b> — manage your relationships with named <b>pirate bands</b>: see each crew's standing, personality, feuds and history, and pay tributes or gift cargo to win them over. Friendlier bands take a smaller loot cut at your side and hire on cheaper &amp; more loyally for 🛡️ Escort runs. Appears once you've crossed a pirate band.</li>
+      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Appears once you've crossed a pirate band.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
     </ul>
 
@@ -7414,7 +7531,8 @@ Object.assign(window, {
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
-  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, repairShip,
+  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSummonOnCall, repairShip,
+  setBandTag, callBandSupport, escortRallyOnCall,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, escortOutfitAdd, escortOutfitRemove, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,

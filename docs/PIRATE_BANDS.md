@@ -50,6 +50,22 @@ Surviving a delivery raises the band's rep (+8); deserting drops it (−12).
 - 🛡️ Escort staging → **🤝 Hire pirate escorts** card (out of combat) with fee
   and desertion-risk per band.
 
+## Tags, location & call-for-support (brotherhood)
+- **Tags** (`BAND_TAGS`: ⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival; `setBandTag`,
+  toggle): a player label shown next to the band's name everywhere (Contacts,
+  Escort hire/roster, raid ally/foe cards). Brotherhood/Ally tags are "loyal" and
+  raise call-for-support odds.
+- **Location** (`band.loc`, set on `bindBand` to where you crossed them; `newBand`
+  seeds a random home): shown with distance (`bandDistance`) on cards.
+- **Call for support** (`callBandSupport`, from Contacts): a band in your system
+  falls in at once (on-call); a distant one rolls `bandSupportOdds` (rep +
+  brotherhood + dread − distance, nil if busy) and, if it answers, is **inbound**
+  for `~dist/4` cycles, then **on-call** for `BAND_ONCALL_DURATION` (4) cycles
+  (`processBandSupport` in `endTurn`). A refusal sets a short `busyUntil`.
+  - Raid: `raidSummonOnCall` brings an on-call band in as an instant ally.
+  - Escort: `escortRallyOnCall` adds an on-call band as a **free volunteer**
+    escort ship (`support:true` — doesn't count against the hire cap, never betrays).
+
 ## Personalities & feuds (polish)
 Each band rolls a **personality** (`BAND_PERSONALITIES`) that flavours its
 numbers: 🤑 Greedy (bigger cut/fee, flaky, *steals*), 🛡️ Loyal (cheaper, rarely

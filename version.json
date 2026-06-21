@@ -1,5 +1,5 @@
 {
-  "version": "2.16.0",
+  "version": "2.17.0",
   "saveVersion": "v2",
-  "notes": "New 🏴‍☠️ Contacts tab: pirate-band relationships now have a dedicated sidebar tab (moved out of the Raider tab). It shows each crew as a card — standing bar, personality, feuds, history, plus their loot cut as an ally, hire fee and desertion risk — with tribute and gift buttons to win them over. The tab appears once you've crossed your first pirate band."
+  "notes": "Pirate brotherhood: tag your contacts (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name in the Contacts tab, escort hire list, and raid cards. Each band now shows its home location and distance. New 📣 Call for support: summon a band even if it's far away — crews in your system fall in at once, distant ones travel in over a cycle (whether they come depends on standing, distance, your Dread and whether they're busy) and then stand by, ready to join a raid as an ally or an escort as a free volunteer. (Pirate-proposed cargo missions are coming next.)"
 }
