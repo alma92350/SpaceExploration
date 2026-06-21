@@ -74,11 +74,15 @@ Surviving a delivery raises the band's rep (+8); deserting drops it (−12).
   - `bandStandDown` — send an inbound (recall) or on-call/following crew home
     early, clearing their support state. Tests: `followctl.js`.
 - **Allied pirates in any raid (incl. letter of marque)**: the raid action card
-  now offers `raidSummonOnCall` for **faction** prey too (not just pirate prey),
-  so on-site standing-by crews can join your privateer hunts against coalition
-  shipping. Crews you've set to **follow** auto-join a fresh engagement via
-  `raidJoinFollowers` (called from `engageTarget`), up to the 2-ally cap and
-  skipping blood rivals. Tests: `marque.js`.
+  offers `raidSummonOnCall` for **faction** prey too (not just pirate prey), so
+  allied crews can join your privateer hunts against coalition shipping. Summonable
+  crews (`bandsRaidable`) are the standing-by/following ones **plus willing crews
+  based in the system you're hunting** ("on site") — so you don't always have to
+  pre-call. Crews set to **follow** auto-join a fresh engagement via
+  `raidJoinFollowers` (from `engageTarget`), up to the 2-ally cap, skipping blood
+  rivals; you can't summon the crew you're fighting. When no crew is on the scene
+  but you have willing friends elsewhere, the card hints to call them or have one
+  follow. Tests: `marque.js`, `marque2.js`.
 
 ## Pirate-proposed smuggling runs
 - A band you're friendly with (`eligiblePirateClients`: active, willing, rep ≥ 10)

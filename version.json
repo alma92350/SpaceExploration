@@ -1,5 +1,5 @@
 {
-  "version": "2.20.0",
+  "version": "2.20.1",
   "saveVersion": "v2",
-  "notes": "Bring your brotherhood to the letter of marque. Allied pirates can now fight alongside you against faction shipping, not just other pirates — so your privateer hunts become a crew effort. Crews you've told to 🛰️ Follow auto-join a fresh engagement on their own (up to two allies, skipping blood rivals), and any standing-by crew on-site can be summoned into the fight mid-raid. Builds on 2.17-2.19 (tags, locations, call-for-support, follow/stand-down, smuggling runs)."
+  "notes": "Fix: you couldn't bring allied pirates into a letter-of-marque fight. Now any willing crew based in the system you're hunting can be summoned into the raid on the spot (alongside standing-by and following crews) — not just pre-called ones — and the buttons show against faction shipping, not only pirates. When no crew is on the scene but you have friends elsewhere, the raid card now tells you how to call one in or set one to follow. You can't summon the crew you're actually fighting."
 }

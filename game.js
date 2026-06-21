@@ -2210,6 +2210,8 @@ function bandOnCall(b) { return !!(b && ((b.onCallUntil && S.turn <= b.onCallUnt
 function bandInbound(b) { return !!(b && b.inboundTurn != null); }
 function bandBusy(b) { return !!(b && b.busyUntil && S.turn < b.busyUntil); }
 function bandsOnCall() { return bandList().filter(bandOnCall); }
+// crews you can pull into the CURRENT fight: standing-by/following ones, plus willing crews based right here ("on site")
+function bandsRaidable() { return bandList().filter(b => b.status !== "dead" && bandWillAlly(b) && (bandOnCall(b) || bandDistance(b) === 0)); }
 // odds a band answers a call for support — rep, distance, brotherhood, your dread; nil if busy
 function bandSupportOdds(b) {
   if (bandBusy(b) || !bandWillAlly(b)) return 0;
@@ -2339,12 +2341,13 @@ function raidCallAllies() {
   toast(`${take.length} band(s) joined — your cut ${yours}%`, "event");
   afterAction();
 }
-// bring an ON-CALL band (summoned earlier, now loitering nearby) into the current fight
+// bring a standing-by (on-call/following) or locally-based willing band into the current fight
 function raidSummonOnCall(id) {
   if (!S.prey) return toast("No engagement.", "bad");
   S.allies = S.allies || [];
   if (S.allies.length >= 2) return toast("Your pirate band is already full.", "bad");
-  const b = bandById(id); if (!b || !bandOnCall(b)) return toast("They aren't standing by.", "bad");
+  const b = bandById(id); if (!b || !(bandOnCall(b) || (bandWillAlly(b) && bandDistance(b) === 0))) return toast("They aren't in reach to join.", "bad");
+  if (b.id === (S.prey.bandId || null)) return toast("That's the crew you're fighting.", "bad");
   if (S.allies.some(a => a.bandId === id)) return toast(`The ${b.name} are already at your side.`, "bad");
   if (bandRivalServing(b)) { const r = bandFoe(b); return toast(`The ${b.name} won't fight beside their rivals the ${r ? r.name : "other crew"}.`, "bad"); }
   const a = bandAsAlly(b); S.allies.push(a); foeHp(a);
@@ -5523,8 +5526,8 @@ function preyCombatCard(prey, al) {
   const callBtn = (areaPirates > 0 && allyN < 2)
     ? `<button class="btn btn-sm" title="Call ${areaPirates} pirate(s) in the area to your side — they fire independently, loot splits evenly" onclick="raidCallAllies()">📣 Call pirate allies (${areaPirates})</button>`
     : "";
-  const onCallBtns = (allyN < 2 ? bandsOnCall().filter(b => !(S.allies || []).some(a => a.bandId === b.id)) : [])
-    .map(b => `<button class="btn btn-sm btn-good" title="${bandTagMark(b)} ${b.name} are standing by nearby — bring them in (${Math.round(bandLootShare(b) * 100)}% cut)" onclick="raidSummonOnCall('${b.id}')">📣 ${bandTagMark(b)}${b.ico} ${b.name}</button>`).join("");
+  const onCallBtns = (allyN < 2 ? bandsRaidable().filter(b => b.id !== prey.bandId && !bandRivalServing(b) && !(S.allies || []).some(a => a.bandId === b.id)) : [])
+    .map(b => `<button class="btn btn-sm btn-good" title="${bandTagMark(b)} ${b.name} ${bandFollowing(b) ? "are riding with you" : bandOnCall(b) ? "are standing by" : "are based here"} — bring them in (${Math.round(bandLootShare(b) * 100)}% cut)" onclick="raidSummonOnCall('${b.id}')">📣 ${bandTagMark(b)}${b.ico} ${b.name}</button>`).join("");
   const squadLine = (packN > 0 || allyN > 0)
     ? `<div class="hint">${packN > 0 ? `<span class="pill bad">⚔️ ${packN + 1} hostiles</span> ` : ""}${allyN > 0 ? `<span class="pill good">🤝 ${allyN} ally${allyN > 1 ? "ies" : ""} · loot split ${allyN + 1} ways</span>` : ""}</div>`
     : "";
@@ -5535,13 +5538,17 @@ function preyCombatCard(prey, al) {
     : `<button class="btn btn-bad" title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
        <button class="btn btn-sm" title="Spend Dread to extort tribute — no fight (Dread −12)" onclick="raidExtort()">💀 Extort</button>
        ${callBtn}${onCallBtns}<button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>`;
+  // no crew at hand, but you have friends out there — tell the player how to bring them
+  const willingElsewhere = bandList().filter(b => b.status !== "dead" && bandWillAlly(b) && b.id !== prey.bandId).length;
+  const crewHint = (allyN === 0 && callBtn === "" && onCallBtns === "" && willingElsewhere > 0)
+    ? `<div class="hint">🤝 No allied crew on the scene. Summon one from the 🏴‍☠️ <b>Contacts</b> tab (📣 Call for support) or set a crew to 🛰️ <b>Follow</b> you — standing-by, following, and locally-based crews fight at your side here, even under a letter of marque.</div>` : "";
   const preyBand = prey.bandId ? bandById(prey.bandId) : null;
   const bandLine = preyBand ? `<div class="hint">${bandTagMark(preyBand)} of the <b>${preyBand.name}</b> · ${bandPers(preyBand).ico} ${bandPers(preyBand).name} · ${bandTier(preyBand).label} (${preyBand.rep}) · based at ${bandLocName(preyBand)}</div>` : "";
   return `<div class="card" style="border-color:${isPirate ? "var(--good)" : "var(--warn)"}">
     <h4>${preyBand ? bandTagMark(preyBand) : ""}${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>
     ${bandLine}
     <div class="hint">${lawNote}</div>
-    ${squadLine}
+    ${squadLine}${crewHint}
     ${tacticalHTML(prey, "raidAttack")}
     <div class="row" style="margin-top:6px">${buttons}</div>
   </div>`;
@@ -7200,7 +7207,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.20.0";
+const APP_VERSION = "2.20.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
