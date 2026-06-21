@@ -65,6 +65,14 @@ Surviving a delivery raises the band's rep (+8); deserting drops it (−12).
   - Raid: `raidSummonOnCall` brings an on-call band in as an instant ally.
   - Escort: `escortRallyOnCall` adds an on-call band as a **free volunteer**
     escort ship (`support:true` — doesn't count against the hire cap, never betrays).
+- **Managing a summoned crew** (Contacts buttons):
+  - `bandFollow` — once a crew is standing by, ask them to ride with you for
+    `BAND_FOLLOW_DURATION` (6) cycles; `processBandSupport` retargets `band.loc`
+    to your location each cycle so they jump where you jump and stay callable
+    anywhere. Re-calling extends the window. On expiry they peel off, leaving a
+    short on-call tail. `bandFollowing` / `bandOnCall` treat a follower as on-call.
+  - `bandStandDown` — send an inbound (recall) or on-call/following crew home
+    early, clearing their support state. Tests: `followctl.js`.
 
 ## Pirate-proposed smuggling runs
 - A band you're friendly with (`eligiblePirateClients`: active, willing, rep ≥ 10)

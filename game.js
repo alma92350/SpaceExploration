@@ -2122,7 +2122,7 @@ function newBand(level) {
   const b = { id, name, ico: (PIRATE_RANKS[lvl] || PIRATE_RANKS[1]).ico, level: lvl, rep: 0, pers: pick(BAND_PERS_KEYS),
     encounters: 0, fought: 0, allied: 0, gifted: 0, lastSeen: S.turn || 0, status: "active", feudWith: null,
     tag: null, loc: (PLANETS.filter(isActive)[Math.floor(Math.random() * Math.max(1, PLANETS.filter(isActive).length))] || PLANETS[0]).id,
-    inboundTurn: null, onCallUntil: 0, busyUntil: 0 };
+    inboundTurn: null, onCallUntil: 0, busyUntil: 0, follow: false, followUntil: 0 };
   S.pirateBands[id] = b;
   // some crews are blood rivals with an existing band — they won't serve together
   const others = Object.values(S.pirateBands).filter(o => o.id !== id && !o.feudWith && o.status !== "dead");
@@ -2203,7 +2203,9 @@ function setBandTag(id, tag) {
 function bandLocName(b) { const p = b && b.loc && PLANETS.find(x => x.id === b.loc); return p ? p.name : "parts unknown"; }
 function bandDistance(b) { if (!b || !b.loc) return 6; if (b.loc === S.location) return 0; const d = currentPlanet().distances; return (d && d[b.loc]) || 6; }
 const BAND_ONCALL_DURATION = 4;     // cycles a summoned band loiters in your area, ready to fight
-function bandOnCall(b) { return !!(b && b.onCallUntil && S.turn <= b.onCallUntil); }
+const BAND_FOLLOW_DURATION = 6;     // cycles a band will travel WITH you once you ask them to follow
+function bandFollowing(b) { return !!(b && b.follow && b.followUntil && S.turn <= b.followUntil); }
+function bandOnCall(b) { return !!(b && ((b.onCallUntil && S.turn <= b.onCallUntil) || bandFollowing(b))); }
 function bandInbound(b) { return !!(b && b.inboundTurn != null); }
 function bandBusy(b) { return !!(b && b.busyUntil && S.turn < b.busyUntil); }
 function bandsOnCall() { return bandList().filter(bandOnCall); }
@@ -2216,6 +2218,7 @@ function bandSupportOdds(b) {
 }
 function callBandSupport(id) {
   const b = bandById(id); if (!b) return;
+  if (bandFollowing(b)) return toast(`The ${b.name} are already riding with you.`, "");
   if (bandOnCall(b)) return toast(`The ${b.name} are already standing by.`, "");
   if (bandInbound(b)) return toast(`The ${b.name} are already inbound.`, "");
   if (bandBusy(b)) return toast(`The ${b.name} are tied up with their own business right now.`, "bad");
@@ -2234,12 +2237,38 @@ function callBandSupport(id) {
   }
   saveGame(); renderAll();
 }
-function processBandSupport() {                          // arrivals: inbound crews become on-call in your area
+// ask a standing-by band to travel WITH you for a stretch — they jump where you jump
+function bandFollow(id) {
+  const b = bandById(id); if (!b) return;
+  if (bandInbound(b)) return toast(`The ${b.name} haven't arrived yet.`, "bad");
+  if (!bandOnCall(b)) return toast(`The ${b.name} aren't standing by — call them first.`, "bad");
+  const fresh = !bandFollowing(b);
+  b.follow = true; b.followUntil = S.turn + BAND_FOLLOW_DURATION; b.loc = S.location || b.loc;
+  log(`🛰️ The ${b.ico} ${b.name} ${fresh ? "fall in and will ride with you" : "agree to keep riding with you"} for ${BAND_FOLLOW_DURATION} cycles.`, "event");
+  toast(`${b.name} ${fresh ? "following" : "still following"} (${BAND_FOLLOW_DURATION} cyc)`, "good"); sfx("event");
+  saveGame(); renderAll();
+}
+// send a called / inbound / following band home early, freeing them up
+function bandStandDown(id) {
+  const b = bandById(id); if (!b) return;
+  if (!bandInbound(b) && !bandOnCall(b)) return;
+  const was = bandInbound(b) ? "recalled before arrival" : "stood down";
+  b.inboundTurn = null; b.onCallUntil = 0; b.follow = false; b.followUntil = 0;
+  log(`✖ The ${b.ico} ${b.name} were ${was} and return to their own affairs.`, "");
+  toast(`${b.name} ${was}`, ""); saveGame(); renderAll();
+}
+function processBandSupport() {                          // arrivals + travelling companions, each cycle
   bandList().forEach(b => {
     if (b.inboundTurn != null && S.turn >= b.inboundTurn) {
       b.inboundTurn = null; b.onCallUntil = S.turn + BAND_ONCALL_DURATION; b.loc = S.location || b.loc;
       log(`🛬 The ${b.ico} ${b.name} arrived and are standing by your position.`, "event");
       if (typeof toast === "function") toast(`${b.name} has arrived`, "good");
+    }
+    if (bandFollowing(b)) {
+      b.loc = S.location || b.loc;                       // a following crew jumps where you jump — callable anywhere
+    } else if (b.follow && b.followUntil && S.turn > b.followUntil) {
+      b.follow = false; b.onCallUntil = Math.max(b.onCallUntil || 0, S.turn + BAND_ONCALL_DURATION);   // peel off, linger briefly
+      log(`🛰️ The ${b.ico} ${b.name} have ridden with you long enough and break off — still nearby for now.`, "");
     }
   });
 }
@@ -5706,11 +5735,17 @@ function renderContacts() {
     const cut = Math.round(bandLootShare(b) * 100), fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100);
     const dist = bandDistance(b);
     const tagBtns = BAND_TAG_KEYS.map(k => `<button class="btn btn-sm ${b.tag === k ? "btn-primary" : ""}" title="Tag as ${BAND_TAGS[k].name}" onclick="setBandTag('${b.id}','${k}')">${BAND_TAGS[k].ico}</button>`).join("");
-    const supStatus = bandOnCall(b) ? `<span style="color:var(--good)">standing by (${b.onCallUntil - S.turn} cyc)</span>`
+    const supStatus = bandFollowing(b) ? `<span style="color:var(--good)">🛰️ riding with you (${b.followUntil - S.turn} cyc)</span>`
+      : bandOnCall(b) ? `<span style="color:var(--good)">standing by (${b.onCallUntil - S.turn} cyc)</span>`
       : bandInbound(b) ? `<span style="color:var(--warn)">inbound (${b.inboundTurn - S.turn} cyc)</span>`
       : bandBusy(b) ? `<span class="hint">busy (${b.busyUntil - S.turn} cyc)</span>`
       : `${Math.round(bandSupportOdds(b) * 100)}% to answer`;
     const callDisabled = bandOnCall(b) || bandInbound(b) || bandBusy(b) || !bandWillAlly(b);
+    // controls for a crew you've summoned: have them follow you across jumps, or send them home
+    const followBtn = bandOnCall(b) && !bandFollowing(b)
+      ? `<button class="btn btn-sm btn-good" title="They'll jump where you jump for ${BAND_FOLLOW_DURATION} cycles" onclick="bandFollow('${b.id}')">🛰️ Follow me</button>` : "";
+    const standDownBtn = (bandOnCall(b) || bandInbound(b))
+      ? `<button class="btn btn-sm" title="Send them back to their own affairs now" onclick="bandStandDown('${b.id}')">✖ ${bandInbound(b) ? "Recall" : "Stand down"}</button>` : "";
     return `<div class="card">
       <h4>${mark ? mark + " " : ""}${b.ico} ${b.name}</h4>
       <div class="hint">${pr.ico} ${pr.name} · L${b.level} · ${t.label} (${b.rep})${rival ? ` · <span style="color:var(--bad)">⚔️ feud: ${rival.name}</span>` : ""}</div>
@@ -5723,13 +5758,14 @@ function renderContacts() {
       <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px"><span class="hint">Tag:</span> ${tagBtns}</div>
       <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px">
         <button class="btn btn-sm" ${callDisabled ? "disabled" : ""} title="Call them to your side — nearby crews come at once, distant ones may travel in" onclick="callBandSupport('${b.id}')">📣 Call for support</button>
+        ${followBtn}${standDownBtn}
         <button class="btn btn-sm" ${S.res.credits >= 500 ? "" : "disabled"} title="Pay a 500 cr tribute" onclick="giftBandCredits('${b.id}',500)">💰 500</button>
         <button class="btn btn-sm" ${S.res.credits >= 2000 ? "" : "disabled"} title="Pay a 2,000 cr tribute" onclick="giftBandCredits('${b.id}',2000)">💰 2k</button>
         ${cargoBtns}
       </div></div>`;
   }).join("");
   el.innerHTML = `<h2>🏴‍☠️ Pirate Contacts</h2>
-    <div class="subtitle">Crews you've crossed in the void — your loose brotherhood. <b>Tag</b> them to track who's who; the mark shows wherever they appear. <b>Standing</b> rises when you ally, spare a beaten crew, pay tributes or gift valued cargo — and with your <b>Dread</b>; it craters when you kill them. <b>📣 Call for support</b> to summon a crew: those in your system fall in at once, distant ones may travel in over a cycle (the odds depend on standing, distance, your Dread &amp; whether they're busy) and then stand by, ready to join a raid or escort. Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Feuding crews won't serve alongside a rival.</div>
+    <div class="subtitle">Crews you've crossed in the void — your loose brotherhood. <b>Tag</b> them to track who's who; the mark shows wherever they appear. <b>Standing</b> rises when you ally, spare a beaten crew, pay tributes or gift valued cargo — and with your <b>Dread</b>; it craters when you kill them. <b>📣 Call for support</b> to summon a crew: those in your system fall in at once, distant ones may travel in over a cycle (the odds depend on standing, distance, your Dread &amp; whether they're busy) and then stand by, ready to join a raid or escort. Once a crew is standing by you can ask them to <b>🛰️ Follow</b> — they'll jump where you jump for a stretch, so they're on hand wherever you roam — or <b>✖ Stand down</b> to send them home early. Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Feuding crews won't serve alongside a rival.</div>
     <div class="cards">${cards || '<div class="card"><div class="hint">No pirate bands on your books yet — hunt or ally with them from the ⚔️ Raider tab.</div></div>'}</div>`;
 }
 /* ---------- Generic in-panel sub-tabs ----------
@@ -6733,7 +6769,7 @@ function escortRallyOnCall(id) {
     str: Math.round(ESCORT_ESCORT_FP * (0.9 + b.level * 0.3) * bandPers(b).fp), alive: true,
     outfit: { wpn: 0, datk: 0, ddef: 0, aiatk: 0, aidef: 0 } };
   sh.hull = sh.hullMax; e.fleet.push(sh);
-  b.onCallUntil = 0; bandRepAdd(b, 4);                     // they've thrown in with the convoy
+  b.onCallUntil = 0; b.follow = false; b.followUntil = 0; bandRepAdd(b, 4);   // they've thrown in with the convoy
   log(`🤝 The ${b.ico} ${b.name} fall in as volunteer escorts for the run.`, "event");
   toast(`${b.name} joined the convoy`, "good"); sfx("event"); saveGame(); renderAll();
 }
@@ -7152,7 +7188,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.18.0";
+const APP_VERSION = "2.19.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7223,7 +7259,7 @@ function helpHTML() {
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
-      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Appears once you've crossed a pirate band.</li>
+      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Appears once you've crossed a pirate band.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
     </ul>
 
@@ -7595,7 +7631,7 @@ Object.assign(window, {
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSummonOnCall, repairShip,
-  setBandTag, callBandSupport, escortRallyOnCall,
+  setBandTag, callBandSupport, bandFollow, bandStandDown, escortRallyOnCall,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, escortOutfitAdd, escortOutfitRemove, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,
