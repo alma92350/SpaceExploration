@@ -1,5 +1,5 @@
 {
-  "version": "2.19.0",
+  "version": "2.20.0",
   "saveVersion": "v2",
-  "notes": "Command your called-in pirates. Once a crew you've summoned is standing by, you can now tell them to 🛰️ Follow — they'll jump where you jump for several cycles, staying on hand to join raids and escorts wherever you roam — or ✖ Stand down to send them home early (and Recall a crew that's still inbound). A following crew's location tracks yours each cycle, so they're callable anywhere; when the follow window runs out they peel off but linger briefly. Builds on 2.17/2.18 (tags, locations, call-for-support, smuggling runs)."
+  "notes": "Bring your brotherhood to the letter of marque. Allied pirates can now fight alongside you against faction shipping, not just other pirates — so your privateer hunts become a crew effort. Crews you've told to 🛰️ Follow auto-join a fresh engagement on their own (up to two allies, skipping blood rivals), and any standing-by crew on-site can be summoned into the fight mid-raid. Builds on 2.17-2.19 (tags, locations, call-for-support, follow/stand-down, smuggling runs)."
 }

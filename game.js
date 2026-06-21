@@ -2033,6 +2033,7 @@ function engageTarget(i) {
   S.prey._others = S.preyChoices.filter((c, idx) => idx !== i);   // the other ships in the area
   S.prey.pack = []; S.allies = null;
   S.preyChoices = null;
+  raidJoinFollowers();                                            // your riding companions join the fray at once
   const prey = S.prey;
   if (prey.elite) { log(`💀 You bear down on the ELITE <span class="c">${prey.name}</span> — ${classLabel(prey)}${(prey.escorts || 0) > 0 ? `, ${prey.escorts} escort(s)` : ""}.`, "event"); toast(`Engaging elite ${prey.name}!`, "event"); }
   else { log(`🎯 You bear down on the ${classLabel(prey)} <span class="c">${prey.name}</span> (${prey.isPirate ? "🏴 pirate" : FACTIONS[prey.faction].name}).`, "event"); toast(`Engaging ${prey.name}`, "event"); }
@@ -2276,6 +2277,17 @@ function processBandSupport() {                          // arrivals + travellin
 function bandAsAlly(b) {
   return { isPirate: true, bandId: b.id, allyName: b.name, ico: b.ico, name: b.name,
     strength: Math.round(((PIRATE_RANKS[b.level] || PIRATE_RANKS[1]).str) * 0.9), share: bandLootShare(b) };
+}
+// crews riding WITH you (following) pitch into a fresh engagement on their own — any prey, incl. letter-of-marque shipping
+function raidJoinFollowers() {
+  if (!S.prey) return;
+  S.allies = S.allies || [];
+  bandList().filter(bandFollowing).forEach(b => {
+    if (S.allies.length >= 2 || S.allies.some(a => a.bandId === b.id) || bandRivalServing(b)) return;
+    const a = bandAsAlly(b); S.allies.push(a); foeHp(a);
+    b.allied = (b.allied || 0) + 1;
+    log(`🛰️ The ${b.ico} ${b.name}, riding with you, swing in to your side (${Math.round(a.share * 100)}% cut).`, "event");
+  });
 }
 // an allied pirate pours fire onto your current target
 function allyStrike(target, ally) {
@@ -5522,7 +5534,7 @@ function preyCombatCard(prey, al) {
     ? `${spareBtn}${callBtn}${onCallBtns}<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
     : `<button class="btn btn-bad" title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
        <button class="btn btn-sm" title="Spend Dread to extort tribute — no fight (Dread −12)" onclick="raidExtort()">💀 Extort</button>
-       ${callBtn}<button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>`;
+       ${callBtn}${onCallBtns}<button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>`;
   const preyBand = prey.bandId ? bandById(prey.bandId) : null;
   const bandLine = preyBand ? `<div class="hint">${bandTagMark(preyBand)} of the <b>${preyBand.name}</b> · ${bandPers(preyBand).ico} ${bandPers(preyBand).name} · ${bandTier(preyBand).label} (${preyBand.rep}) · based at ${bandLocName(preyBand)}</div>` : "";
   return `<div class="card" style="border-color:${isPirate ? "var(--good)" : "var(--warn)"}">
@@ -5657,7 +5669,7 @@ function renderRaid() {
     const c = S.commission, left = Math.max(0, c.expires - S.turn);
     commCard = `<div class="card" style="border-color:var(--good)">
       <h4>📜 Letter of Marque <span class="pill good">${FACTIONS[c.patron].ico} ${FACTIONS[c.patron].name}</span></h4>
-      <div class="hint">Sanctioned to raid <b>${FACTIONS[c.target].ico} ${FACTIONS[c.target].name}</b> shipping — their kills draw no Wanted and pay a ${fmt(c.bounty)} cr bounty. Don't turn on your patron.</div>
+      <div class="hint">Sanctioned to raid <b>${FACTIONS[c.target].ico} ${FACTIONS[c.target].name}</b> shipping — their kills draw no Wanted and pay a ${fmt(c.bounty)} cr bounty. Bring your brotherhood: crews <b>🛰️ following</b> you join these hunts on their own, and any standing-by crew can be summoned mid-fight. Don't turn on your patron.</div>
       <div class="ship-stat" style="margin-top:6px"><span class="k">Progress</span><span class="v">${c.done}/${c.quota} raids</span></div>
       <div class="ship-stat"><span class="k">Cycles left</span><span class="v">${left}</span></div>
       <div class="ship-stat"><span class="k">Completion bonus</span><span class="v">${fmt(c.reward)} 💰</span></div>
@@ -7188,7 +7200,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.19.0";
+const APP_VERSION = "2.20.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

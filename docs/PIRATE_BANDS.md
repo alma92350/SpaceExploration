@@ -73,6 +73,12 @@ Surviving a delivery raises the band's rep (+8); deserting drops it (−12).
     short on-call tail. `bandFollowing` / `bandOnCall` treat a follower as on-call.
   - `bandStandDown` — send an inbound (recall) or on-call/following crew home
     early, clearing their support state. Tests: `followctl.js`.
+- **Allied pirates in any raid (incl. letter of marque)**: the raid action card
+  now offers `raidSummonOnCall` for **faction** prey too (not just pirate prey),
+  so on-site standing-by crews can join your privateer hunts against coalition
+  shipping. Crews you've set to **follow** auto-join a fresh engagement via
+  `raidJoinFollowers` (called from `engageTarget`), up to the 2-ally cap and
+  skipping blood rivals. Tests: `marque.js`.
 
 ## Pirate-proposed smuggling runs
 - A band you're friendly with (`eligiblePirateClients`: active, willing, rep ≥ 10)
