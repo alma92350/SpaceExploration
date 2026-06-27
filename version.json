@@ -1,5 +1,5 @@
 {
-  "version": "2.25.0",
+  "version": "2.26.0",
   "saveVersion": "v2",
-  "notes": "Fortunes — scans & mastery. The Fortunes tab now has a 🛰️ Sensor Office: when leads are scarce, buy a Sensor Scan (cheap) or Deep-Space Scan (pricier, stronger/rarer) to flush a fresh 📡 signal onto your scope on demand — agency over the hunt. And the Almanac now rewards collectors: catalogue every effect in a domain (Combat, Trade, Logistics, Science, Industry, Escort, Politics, Piracy) to earn a permanent 🏅 Mastery — a standing passive bonus (e.g. +8% weapon damage, −10% fuel, +15% research) plus a credit reward. The Almanac shows per-domain progress and mastery badges."
+  "notes": "Reworked convoy combat prep. Instead of micro-assigning weapons/drones/AI to each ship, you now set a per-vessel combat STANCE — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to 3 levels of fit for it. Each level is paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. Every upgrade button shows exactly what it costs and flags what you're short on (buy more at the Market). Cleaner, clearer, and the same assets still matter."
 }

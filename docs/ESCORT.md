@@ -84,22 +84,26 @@ trades against a quicker, better-paid delivery.
 - Delivery pays `reward × survivingFreighters/total` (+flawless bonus), moves the
   player to the destination, and grants guild reputation.
 
-## Outfitting the convoy (assign weapons / drones / AI cores)
-Spend your hold of 🔫 weapons, 🛸 combat drones and 🧠 AI cores to bolt
-**attack** and **defense** onto any fleet ship (flagship or the freighters/escorts
-you guard). Assets are **consumed** (a money sink); once committed they sit in a
-fleet pool you can shuffle between ships, and are gone when the run ends.
+## Per-vessel combat stance & fit
+Each vessel flies a **stance** (`VESSEL_STANCES`) and you buy up to **3 levels of
+fit** for the active stance, paid from your hold of 🔫 weapons, 🛸 drones, 🧠 AI
+cores. Fit is **consumed** for the run; switching stance is free (the level is
+tracked per stance, so each can be built up independently).
 
-- 🔫 Weapons → flat attack (`OUTFIT_WPN_AP`).
-- 🛸 Drones → flat attack (strike) **or** mitigation (screen, `OUTFIT_DRONE_DP`).
-- 🧠 AI cores → **multiply** a ship's attack or defense with diminishing returns
-  (`outfitAiBoost`, caps at +60%); mitigation overall caps at 60%.
-- Per-ship capacity by hull (`shipOutfitCap`): flagship 8, freighters 2, escorts
-  scale with class — harden a couple of ships, not all.
-- `escOutfitAttack` feeds `escShipFP` (more pooled firepower); `escOutfitMitig`
-  cuts incoming damage in `escortEnemyTurn` (best spent on freighters).
-- Re-rig dockside or between legs for free; **mid-ambush re-rigging forfeits the
-  round** (`pendingRedeploy` → `escortBraceRound`).
+- ⚔️ **Aggressive** — bonus firepower (`atk` up to +55%), no extra armor.
+- ⚖️ **Balanced** — a modest mix of attack and mitigation.
+- 🛡️ **Defensive** — mitigation up to 32% (capped at `OUTFIT_MIT_CAP` 60%), no
+  attack bonus.
+- `stanceProfile(sh)` yields `{atk, mit}`: `atk` multiplies `escShipFP` (pooled
+  firepower); `mit` cuts incoming damage in `escortEnemyTurn`.
+- **Cost** (`vesselUpgradeCost`) scales with the stance's asset mix
+  (`STANCE_COST_W`), the level, and the vessel's size (`vesselSizeFactor`:
+  flagship ×2, freighters ×0.6, escorts by class). Max level by type
+  (`vesselMaxLevel`): freighters Lv2, everything else Lv3. The UI shows the exact
+  cost on each upgrade button and flags what you're short on (buy more at the
+  Market).
+- `setVesselStance` / `upgradeVessel` are the actions. Mid-ambush changes set
+  `pendingRedeploy` → you must `escortBraceRound` (forfeit the round).
 
 ## Escort Guild ranks
 `ESCORT_RANKS`: Freelancer (0) → Contractor (60) → Convoy Master (160) → Fleet
