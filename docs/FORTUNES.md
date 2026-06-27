@@ -79,6 +79,29 @@ Faint leads you chase and **Investigate** for a rarity-weighted roll — the cor
   🔍 Investigate button when you're there (else "travel to X (N ly)").
   `investigateSignal` exported. Tests: `signals.js`.
 
-## Roadmap
-- **Slice 3**: full catalog across all domains, deeper phase-gating, richer bane
-  mitigation, signals surfaced on the Galaxy map, and a `fortunebal.js` tuning sim.
+## Slice 3 — catalog, tiers, mitigation, map, sim
+- **Effect tiers** — every `FX` def has a `tier` (1 mild / 2 strong / 3 rare).
+  `fxPool(kind, maxTier)` gates by tier *and* phase. **Ambient/activity rolls
+  (`rollFx`) only grant tier 1**; tier 2–3 effects come from **signals you hunt**
+  (`rollFxKeyForSignal(kind, signalTier)`), so the strong stuff rewards searching.
+- **Fuller catalog (~22)** across combat / economy / logistics / science /
+  industry / escort / politics / piracy. New boons: ⛏️ Rich Seam (+yield) ·
+  🕊️ Safe Lanes (−escort threat) · 🌫️ Lying Low (Wanted cools) · 📦 Expanded Hold
+  (+cargo) · ⚔️ Warlord's Edge · 💰 Golden Age · 🌟 Renaissance (tier-3 grands).
+  New banes: 🪨 Lean Pickings · 🛢️ Fouled Injectors · 🎯 Marked (Wanted climbs) ·
+  ⛔ Sector Blockade (tier-3).
+- **New system hooks**: `cargoCap` (cargoBonus) · `extract`/`produce` (yieldMult) ·
+  `escortLiveThreat` (escortThreatMult) · per-cycle `wantedDrift` in `processFx`.
+- **Richer bane mitigation**: `fxClearCost` scales with remaining cycles (cheaper
+  as a bane nears its end); a rescued **distress** signal can `purgeRandomBane`
+  outright; more banes are clearable.
+- **Galaxy map**: planet cards show a signal pill and a 🔍 Investigate button when
+  you're there (`renderGalaxy`).
+- **Tuning sim**: `fortunebal.js` drives the real loop 4,000 cycles per phase and
+  reports boon/bane ratio, signal spawn/investigate/expire, avg active effects,
+  boon uptime, and salvage hauled. Current: ~2.5:1 boon:bane, ~1.1 effects/cycle,
+  ~50% boon uptime — hope-forward, not spammy. Tests: `fortunes3.js`.
+
+## Roadmap (further ideas)
+- Signal scan/intel purchasable at ports; set-collection meta-boons; faction-
+  flavored Fortunes; a dedicated Fortunes panel if the catalog keeps growing.

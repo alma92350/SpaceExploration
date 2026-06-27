@@ -941,7 +941,7 @@ function freshState(opts = {}) {
   };
 }
 
-function cargoCap()  { return BASE_CARGO + S.upgrades.cargo * 150; }
+function cargoCap()  { return Math.max(20, BASE_CARGO + S.upgrades.cargo * 150 + (typeof fxAdd === "function" ? fxAdd("cargoBonus") : 0)); }
 function fuelCap()   { return BASE_FUEL + S.upgrades.fueltank * 40; }
 function cargoUsed() { return CARGO_IDS.reduce((s, id) => s + (S.res[id] || 0), 0); }
 function cargoFree() { return cargoCap() - cargoUsed(); }
@@ -1391,7 +1391,7 @@ function extract(comId) {
   if (cargoFree() <= 0) return toast("Cargo hold full!", "bad");
   const { mod, tech, ok, blockMsg } = extractMods(comId);
   if (!ok) return toast(blockMsg, "bad");
-  let yld = Math.round(14 * dep * mod * tech * depletionMult(p.id, comId) * pollutionYieldMult(p.id));
+  let yld = Math.round(14 * dep * mod * tech * depletionMult(p.id, comId) * pollutionYieldMult(p.id) * fxMult("yieldMult"));
   yld = Math.min(yld, cargoFree());
   if (yld <= 0) return toast("No room in the hold.", "bad");
   S.res[comId] += yld; drawReserve(p.id, comId, yld);
@@ -2937,7 +2937,7 @@ function produce(recipeId) {
   const r = RECIPES.find(x => x.id === recipeId);
   if (!recipeAvailable(r)) return toast("Technology not yet researched.", "bad");
   const p = currentPlanet();
-  let cap = Math.floor((3 + effIndustry(p)) * (1 + S.upgrades.factory * 0.30));
+  let cap = Math.floor((3 + effIndustry(p)) * (1 + S.upgrades.factory * 0.30) * fxMult("yieldMult"));
   if (r.reactor) cap = Math.floor(cap * (1 + S.upgrades.reactor * 0.40));
   let batches = Math.min(cap, recipeMaxBatches(r));
   // limit by output cargo room (output qty per batch)
@@ -4696,32 +4696,61 @@ function explore() {
    a gentle one lingers. Slice 1: ambient + activity triggers.
    ============================================================ */
 const FX = {
-  // ---- boons ----
-  overclock:  { ico: "⚡", name: "Overclocked Reactor", kind: "boon", domain: "logistics", phases: ["early", "mid", "late"], weight: 10,
-                mods: { actions: 1 }, blurb: "Crew runs hot — +1 action each cycle." },
-  warband:    { ico: "💥", name: "Gun Runners' Cache", kind: "boon", domain: "combat", phases: ["mid", "late"], weight: 9,
-                mods: { weaponMult: 0.20 }, blurb: "Fresh ordnance — +20% weapon damage." },
-  plating:    { ico: "🛰️", name: "Salvaged Plating", kind: "boon", domain: "combat", phases: ["early", "mid", "late"], weight: 8,
-                mods: { incomingMult: -0.18 }, blurb: "Bolted-on armor — you take 18% less damage." },
-  tradewinds: { ico: "🤝", name: "Trade Winds", kind: "boon", domain: "economy", phases: ["early", "mid", "late"], weight: 10,
-                mods: { buyDisc: 0.12, sellPrem: 0.10 }, blurb: "Favorable contracts — buy 12% cheaper, sell 10% dearer." },
-  eureka:     { ico: "🔬", name: "Eureka!", kind: "boon", domain: "science", phases: ["early", "mid", "late"], weight: 8,
-                mods: { researchMult: 0.35 }, blurb: "Inspired lab — +35% research output." },
-  capital:    { ico: "🏛️", name: "Political Capital", kind: "boon", domain: "politics", phases: ["mid", "late"], weight: 8,
-                mods: { influenceMult: 0.40, repMult: 0.50 }, blurb: "The room is with you — +40% influence & +50% rep when lobbying." },
-  cleanburn:  { ico: "⛽", name: "Clean Burn", kind: "boon", domain: "logistics", phases: ["early", "mid"], weight: 8,
+  // ============ TIER 1 — mild; can roll from ambient luck & faint signals ============
+  // boons
+  cleanburn:  { ico: "⛽", name: "Clean Burn", kind: "boon", domain: "logistics", tier: 1, phases: ["early", "mid"], weight: 10,
                 mods: { fuelMult: -0.25 }, blurb: "Tuned drives — jumps cost 25% less fuel." },
-  feared:     { ico: "🏴‍☠️", name: "Feared Name", kind: "boon", domain: "piracy", phases: ["mid", "late"], weight: 7,
-                mods: { lootMult: 0.25 }, blurb: "Your reputation precedes you — +25% raid credits." },
-  // ---- banes (gentle, always wear off; some clearable at a port) ----
-  reactorleak:{ ico: "🧯", name: "Reactor Leak", kind: "bane", domain: "logistics", phases: ["early", "mid", "late"], weight: 7,
-                mods: { actions: -1 }, clearCost: 600, blurb: "Power bleeds away — −1 action each cycle." },
-  crackdown:  { ico: "🚨", name: "Customs Crackdown", kind: "bane", domain: "economy", phases: ["mid", "late"], weight: 7,
-                mods: { buyDisc: -0.12, sellPrem: -0.10 }, clearCost: 800, blurb: "Inspectors everywhere — buy 12% dearer, sell 10% cheaper." },
-  ionstorm:   { ico: "🕳️", name: "Ion Storm", kind: "bane", domain: "combat", phases: ["early", "mid", "late"], weight: 6,
+  plating:    { ico: "🛰️", name: "Salvaged Plating", kind: "boon", domain: "combat", tier: 1, phases: ["early", "mid", "late"], weight: 9,
+                mods: { incomingMult: -0.18 }, blurb: "Bolted-on armor — you take 18% less damage." },
+  tradewinds: { ico: "🤝", name: "Trade Winds", kind: "boon", domain: "economy", tier: 1, phases: ["early", "mid", "late"], weight: 10,
+                mods: { buyDisc: 0.12, sellPrem: 0.10 }, blurb: "Favorable contracts — buy 12% cheaper, sell 10% dearer." },
+  eureka:     { ico: "🔬", name: "Eureka!", kind: "boon", domain: "science", tier: 1, phases: ["early", "mid", "late"], weight: 9,
+                mods: { researchMult: 0.35 }, blurb: "Inspired lab — +35% research output." },
+  richseam:   { ico: "⛏️", name: "Rich Seam", kind: "boon", domain: "industry", tier: 1, phases: ["early", "mid"], weight: 9,
+                mods: { yieldMult: 0.30 }, blurb: "Generous deposits — +30% extraction & production yield." },
+  safelanes:  { ico: "🕊️", name: "Safe Lanes", kind: "boon", domain: "escort", tier: 1, phases: ["mid", "late"], weight: 7,
+                mods: { escortThreatMult: -0.30 }, blurb: "Quiet routes — convoy threat drops while it lasts." },
+  lyinglow:   { ico: "🌫️", name: "Lying Low", kind: "boon", domain: "piracy", tier: 1, phases: ["mid", "late"], weight: 7,
+                mods: { wantedDrift: -3 }, blurb: "Off the radar — Wanted cools 3 extra each cycle." },
+  // banes
+  ionstorm:   { ico: "🕳️", name: "Ion Storm", kind: "bane", domain: "combat", tier: 1, phases: ["early", "mid", "late"], weight: 7,
                 mods: { weaponMult: -0.18 }, blurb: "Fouled targeting — −18% weapon damage (wears off)." },
-  saboteur:   { ico: "🔧", name: "Saboteur Aboard", kind: "bane", domain: "combat", phases: ["mid", "late"], weight: 5,
+  leanpick:   { ico: "🪨", name: "Lean Pickings", kind: "bane", domain: "industry", tier: 1, phases: ["early", "mid", "late"], weight: 6,
+                mods: { yieldMult: -0.22 }, blurb: "Played-out seams — −22% extraction & production yield." },
+  fuelfoul:   { ico: "🛢️", name: "Fouled Injectors", kind: "bane", domain: "logistics", tier: 1, phases: ["early", "mid", "late"], weight: 6,
+                mods: { fuelMult: 0.25 }, clearCost: 500, blurb: "Gunked drives — jumps cost 25% more fuel." },
+  // ============ TIER 2 — strong; mostly from signals you hunt down ============
+  // boons
+  overclock:  { ico: "⚡", name: "Overclocked Reactor", kind: "boon", domain: "logistics", tier: 2, phases: ["early", "mid", "late"], weight: 9,
+                mods: { actions: 1 }, blurb: "Crew runs hot — +1 action each cycle." },
+  warband:    { ico: "💥", name: "Gun Runners' Cache", kind: "boon", domain: "combat", tier: 2, phases: ["mid", "late"], weight: 9,
+                mods: { weaponMult: 0.20 }, blurb: "Fresh ordnance — +20% weapon damage." },
+  capital:    { ico: "🏛️", name: "Political Capital", kind: "boon", domain: "politics", tier: 2, phases: ["mid", "late"], weight: 8,
+                mods: { influenceMult: 0.40, repMult: 0.50 }, blurb: "The room is with you — +40% influence & +50% rep when lobbying." },
+  feared:     { ico: "🏴‍☠️", name: "Feared Name", kind: "boon", domain: "piracy", tier: 2, phases: ["mid", "late"], weight: 8,
+                mods: { lootMult: 0.25 }, blurb: "Your reputation precedes you — +25% raid credits." },
+  expandhold: { ico: "📦", name: "Expanded Hold", kind: "boon", domain: "logistics", tier: 2, phases: ["early", "mid", "late"], weight: 7,
+                mods: { cargoBonus: 90 }, blurb: "Jury-rigged bays — +90 cargo capacity." },
+  // banes
+  reactorleak:{ ico: "🧯", name: "Reactor Leak", kind: "bane", domain: "logistics", tier: 2, phases: ["early", "mid", "late"], weight: 7,
+                mods: { actions: -1 }, clearCost: 600, blurb: "Power bleeds away — −1 action each cycle." },
+  crackdown:  { ico: "🚨", name: "Customs Crackdown", kind: "bane", domain: "economy", tier: 2, phases: ["mid", "late"], weight: 7,
+                mods: { buyDisc: -0.12, sellPrem: -0.10 }, clearCost: 800, blurb: "Inspectors everywhere — buy 12% dearer, sell 10% cheaper." },
+  saboteur:   { ico: "🔧", name: "Saboteur Aboard", kind: "bane", domain: "combat", tier: 2, phases: ["mid", "late"], weight: 6,
                 mods: { incomingMult: 0.18 }, clearCost: 700, blurb: "Sabotaged systems — you take 18% more damage." },
+  marked:     { ico: "🎯", name: "Marked", kind: "bane", domain: "piracy", tier: 2, phases: ["mid", "late"], weight: 6,
+                mods: { wantedDrift: 2 }, clearCost: 900, blurb: "Bounty hunters whisper your name — Wanted climbs 2 each cycle." },
+  // ============ TIER 3 — rare & grand; the prize of a rare signal ============
+  // boons
+  warlord:    { ico: "⚔️", name: "Warlord's Edge", kind: "boon", domain: "combat", tier: 3, phases: ["mid", "late"], weight: 6,
+                mods: { weaponMult: 0.30, lootMult: 0.20 }, blurb: "Peak fighting trim — +30% weapon damage & +20% raid take." },
+  goldenage:  { ico: "💰", name: "Golden Age", kind: "boon", domain: "economy", tier: 3, phases: ["mid", "late"], weight: 6,
+                mods: { buyDisc: 0.18, sellPrem: 0.15 }, blurb: "Booming markets — buy 18% cheaper, sell 15% dearer." },
+  renaissance:{ ico: "🌟", name: "Renaissance", kind: "boon", domain: "science", tier: 3, phases: ["mid", "late"], weight: 6,
+                mods: { researchMult: 0.50, influenceMult: 0.40 }, blurb: "A flowering of genius — +50% research & +40% influence." },
+  // bane
+  blockade:   { ico: "⛔", name: "Sector Blockade", kind: "bane", domain: "economy", tier: 3, phases: ["mid", "late"], weight: 5,
+                mods: { buyDisc: -0.20, sellPrem: -0.18, wantedDrift: 2 }, clearCost: 1500, blurb: "Lanes choked off — brutal trade spreads and rising heat." },
 };
 const FX_MAX_ACTIVE = 4, FX_BUDGET = 1.1;
 function fxActive() { return Array.isArray(S.fx) ? S.fx.filter(f => f && FX[f.key]) : []; }
@@ -4762,19 +4791,28 @@ function processFx() {     // tick down at the start of each cycle; expire at ze
     if (!def) { S.fx.splice(i, 1); continue; }
     if (--f.cyclesLeft <= 0) { S.fx.splice(i, 1); log(`${def.ico} ${def.name} has worn off.`, ""); }
   }
+  if (S.pirate) { const drift = fxAdd("wantedDrift"); if (drift) S.pirate.wanted = Math.max(0, Math.min(100, (S.pirate.wanted || 0) + drift)); }   // Lying Low / Marked
 }
+function fxClearCost(f) { const def = FX[f.key]; return (!def || !def.clearCost) ? 0 : Math.max(150, Math.round(def.clearCost * f.cyclesLeft / 4)); }   // cheaper the closer it is to wearing off
 function clearFx(key) {    // pay to shake off a clearable bane
   const f = (S.fx || []).find(x => x.key === key), def = f && FX[f.key];
   if (!f || !def || def.kind !== "bane" || !def.clearCost) return;
-  if ((S.res.credits || 0) < def.clearCost) return toast(`Clearing this needs ${fmt(def.clearCost)} cr.`, "bad");
-  S.res.credits -= def.clearCost;
+  const cost = fxClearCost(f);
+  if ((S.res.credits || 0) < cost) return toast(`Clearing this needs ${fmt(cost)} cr.`, "bad");
+  S.res.credits -= cost;
   S.fx = S.fx.filter(x => x !== f);
-  log(`🧹 You shook off <b>${def.name}</b> for ${fmt(def.clearCost)} cr.`, "good");
+  log(`🧹 You shook off <b>${def.name}</b> for ${fmt(cost)} cr.`, "good");
   toast(`${def.name} cleared`, "good"); sfx("good"); saveGame(); renderAll();
 }
-function fxPool(kind) { const ph = gamePhase(); return Object.keys(FX).filter(k => { const d = FX[k]; return (!kind || d.kind === kind) && (!d.phases || d.phases.includes(ph)); }); }
+function purgeRandomBane() {   // a lucky break removes an active bane (used by rescue signals)
+  const banes = fxActive().filter(f => FX[f.key].kind === "bane");
+  if (!banes.length) return null;
+  const f = pick(banes); S.fx = S.fx.filter(x => x !== f);
+  return FX[f.key];
+}
+function fxPool(kind, maxTier) { const ph = gamePhase(), mt = maxTier || 1; return Object.keys(FX).filter(k => { const d = FX[k]; return (!kind || d.kind === kind) && (d.tier || 1) <= mt && (!d.phases || d.phases.includes(ph)); }); }
 function fxWeightedPick(keys) { const tot = keys.reduce((s, k) => s + (FX[k].weight || 5), 0); let r = Math.random() * tot; for (const k of keys) { r -= (FX[k].weight || 5); if (r <= 0) return k; } return keys[keys.length - 1]; }
-function rollFx(kind) { const pool = fxPool(kind).filter(k => !fxHas(k)); return pool.length ? grantFx(fxWeightedPick(pool)) : null; }
+function rollFx(kind, maxTier) { const pool = fxPool(kind, maxTier || 1).filter(k => !fxHas(k)); return pool.length ? grantFx(fxWeightedPick(pool)) : null; }   // ambient/activity = tier 1; strong effects come from the hunt
 function maybeFortune() { if (Math.random() < 0.12) rollFx(Math.random() < 0.68 ? "boon" : "bane"); }   // ambient hope tick
 /* ============================================================
    SIGNALS — the hunt. Faint contacts you chase and INVESTIGATE
@@ -4828,7 +4866,7 @@ function signalOutcome(s) {        // weighted: boon / bane / loot / dud, by tie
   for (const k of ["boon", "bane", "loot", "dud"]) { r -= W[k]; if (r <= 0) return k; }
   return "dud";
 }
-function rollFxKeyForSignal(kind) { const pool = fxPool(kind).filter(k => !fxHas(k)); return pool.length ? fxWeightedPick(pool) : null; }
+function rollFxKeyForSignal(kind, maxTier) { const pool = fxPool(kind, maxTier || 1).filter(k => !fxHas(k)); return pool.length ? fxWeightedPick(pool) : null; }
 function signalLoot(s) {
   const t = s.tier, k = SIGNAL_KINDS[s.kind], pn = sigPlanetName(s.planet), r = Math.random();
   if (r < 0.45) { const cr = (180 + Math.round(Math.random() * 520)) * t; S.res.credits += cr; log(`${k.ico} Salvage from the ${k.name} near ${pn}: +${fmt(cr)} cr.`, "good"); toast(`Salvage +${fmt(cr)} cr`, "good"); }
@@ -4844,10 +4882,15 @@ function resolveSignal(s) {
   const k = SIGNAL_KINDS[s.kind], pn = sigPlanetName(s.planet), out = signalOutcome(s);
   if (out === "dud") { log(`${k.ico} You comb the ${k.name} near ${pn} but turn up nothing of use.`, ""); toast("A dead end.", ""); sfx("event"); return; }
   if (out === "loot") return signalLoot(s);
-  const key = rollFxKeyForSignal(out);
-  if (!key) return signalLoot(s);          // pool exhausted — give salvage instead of nothing
+  // a rescued distress call sometimes brings help that purges one of your banes
+  if (out === "boon" && s.kind === "distress" && Math.random() < 0.45) {
+    const purged = purgeRandomBane();
+    if (purged) { log(`${k.ico} The crew you answered near ${pn} repaid you — they helped you shake off <b>${purged.name}</b>.`, "good"); toast(`${purged.name} cleared`, "good"); sfx("good"); return; }
+  }
+  const key = rollFxKeyForSignal(out, s.tier);   // a rarer signal can grant a stronger (higher-tier) effect
+  if (!key) return signalLoot(s);                // pool exhausted — give salvage instead of nothing
   log(`${k.ico} The ${k.name} near ${pn} pays off…`, out === "boon" ? "good" : "bad");
-  const dm = 1 + 0.3 * (s.tier - 1);       // rarer signals grant longer-lasting effects
+  const dm = 1 + 0.3 * (s.tier - 1);             // rarer signals grant longer-lasting effects
   grantFx(key, { dur: Math.min(20, Math.max(1, Math.round(fxDuration(FX[key]) * dm))) });
 }
 function investigateSignal(id) {
@@ -5032,7 +5075,8 @@ function renderFortunes() {
   if (!act.length) return "";
   const chips = act.map(f => {
     const def = FX[f.key], good = def.kind === "boon";
-    const clr = (def.kind === "bane" && def.clearCost) ? ` <button class="btn btn-sm" title="Pay ${fmt(def.clearCost)} cr to shake it off" onclick="clearFx('${f.key}')">🧹 ${fmt(def.clearCost)}</button>` : "";
+    const cc = fxClearCost(f);
+    const clr = (def.kind === "bane" && cc) ? ` <button class="btn btn-sm" title="Pay ${fmt(cc)} cr to shake it off now (cheaper as it nears its end)" onclick="clearFx('${f.key}')">🧹 ${fmt(cc)}</button>` : "";
     return `<div class="ship-stat" style="margin-top:4px"><span class="k" style="color:${good ? "var(--good)" : "var(--bad)"}" title="${def.blurb}">${def.ico} ${def.name}</span><span class="v">${f.cyclesLeft} cyc${clr}</span></div>`;
   }).join("");
   return `<div class="ship-stat" style="margin-top:8px"><span class="k">✨ Fortunes</span></div>${chips}`;
@@ -5077,6 +5121,10 @@ function renderGalaxy() {
       : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
     const escortPill = (S.escort && S.escort.active && S.escort.mission && S.escort.mission.to === p.id)
       ? `<span class="pill" title="Your active convoy is bound here (${S.escort.mission.legsLeft} leg(s) left)">🛡️ convoy bound</span>` : '';
+    const _sig = (S.signals || []).find(s => s.planet === p.id);
+    const signalPill = _sig ? `<span class="pill good" title="${SIGNAL_KINDS[_sig.kind].blurb} — ${_sig.ttl} cyc to investigate">${SIGNAL_KINDS[_sig.kind].ico} ${["", "faint", "strong", "rare"][_sig.tier]} signal</span>` : '';
+    const sigFuel = _sig ? (SIGNAL_FUEL[_sig.tier] || 6) : 0;
+    const sigBtn = (_sig && here) ? `<button class="btn btn-sm ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "btn-good" : ""}" ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "" : "disabled"} title="${SIGNAL_KINDS[_sig.kind].blurb}" onclick="investigateSignal('${_sig.id}')">🔍 Investigate signal (${sigFuel}⛽)</button>` : '';
     return `<div class="planet-card ${here ? "current" : ""}">
       <div class="planet-orb" style="background:radial-gradient(circle at 35% 30%, ${p.color}, #000 130%)"></div>
       <div class="planet-name">${p.name} ${S.visited[p.id] ? "" : '<span class="badge">unknown</span>'}</div>
@@ -5085,9 +5133,10 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}
+        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${signalPill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
+      ${sigBtn ? `<div class="row" style="margin-bottom:8px">${sigBtn}</div>` : ""}
       ${here ? `<div class="pill good">◉ You are here</div>`
         : `<div class="row"><button class="btn btn-primary" ${canGo ? "" : "disabled"} onclick="travel('${p.id}')">Travel ▸</button>
             <span class="distance">⛽ ${fc} · ${currentPlanet().distances[p.id]} ly</span></div>`}
@@ -6662,7 +6711,7 @@ function escortAliveFoes() { const w = S.escort && S.escort.wave; return w ? w.f
 // pirates there (Raider tab) before you set out genuinely lowers the danger.
 function escortLiveThreat(m) {
   const det = 0.22 + 0.11 * ((pirateLevel(m.from) + pirateLevel(m.to)) / 2) + 0.018 * (m.dist || 0);
-  return Math.max(0.05, Math.min(0.95, det + (m.threatRand || 0)));
+  return Math.max(0.05, Math.min(0.95, (det + (m.threatRand || 0)) * fxMult("escortThreatMult")));   // Safe Lanes Fortune calms the route
 }
 function escortUrgencyLabel(slack) { return slack <= 1 ? "🔴 Rush" : slack <= 3 ? "🟠 Standard" : "🟢 Relaxed"; }
 function genEscortContract(dest) {
@@ -7417,7 +7466,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.22.0";
+const APP_VERSION = "2.23.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
