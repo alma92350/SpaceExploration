@@ -102,6 +102,18 @@ Faint leads you chase and **Investigate** for a rarity-weighted roll — the cor
   boon uptime, and salvage hauled. Current: ~2.5:1 boon:bane, ~1.1 effects/cycle,
   ~50% boon uptime — hope-forward, not spammy. Tests: `fortunes3.js`.
 
+## Fortunes tab (slice 4)
+- Dedicated **✨ Fortunes** panel (`renderFortunesPanel`, tab + `#panel-fortunes`,
+  `TAB_LADDER` entry unlocking once a Fortune/signal appears or by turn 6):
+  - **Active Fortunes** cards with a time-left bar (uses stored total `dur`) and
+    🧹 clear buttons for banes.
+  - **Signals on your scope** cards — Investigate (when present) or Travel to the
+    lead's world.
+  - **Almanac** — every effect grouped by domain (`FX_DOMAINS`); discovered ones
+    (tracked in `S.fxSeen`, set on `grantFx`) are revealed, the rest show as ???
+    with a discovered-count, giving a collection goal.
+- The Ship sidebar keeps the compact at-a-glance chips. Tests: `fortunespanel.js`.
+
 ## Roadmap (further ideas)
-- Signal scan/intel purchasable at ports; set-collection meta-boons; faction-
-  flavored Fortunes; a dedicated Fortunes panel if the catalog keeps growing.
+- Signal scan/intel purchasable at ports; set-collection meta-boons for filling
+  almanac domains; faction-flavored Fortunes.

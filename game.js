@@ -921,6 +921,7 @@ function freshState(opts = {}) {
     crises: {},                 // active planetary crises: pid -> { type, cyclesLeft }
     fx: [],                     // active Fortunes (temporary boons/banes): [{ key, cyclesLeft, ... }]
     signals: [],                // discoverable leads to investigate: [{ id, kind, tier, planet, ttl }]
+    fxSeen: {},                 // Fortunes almanac: which effects you've experienced
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
@@ -4770,14 +4771,15 @@ function grantFx(key, opts = {}) {
   if (!Array.isArray(S.fx)) S.fx = [];
   const dur = opts.dur || fxDuration(def);
   const existing = S.fx.find(f => f.key === key);
-  if (existing) { existing.cyclesLeft = Math.max(existing.cyclesLeft, dur); }   // refresh, never stack
+  if (existing) { existing.cyclesLeft = Math.max(existing.cyclesLeft, dur); existing.dur = Math.max(existing.dur || existing.cyclesLeft, dur); }   // refresh, never stack
   else {
     if (S.fx.length >= FX_MAX_ACTIVE) {                                          // make room — evict the soonest to expire
       let wi = 0; for (let i = 1; i < S.fx.length; i++) if (S.fx[i].cyclesLeft < S.fx[wi].cyclesLeft) wi = i;
       S.fx.splice(wi, 1);
     }
-    S.fx.push({ key, cyclesLeft: dur, gained: S.turn });
+    S.fx.push({ key, cyclesLeft: dur, dur, gained: S.turn });
   }
+  if (!S.fxSeen) S.fxSeen = {}; S.fxSeen[key] = true;                            // almanac: you've now experienced this one
   const good = def.kind === "boon";
   log(`${def.ico} <b>${def.name}</b> — ${def.blurb} <span class="hint">(${dur} cyc)</span>`, good ? "good" : "bad");
   toast(`${def.ico} ${def.name} (${dur} cyc)`, good ? "good" : "bad");
@@ -4904,6 +4906,58 @@ function investigateSignal(id) {
   S.signals = S.signals.filter(x => x !== s);   // consumed whatever the result
   resolveSignal(s);
   afterAction();
+}
+const FX_DOMAINS = { combat: "⚔️ Combat", economy: "💱 Trade", logistics: "🚀 Logistics", science: "🔬 Science", industry: "🏭 Industry", escort: "🛡️ Escort", politics: "🏛️ Politics", piracy: "🏴‍☠️ Piracy" };
+function renderFortunesPanel() {
+  const el = (typeof document !== "undefined") && document.getElementById("panel-fortunes"); if (!el) return;
+  const act = fxActive();
+  const boons = act.filter(f => FX[f.key].kind === "boon"), banes = act.filter(f => FX[f.key].kind === "bane");
+  const sig = (Array.isArray(S.signals) ? S.signals : []).slice().sort((a, b) => (b.planet === S.location ? 1 : 0) - (a.planet === S.location ? 1 : 0));
+  const seen = S.fxSeen || {}, tierName = ["", "faint", "strong", "rare"];
+  const fxCard = f => {
+    const d = FX[f.key], good = d.kind === "boon", col = good ? "var(--good)" : "var(--bad)";
+    const total = f.dur || f.cyclesLeft, pct = Math.max(4, Math.round(f.cyclesLeft / total * 100)), cc = fxClearCost(f);
+    const clr = (d.kind === "bane" && cc) ? `<div class="row" style="margin-top:6px"><button class="btn btn-sm" ${S.res.credits >= cc ? "" : "disabled"} title="Pay to shake it off now — cheaper as it nears its end" onclick="clearFx('${f.key}')">🧹 Clear (${fmt(cc)} cr)</button></div>` : "";
+    return `<div class="card" style="border-color:${col}">
+      <h4>${d.ico} ${d.name} <span class="pill ${good ? "good" : "bad"}">${tierName[d.tier]} ${good ? "boon" : "bane"}</span></h4>
+      <div class="hint">${d.blurb}</div>
+      <div class="ship-stat" style="margin-top:6px"><span class="k">Time left</span><span class="v" style="color:${col}">${f.cyclesLeft} cycle${f.cyclesLeft === 1 ? "" : "s"}</span></div>
+      <div class="bar"><span style="width:${pct}%;background:${col}"></span></div>${clr}
+    </div>`;
+  };
+  const sigCard = s => {
+    const k = SIGNAL_KINDS[s.kind], here = s.planet === S.location, fuel = SIGNAL_FUEL[s.tier] || 6;
+    const dist = here ? 0 : ((currentPlanet().distances || {})[s.planet] || "?");
+    const can = here && actionsLeft() > 0 && S.res.fuel >= fuel && !(typeof combatLocked === "function" && combatLocked());
+    const ctl = here
+      ? `<button class="btn ${can ? "btn-good" : ""}" ${can ? "" : "disabled"} title="Spend 1 action + ${fuel}⛽" onclick="investigateSignal('${s.id}')">🔍 Investigate (${fuel}⛽)</button>`
+      : `<button class="btn btn-sm" ${S.res.fuel >= fuelCost(s.planet) ? "" : "disabled"} onclick="travel('${s.planet}')">Travel ▸ ${sigPlanetName(s.planet)} (${dist} ly)</button>`;
+    return `<div class="card">
+      <h4>${k.ico} ${tierName[s.tier]} signal <span class="pill">${sigPlanetName(s.planet)}${here ? " · here" : ""}</span></h4>
+      <div class="hint">${k.blurb}</div>
+      <div class="ship-stat" style="margin-top:6px"><span class="k">Fades in</span><span class="v">${s.ttl} cycle${s.ttl === 1 ? "" : "s"}</span></div>
+      <div class="row" style="margin-top:6px">${ctl}</div>
+    </div>`;
+  };
+  const allKeys = Object.keys(FX), seenCount = allKeys.filter(k => seen[k]).length, groups = {};
+  allKeys.forEach(k => { (groups[FX[k].domain] = groups[FX[k].domain] || []).push(k); });
+  const almanac = Object.keys(FX_DOMAINS).filter(dn => groups[dn]).map(dn => {
+    const chips = groups[dn].sort((a, b) => (FX[a].tier || 1) - (FX[b].tier || 1)).map(k => {
+      const d = FX[k], good = d.kind === "boon";
+      return seen[k]
+        ? `<span class="pill ${good ? "good" : "bad"}" title="${d.blurb} (${tierName[d.tier]} · ${good ? "boon" : "bane"})">${d.ico} ${d.name}</span>`
+        : `<span class="pill" style="opacity:.5" title="Undiscovered — keep exploring &amp; investigating signals to find it">❔ ??? <span style="opacity:.7">(${tierName[d.tier]})</span></span>`;
+    }).join(" ");
+    return `<div class="ship-stat" style="margin-top:8px"><span class="k">${FX_DOMAINS[dn]}</span></div><div style="display:flex;flex-wrap:wrap;gap:4px">${chips}</div>`;
+  }).join("");
+  el.innerHTML = `<h2>✨ Fortunes</h2>
+    <div class="subtitle">Temporary <b>boons &amp; banes</b> you pick up by exploring, sweeping the lanes, and chasing <b>📡 signals</b> — fly to one and <b>🔍 Investigate</b> for a roll. Stronger effects are briefer; the rare, powerful ones are the prize of a hunted signal. Banes always wear off, and many can be 🧹 cleared (cheaper the closer they are to fading). Current phase: <b>${gamePhase()}</b>.</div>
+    <div class="card"><h4>Active Fortunes <span class="hint">${act.length}/${FX_MAX_ACTIVE}</span></h4>${act.length ? "" : '<div class="hint">None right now — go find some.</div>'}</div>
+    ${act.length ? `<div class="cards">${[...boons, ...banes].map(fxCard).join("")}</div>` : ""}
+    <div class="card" style="margin-top:10px"><h4>📡 Signals on your scope <span class="hint">${sig.length}</span></h4>${sig.length ? "" : '<div class="hint">No leads right now. Explore new worlds and sweep the lanes (⚔️ Raider tab) to flush them out.</div>'}</div>
+    ${sig.length ? `<div class="cards">${sig.map(sigCard).join("")}</div>` : ""}
+    <div class="card" style="margin-top:10px"><h4>📖 Almanac <span class="hint">${seenCount}/${allKeys.length} discovered</span></h4>
+      <div class="hint">Effects you've experienced are revealed; the rest await discovery.</div>${almanac}</div>`;
 }
 const EVENTS = [
   { msg: "Solar flare scrambles markets sector-wide.", type: "event",
@@ -7341,7 +7395,7 @@ function renderAll() {
   if (typeof document === "undefined") return;
   checkUnlocks(); checkDisclosure(); applyTabVisibility();
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
-  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderEscort(); renderContacts(); renderShipPanel(); renderLog();
+  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderEscort(); renderContacts(); renderShipPanel(); renderFortunesPanel(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
 }
 
@@ -7360,6 +7414,8 @@ const TAB_LADDER = [
     hint: "Unlocks with your first contract", test: s => s.contracts.length > 0 || s.turn >= 2 },
   { id: "research",  blurb: "spend tech points to unlock technologies",
     hint: "Unlocks once you earn tech points", test: s => (s.res.tech || 0) > 0 || s.turn >= 3 },
+  { id: "fortunes",  blurb: "track temporary boons & banes and the signals you hunt",
+    hint: "Unlocks once a Fortune or a signal turns up", test: s => (Array.isArray(s.fx) && s.fx.length > 0) || (Array.isArray(s.signals) && s.signals.length > 0) || (s.fxSeen && Object.keys(s.fxSeen).length > 0) || s.turn >= 6 },
   { id: "industry",  blurb: "refine raw materials into finished goods",
     hint: "Unlocks when you carry raw materials", test: s => RAW_IDS.some(c => (s.res[c] || 0) > 0) || s.turn >= 4 },
   { id: "raid",      blurb: "hunt pirates or prey on shipping",
@@ -7466,7 +7522,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.23.0";
+const APP_VERSION = "2.24.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7531,6 +7587,7 @@ function helpHTML() {
       <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises.</li>
       <li>🏭 <b>Industry</b> — refine raw materials into finished goods.</li>
       <li>🔬 <b>Research</b> — unlock technologies.</li>
+      <li>✨ <b>Fortunes</b> — temporary <b>boons &amp; banes</b> you pick up by exploring new worlds, sweeping the lanes and plain luck — extra actions, weapon surges, trade winds, research sparks, and rarer grand effects… balanced by reactor leaks, customs crackdowns and the like. This tab tracks your active effects (with time left and 🧹 clear buttons for banes), the <b>📡 signals</b> on your scope, and an <b>almanac</b> of every effect you've discovered. Chase a signal and <b>🔍 Investigate</b> it for a roll — stronger effects are briefer, and the rare, powerful ones are the prize of a hunted signal. Unlocks once a Fortune or signal turns up.</li>
       <li>🎯 <b>Missions</b> — time-bound contracts, long-term career missions, and your legacy goals.</li>
       <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law.</li>
       <li>🏗️ <b>Bases</b> — automated off-world production.</li>
@@ -7538,7 +7595,7 @@ function helpHTML() {
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
       <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Appears once you've crossed a pirate band.</li>
-      <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules. Your active <b>✨ Fortunes</b> show here too — temporary boons &amp; banes (extra actions, weapon surges, trade winds, research sparks… or reactor leaks &amp; customs crackdowns) picked up by exploring new worlds, research breakthroughs and plain luck. Stronger ones are briefer; banes always wear off and many can be 🧹 cleared at a price. <b>📡 Signals</b> appear here too — faint leads (anomalies, drifting caches, derelicts, chatter, distress calls) near worlds you know. Fly to one and <b>🔍 Investigate</b> it (an action + fuel) for a roll: a Fortune, salvage (credits/tech/cargo), or a dead end. Rarer signals pay better but fade faster — so keep exploring, and chase the ones worth the burn.</li>
+      <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules. A compact readout of your active <b>✨ Fortunes</b> and <b>📡 signals</b> also shows in the sidebar; manage them in full on the ✨ Fortunes tab.</li>
     </ul>
 
     <h4>Header buttons</h4>
@@ -7824,6 +7881,7 @@ function init() {
   });
   if (!Array.isArray(S.fx)) S.fx = [];   // backfill Fortunes (temporary boons/banes)
   if (!Array.isArray(S.signals)) S.signals = [];   // backfill discoverable signals
+  if (!S.fxSeen) S.fxSeen = {};                     // backfill Fortunes almanac
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
   if (!S.discovered) S.discovered = {};

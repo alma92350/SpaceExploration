@@ -1,5 +1,5 @@
 {
-  "version": "2.23.0",
+  "version": "2.24.0",
   "saveVersion": "v2",
-  "notes": "Fortunes (slice 3) — a fuller catalog (~22 effects) across combat, trade, logistics, science, industry, escort, politics and piracy, now split into faint/strong/rare tiers. Mild effects still come from luck and exploring, but the strong and rare ones (Warlord's Edge, Golden Age, Renaissance, +1 action, +cargo…) are the prize of signals you hunt down — rarer signals grant stronger, longer effects. New effects touch cargo capacity, mining/production yield, convoy threat and your Wanted level (Lying Low cools it, Marked & Blockade raise it). Banes are easier to manage: clearing one gets cheaper as it nears its end, and answering a distress beacon can purge a bane outright. Signals now also show on the Galaxy map with an Investigate button. Balance-tuned with a simulation pass (~2.5:1 boons to banes)."
+  "notes": "New ✨ Fortunes tab. A dedicated home for the boons & banes system: see your active effects with time-left bars and one-click clear buttons for banes, the 📡 signals currently on your scope (Investigate when you're there, or Travel to them), and an Almanac that fills in as you discover each effect — every one you've experienced is revealed, the rest stay ??? as a collection goal. The Ship sidebar keeps a compact at-a-glance view. Unlocks once a Fortune or signal first appears."
 }
