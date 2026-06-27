@@ -922,6 +922,7 @@ function freshState(opts = {}) {
     fx: [],                     // active Fortunes (temporary boons/banes): [{ key, cyclesLeft, ... }]
     signals: [],                // discoverable leads to investigate: [{ id, kind, tier, planet, ttl }]
     fxSeen: {},                 // Fortunes almanac: which effects you've experienced
+    fxMastery: {},              // domains fully catalogued → permanent passive bonuses
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
@@ -4753,9 +4754,33 @@ const FX = {
   blockade:   { ico: "⛔", name: "Sector Blockade", kind: "bane", domain: "economy", tier: 3, phases: ["mid", "late"], weight: 5,
                 mods: { buyDisc: -0.20, sellPrem: -0.18, wantedDrift: 2 }, clearCost: 1500, blurb: "Lanes choked off — brutal trade spreads and rising heat." },
 };
+// ---- Almanac mastery: discover EVERY effect in a domain for a permanent passive edge ----
+const FX_MASTERY = {
+  combat:    { ico: "⚔️", name: "Combat Mastery",    mods: { weaponMult: 0.08 }, reward: 1500, blurb: "+8% weapon damage, always." },
+  economy:   { ico: "💱", name: "Trade Mastery",     mods: { buyDisc: 0.05, sellPrem: 0.05 }, reward: 1500, blurb: "Permanently buy 5% cheaper & sell 5% dearer." },
+  logistics: { ico: "🚀", name: "Logistics Mastery", mods: { fuelMult: -0.10 }, reward: 1500, blurb: "Jumps always cost 10% less fuel." },
+  science:   { ico: "🔬", name: "Science Mastery",   mods: { researchMult: 0.15 }, reward: 1500, blurb: "+15% research output, always." },
+  industry:  { ico: "🏭", name: "Industry Mastery",  mods: { yieldMult: 0.12 }, reward: 1500, blurb: "+12% extraction & production yield, always." },
+  escort:    { ico: "🛡️", name: "Escort Mastery",    mods: { escortThreatMult: -0.12 }, reward: 1500, blurb: "Convoy threat always runs 12% lower." },
+  politics:  { ico: "🏛️", name: "Politics Mastery",  mods: { influenceMult: 0.15 }, reward: 1500, blurb: "+15% influence from lobbying, always." },
+  piracy:    { ico: "🏴‍☠️", name: "Piracy Mastery",   mods: { lootMult: 0.10 }, reward: 1500, blurb: "+10% raid credits, always." },
+};
+function masteryBonus(tag) { let s = 0; const M = S.fxMastery || {}; for (const dn in M) if (M[dn] && FX_MASTERY[dn]) s += (FX_MASTERY[dn].mods || {})[tag] || 0; return s; }
+function domainComplete(dn) { const keys = Object.keys(FX).filter(k => FX[k].domain === dn); return keys.length > 0 && keys.every(k => S.fxSeen && S.fxSeen[k]); }
+function grantMastery(dn) {
+  if (!S.fxMastery) S.fxMastery = {};
+  if (S.fxMastery[dn] || !FX_MASTERY[dn]) return;
+  S.fxMastery[dn] = true;
+  const m = FX_MASTERY[dn];
+  S.res.credits += (m.reward || 0);
+  log(`🏅 <b>${m.name}</b> achieved — you've catalogued every ${FX_DOMAINS[dn] ? FX_DOMAINS[dn].replace(/^\S+\s/, "") : dn} Fortune! Permanent: ${m.blurb} (+${fmt(m.reward || 0)} cr).`, "event");
+  if (typeof toast === "function") toast(`🏅 ${m.name}!`, "good");
+  if (typeof announce === "function") announce(`🏅 ${m.name}`, m.blurb, false);
+  if (typeof sfx === "function") sfx("promote");
+}
 const FX_MAX_ACTIVE = 4, FX_BUDGET = 1.1;
 function fxActive() { return Array.isArray(S.fx) ? S.fx.filter(f => f && FX[f.key]) : []; }
-function fxAdd(tag) { return fxActive().reduce((s, f) => s + ((FX[f.key].mods || {})[tag] || 0), 0); }   // additive tags (actions, buyDisc, sellPrem)
+function fxAdd(tag) { return fxActive().reduce((s, f) => s + ((FX[f.key].mods || {})[tag] || 0), 0) + masteryBonus(tag); }   // active effects + permanent mastery
 function fxMult(tag) { return Math.max(0.1, 1 + fxAdd(tag)); }                                            // multiplicative tags (weaponMult, fuelMult, ...)
 function fxHas(key) { return fxActive().some(f => f.key === key); }
 function fxStrength(def) { const m = def.mods || {}; let s = 0; for (const k in m) s += (k === "actions") ? Math.abs(m[k]) * 0.35 : Math.abs(m[k]); return Math.max(0.05, s); }
@@ -4780,6 +4805,7 @@ function grantFx(key, opts = {}) {
     S.fx.push({ key, cyclesLeft: dur, dur, gained: S.turn });
   }
   if (!S.fxSeen) S.fxSeen = {}; S.fxSeen[key] = true;                            // almanac: you've now experienced this one
+  if (domainComplete(def.domain)) grantMastery(def.domain);                      // completed a domain? permanent mastery
   const good = def.kind === "boon";
   log(`${def.ico} <b>${def.name}</b> — ${def.blurb} <span class="hint">(${dur} cyc)</span>`, good ? "good" : "bad");
   toast(`${def.ico} ${def.name} (${dur} cyc)`, good ? "good" : "bad");
@@ -4907,6 +4933,21 @@ function investigateSignal(id) {
   resolveSignal(s);
   afterAction();
 }
+// buy intel at a port: pay to flush a fresh lead onto your scope (agency over the hunt)
+const SIGNAL_SCAN = { scan: { cost: 700, tiers: [1, 2], label: "Sensor Scan" }, deep: { cost: 2400, tiers: [2, 3], label: "Deep-Space Scan" } };
+function buySignalScan(kind) {
+  if (typeof combatLocked === "function" && combatLocked()) return;
+  const cfg = SIGNAL_SCAN[kind]; if (!cfg) return;
+  if (!Array.isArray(S.signals)) S.signals = [];
+  if (S.signals.length >= SIGNAL_MAX) return toast("Your scope is already crowded with leads.", "bad");
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  if ((S.res.credits || 0) < cfg.cost) return toast(`A ${cfg.label} costs ${fmt(cfg.cost)} cr.`, "bad");
+  let s = null; for (let i = 0; i < 4 && !s; i++) s = spawnSignal({ tier: pick(cfg.tiers) });
+  if (!s) return toast("The scan turned up no fresh leads — try again next cycle.", "bad");
+  S.res.credits -= cfg.cost; useAction();
+  log(`🛰️ You commissioned a ${cfg.label} (−${fmt(cfg.cost)} cr) and flagged a lead.`, "event");
+  afterAction();
+}
 const FX_DOMAINS = { combat: "⚔️ Combat", economy: "💱 Trade", logistics: "🚀 Logistics", science: "🔬 Science", industry: "🏭 Industry", escort: "🛡️ Escort", politics: "🏛️ Politics", piracy: "🏴‍☠️ Piracy" };
 function renderFortunesPanel() {
   const el = (typeof document !== "undefined") && document.getElementById("panel-fortunes"); if (!el) return;
@@ -4941,23 +4982,31 @@ function renderFortunesPanel() {
   };
   const allKeys = Object.keys(FX), seenCount = allKeys.filter(k => seen[k]).length, groups = {};
   allKeys.forEach(k => { (groups[FX[k].domain] = groups[FX[k].domain] || []).push(k); });
+  const mastery = S.fxMastery || {}, masteredCount = Object.keys(FX_MASTERY).filter(dn => mastery[dn]).length;
   const almanac = Object.keys(FX_DOMAINS).filter(dn => groups[dn]).map(dn => {
-    const chips = groups[dn].sort((a, b) => (FX[a].tier || 1) - (FX[b].tier || 1)).map(k => {
+    const keys = groups[dn], sc = keys.filter(k => seen[k]).length, done = !!mastery[dn];
+    const badge = done ? `<span class="pill good" title="${FX_MASTERY[dn] ? FX_MASTERY[dn].blurb : ""}">🏅 mastered</span>` : `<span class="hint">${sc}/${keys.length}</span>`;
+    const chips = keys.sort((a, b) => (FX[a].tier || 1) - (FX[b].tier || 1)).map(k => {
       const d = FX[k], good = d.kind === "boon";
       return seen[k]
         ? `<span class="pill ${good ? "good" : "bad"}" title="${d.blurb} (${tierName[d.tier]} · ${good ? "boon" : "bane"})">${d.ico} ${d.name}</span>`
         : `<span class="pill" style="opacity:.5" title="Undiscovered — keep exploring &amp; investigating signals to find it">❔ ??? <span style="opacity:.7">(${tierName[d.tier]})</span></span>`;
     }).join(" ");
-    return `<div class="ship-stat" style="margin-top:8px"><span class="k">${FX_DOMAINS[dn]}</span></div><div style="display:flex;flex-wrap:wrap;gap:4px">${chips}</div>`;
+    return `<div class="ship-stat" style="margin-top:8px"><span class="k">${FX_DOMAINS[dn]} ${badge}</span></div><div style="display:flex;flex-wrap:wrap;gap:4px">${chips}</div>`;
   }).join("");
+  const full = sig.length >= SIGNAL_MAX, noAct = actionsLeft() <= 0;
+  const scanBtn = (kind) => { const c = SIGNAL_SCAN[kind], ok = !full && !noAct && (S.res.credits || 0) >= c.cost; return `<button class="btn ${ok ? "btn-good" : ""}" ${ok ? "" : "disabled"} title="${full ? "Your scope is full of leads" : noAct ? "No actions left" : "Flush a fresh lead onto your scope (1 action)"}" onclick="buySignalScan('${kind}')">${kind === "deep" ? "🛰️" : "📡"} ${c.label} (${fmt(c.cost)} cr)</button>`; };
   el.innerHTML = `<h2>✨ Fortunes</h2>
     <div class="subtitle">Temporary <b>boons &amp; banes</b> you pick up by exploring, sweeping the lanes, and chasing <b>📡 signals</b> — fly to one and <b>🔍 Investigate</b> for a roll. Stronger effects are briefer; the rare, powerful ones are the prize of a hunted signal. Banes always wear off, and many can be 🧹 cleared (cheaper the closer they are to fading). Current phase: <b>${gamePhase()}</b>.</div>
     <div class="card"><h4>Active Fortunes <span class="hint">${act.length}/${FX_MAX_ACTIVE}</span></h4>${act.length ? "" : '<div class="hint">None right now — go find some.</div>'}</div>
     ${act.length ? `<div class="cards">${[...boons, ...banes].map(fxCard).join("")}</div>` : ""}
     <div class="card" style="margin-top:10px"><h4>📡 Signals on your scope <span class="hint">${sig.length}</span></h4>${sig.length ? "" : '<div class="hint">No leads right now. Explore new worlds and sweep the lanes (⚔️ Raider tab) to flush them out.</div>'}</div>
     ${sig.length ? `<div class="cards">${sig.map(sigCard).join("")}</div>` : ""}
-    <div class="card" style="margin-top:10px"><h4>📖 Almanac <span class="hint">${seenCount}/${allKeys.length} discovered</span></h4>
-      <div class="hint">Effects you've experienced are revealed; the rest await discovery.</div>${almanac}</div>`;
+    <div class="card" style="margin-top:10px"><h4>🛰️ Sensor Office</h4>
+      <div class="hint">Buy intel to flush a fresh lead onto your scope (costs 1 action). A deep scan runs pricier but turns up stronger, rarer signals.</div>
+      <div class="row" style="margin-top:6px">${scanBtn("scan")} ${scanBtn("deep")}</div></div>
+    <div class="card" style="margin-top:10px"><h4>📖 Almanac <span class="hint">${seenCount}/${allKeys.length} discovered · 🏅 ${masteredCount}/${Object.keys(FX_MASTERY).length} domains mastered</span></h4>
+      <div class="hint">Effects you've experienced are revealed; the rest await discovery. Catalogue every effect in a domain for a <b>permanent</b> passive edge.</div>${almanac}</div>`;
 }
 const EVENTS = [
   { msg: "Solar flare scrambles markets sector-wide.", type: "event",
@@ -7522,7 +7571,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.24.0";
+const APP_VERSION = "2.25.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7587,7 +7636,7 @@ function helpHTML() {
       <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises.</li>
       <li>🏭 <b>Industry</b> — refine raw materials into finished goods.</li>
       <li>🔬 <b>Research</b> — unlock technologies.</li>
-      <li>✨ <b>Fortunes</b> — temporary <b>boons &amp; banes</b> you pick up by exploring new worlds, sweeping the lanes and plain luck — extra actions, weapon surges, trade winds, research sparks, and rarer grand effects… balanced by reactor leaks, customs crackdowns and the like. This tab tracks your active effects (with time left and 🧹 clear buttons for banes), the <b>📡 signals</b> on your scope, and an <b>almanac</b> of every effect you've discovered. Chase a signal and <b>🔍 Investigate</b> it for a roll — stronger effects are briefer, and the rare, powerful ones are the prize of a hunted signal. Unlocks once a Fortune or signal turns up.</li>
+      <li>✨ <b>Fortunes</b> — temporary <b>boons &amp; banes</b> you pick up by exploring new worlds, sweeping the lanes and plain luck — extra actions, weapon surges, trade winds, research sparks, and rarer grand effects… balanced by reactor leaks, customs crackdowns and the like. This tab tracks your active effects (with time left and 🧹 clear buttons for banes), the <b>📡 signals</b> on your scope, and an <b>almanac</b> of every effect you've discovered. Chase a signal and <b>🔍 Investigate</b> it for a roll — stronger effects are briefer, and the rare, powerful ones are the prize of a hunted signal. Short on leads? The <b>🛰️ Sensor Office</b> sells scans that flush fresh signals onto your scope. Catalogue <b>every</b> effect in a domain to earn a 🏅 <b>Mastery</b> — a permanent passive edge. Unlocks once a Fortune or signal turns up.</li>
       <li>🎯 <b>Missions</b> — time-bound contracts, long-term career missions, and your legacy goals.</li>
       <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law.</li>
       <li>🏗️ <b>Bases</b> — automated off-world production.</li>
@@ -7882,6 +7931,7 @@ function init() {
   if (!Array.isArray(S.fx)) S.fx = [];   // backfill Fortunes (temporary boons/banes)
   if (!Array.isArray(S.signals)) S.signals = [];   // backfill discoverable signals
   if (!S.fxSeen) S.fxSeen = {};                     // backfill Fortunes almanac
+  if (!S.fxMastery) S.fxMastery = {};               // backfill almanac mastery
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
   if (!S.discovered) S.discovered = {};
@@ -7969,7 +8019,7 @@ Object.assign(window, {
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSummonOnCall, repairShip,
-  clearFx, investigateSignal,
+  clearFx, investigateSignal, buySignalScan,
   setBandTag, callBandSupport, bandFollow, bandStandDown, escortRallyOnCall,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, escortOutfitAdd, escortOutfitRemove, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,

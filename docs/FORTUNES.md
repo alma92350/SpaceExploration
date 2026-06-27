@@ -114,6 +114,19 @@ Faint leads you chase and **Investigate** for a rarity-weighted roll — the cor
     with a discovered-count, giving a collection goal.
 - The Ship sidebar keeps the compact at-a-glance chips. Tests: `fortunespanel.js`.
 
+## Scans & mastery (slice 5)
+- **Purchasable intel** (`buySignalScan`, `SIGNAL_SCAN`): the Fortunes tab's
+  🛰️ Sensor Office sells a **Sensor Scan** (cheap, tier 1–2) and a **Deep-Space
+  Scan** (pricier, tier 2–3) that spend an action + credits to `spawnSignal` a
+  fresh lead — agency over the hunt when the scope is quiet.
+- **Almanac mastery** (`FX_MASTERY`, `domainComplete`, `grantMastery`): discover
+  **every** effect in a domain (tracked in `S.fxSeen`) and you earn a permanent
+  **🏅 Mastery** — a passive modifier folded into the same hooks via
+  `masteryBonus` (added inside `fxAdd`, so `fxMult` picks it up too) plus a
+  one-time credit reward and an announcement. `S.fxMastery` in freshState +
+  init migrate. The Almanac shows per-domain progress / mastery badges.
+  Tests: `mastery.js`.
+
 ## Roadmap (further ideas)
-- Signal scan/intel purchasable at ports; set-collection meta-boons for filling
-  almanac domains; faction-flavored Fortunes.
+- Faction-flavored Fortunes; signals that chain into multi-step expeditions;
+  a "grand mastery" capstone for completing every domain.
