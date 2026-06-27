@@ -1,5 +1,5 @@
 {
-  "version": "2.20.1",
+  "version": "2.21.0",
   "saveVersion": "v2",
-  "notes": "Fix: you couldn't bring allied pirates into a letter-of-marque fight. Now any willing crew based in the system you're hunting can be summoned into the raid on the spot (alongside standing-by and following crews) — not just pre-called ones — and the buttons show against faction shipping, not only pirates. When no crew is on the scene but you have friends elsewhere, the raid card now tells you how to call one in or set one to follow. You can't summon the crew you're actually fighting."
+  "notes": "Fortunes (slice 1): temporary boons & banes you pick up by exploring new worlds, research breakthroughs, and plain luck. Boons like +1 action, +20% weapon damage, trade winds (cheaper buys/dearer sales), research sparks, political capital, clean burn (−fuel) and a feared name (+raid take); banes like reactor leaks, customs crackdowns, ion storms and saboteurs. Stronger effects are briefer (1–20 cycles); banes always wear off and many can be cleared at a port for credits. Active Fortunes show under your Ship stats. The pool shifts by game phase. Next slice: hunt faint signals you Investigate for a roll."
 }

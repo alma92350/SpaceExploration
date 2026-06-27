@@ -919,6 +919,7 @@ function freshState(opts = {}) {
     prices: {},
     reserves: {},               // per-planet, per-commodity deposit reserves { cur, max }
     crises: {},                 // active planetary crises: pid -> { type, cyclesLeft }
+    fx: [],                     // active Fortunes (temporary boons/banes): [{ key, cyclesLeft, ... }]
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
@@ -944,7 +945,8 @@ function fuelCap()   { return BASE_FUEL + S.upgrades.fueltank * 40; }
 function cargoUsed() { return CARGO_IDS.reduce((s, id) => s + (S.res[id] || 0), 0); }
 function cargoFree() { return cargoCap() - cargoUsed(); }
 function currentPlanet() { return PLANETS.find(p => p.id === S.location); }
-function actionsLeft() { return (S.jail > 0) ? 0 : ACTIONS_PER_CYCLE - S.actionsUsed; }
+function actionsMax() { return Math.max(1, ACTIONS_PER_CYCLE + (typeof fxAdd === "function" ? fxAdd("actions") : 0)); }   // Fortunes can grant/sap actions
+function actionsLeft() { return (S.jail > 0) ? 0 : actionsMax() - S.actionsUsed; }
 function useAction() { S.actionsUsed++; }
 
 /* ============================================================
@@ -1041,12 +1043,12 @@ function repSpreadBonus(p, h) { return Math.max(-0.8 * h, Math.min(0.8 * h, repP
 function buyPrice(pid, c) {
   const p = PLANETS.find(x => x.id === pid);
   const h = tradeHalfSpread();
-  return Math.max(2, Math.round(marketMid(pid, c) * (1 + h - repSpreadBonus(p, h))));  // friendly → buy nearer mid (cheaper)
+  return Math.max(2, Math.round(marketMid(pid, c) * (1 + h - repSpreadBonus(p, h)) * (1 - fxAdd("buyDisc"))));  // friendly/Fortunes → buy cheaper
 }
 function sellPrice(pid, c) {
   const p = PLANETS.find(x => x.id === pid);
   const h = tradeHalfSpread();
-  const raw = Math.round(marketMid(pid, c) * (1 - h + repSpreadBonus(p, h)));           // friendly → sell nearer mid (dearer)
+  const raw = Math.round(marketMid(pid, c) * (1 - h + repSpreadBonus(p, h)) * (1 + fxAdd("sellPrem")));   // friendly/Fortunes → sell dearer
   return Math.max(1, Math.min(raw, buyPrice(pid, c) - 1));                              // always at least 1 below buy (rounding-proof: no arbitrage)
 }
 
@@ -1490,7 +1492,7 @@ function foeHp(foe) {
 function playerStrikes(foe, wkey) {
   const drones = droneStrike(foe);
   if (drones.lost > 0) S.res.drones -= drones.lost;
-  const base = (raidPower() * 0.55 + Math.random() * 8) * condFactor("weapons") * offenseMult();
+  const base = (raidPower() * 0.55 + Math.random() * 8) * condFactor("weapons") * offenseMult() * fxMult("weaponMult");
   const dmg = Math.max(1, Math.round(base * weaponEff(wkey, foe) + drones.bonus));
   return { dmg, drones };
 }
@@ -1498,7 +1500,7 @@ function playerStrikes(foe, wkey) {
 function foeStrikes(foe, intensity) {
   const postureFactor = Math.max(0.5, Math.min(1.8, 1 / Math.max(0.4, defenseMult())));   // evasive soaks, aggressive exposes
   intensity *= (1 + 0.12 * (foe.escorts || 0));                                            // escorts pile on
-  const raw = foe.strength * intensity * (0.7 + Math.random() * 0.6) * postureFactor;
+  const raw = foe.strength * intensity * (0.7 + Math.random() * 0.6) * postureFactor * fxMult("incomingMult");
   let dmg = takeTypedDamage(raw, foe.wtype);
   const floor = Math.round(foe.strength * 0.06 * postureFactor);   // some fire always gets through
   if (dmg < floor) { const extra = floor - dmg; S.pirate.hull = Math.max(0, S.pirate.hull - extra); clampPirate(); if (S.pirate.hull <= 0) shipCrippled(); dmg = floor; }
@@ -2364,7 +2366,7 @@ function plunder(prey) {
     const q = Math.min(Math.floor(prey.cargo[c] * share), room);
     if (q > 0) { S.res[c] = (S.res[c] || 0) + q; taken.push(`${q} ${COM[c].ico}`); }
   });
-  const cr = Math.round(prey.credits * share);
+  const cr = Math.round(prey.credits * share * fxMult("lootMult"));   // Feared Name boosts the take
   S.res.credits += cr;
   let value = cr;
   Object.keys(prey.cargo).forEach(c => value += Math.floor(prey.cargo[c] * share) * COM[c].base);
@@ -3020,10 +3022,11 @@ function research() {
   if ((S.res.energy || 0) < RESEARCH_ENERGY) return toast(`Experiments need ${RESEARCH_ENERGY} ⚡ energy to power the lab — refine or buy some.`, "bad");
   const p = currentPlanet();
   S.res.energy -= RESEARCH_ENERGY;
-  const pts = Math.round((2 + effTech(p)) * (1 + S.upgrades.lab * 0.40));
+  const pts = Math.round((2 + effTech(p)) * (1 + S.upgrades.lab * 0.40) * fxMult("researchMult"));
   S.res.tech += pts; useAction();
   log(`Generated <span class="c">${pts}</span> tech points on ${p.name} (−${RESEARCH_ENERGY}⚡, Tech ${effTech(p)}).`, "good");
   toast(`+${pts} 🔬 (−${RESEARCH_ENERGY}⚡)`, "good");
+  if (Math.random() < 0.08) rollFx("boon");   // breakthroughs sometimes spark a windfall
   afterAction();
 }
 /* One-click political career entry — replaces the old "Politics" new-game
@@ -3046,11 +3049,11 @@ function enterPublicLife() {
 function doPolitics() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
-  let inf = Math.round((2 + (effTech(p) + effIndustry(p)) / 3) * (1 + S.upgrades.envoy * 0.40));
+  let inf = Math.round((2 + (effTech(p) + effIndustry(p)) / 3) * (1 + S.upgrades.envoy * 0.40) * fxMult("influenceMult"));
   if (S.perks.senator) inf = Math.round(inf * 1.3);
   if (S.perks.governor) inf = Math.round(inf * 1.6);
   S.res.influence += inf;
-  const repGain = Math.round(3 * (1 + S.upgrades.envoy * 0.4));
+  const repGain = Math.round(3 * (1 + S.upgrades.envoy * 0.4) * fxMult("repMult"));
   addRep(p.faction, repGain);
   useAction();
   log(`Lobbied on ${p.name}: +${inf} influence, +${repGain} ${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name} rep.`, "good");
@@ -3766,6 +3769,7 @@ function fuelCost(destId) {
   let cost = currentPlanet().distances[destId] * 7;
   cost *= 1 - S.upgrades.engine * 0.12;
   if (S.techs.warpdrive) cost *= 0.8;
+  cost *= fxMult("fuelMult");                 // Clean Burn / Ion Storm Fortunes
   return Math.max(1, Math.round(cost));
 }
 function travel(destId) {
@@ -3780,10 +3784,12 @@ function travel(destId) {
   if (S.prey) { log(`Your quarry, the ${S.prey.ico} ${S.prey.name}, slipped away as you left the system.`, ""); S.prey = null; }
   if (S.preyChoices) S.preyChoices = null;
   S.allies = null;
+  const firstVisit = !S.visited[destId];
   S.res.fuel -= cost; S.location = destId; S.visited[destId] = true; S.stats.jumps++;
   sfx("travel");
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
   toast(`Arrived at ${dest.name}`, "event");
+  if (firstVisit && Math.random() < 0.30) rollFx(Math.random() < 0.8 ? "boon" : "bane");   // exploring new worlds turns up Fortunes
   scanOnArrival(dest);
   maybeAmbush(dest);
   if (!S.encounter) maybeInterdict(dest);
@@ -4679,6 +4685,94 @@ function explore() {
 /* ============================================================
    TURN / EVENTS
    ============================================================ */
+/* ============================================================
+   FORTUNES — temporary boons & banes ("drops")
+   Effects are READ at point of use via fxAdd()/fxMult(); nothing
+   mutates base stats, so they're fully reversible. Duration runs
+   INVERSE to strength (an impact budget): a punchy boon is brief,
+   a gentle one lingers. Slice 1: ambient + activity triggers.
+   ============================================================ */
+const FX = {
+  // ---- boons ----
+  overclock:  { ico: "⚡", name: "Overclocked Reactor", kind: "boon", domain: "logistics", phases: ["early", "mid", "late"], weight: 10,
+                mods: { actions: 1 }, blurb: "Crew runs hot — +1 action each cycle." },
+  warband:    { ico: "💥", name: "Gun Runners' Cache", kind: "boon", domain: "combat", phases: ["mid", "late"], weight: 9,
+                mods: { weaponMult: 0.20 }, blurb: "Fresh ordnance — +20% weapon damage." },
+  plating:    { ico: "🛰️", name: "Salvaged Plating", kind: "boon", domain: "combat", phases: ["early", "mid", "late"], weight: 8,
+                mods: { incomingMult: -0.18 }, blurb: "Bolted-on armor — you take 18% less damage." },
+  tradewinds: { ico: "🤝", name: "Trade Winds", kind: "boon", domain: "economy", phases: ["early", "mid", "late"], weight: 10,
+                mods: { buyDisc: 0.12, sellPrem: 0.10 }, blurb: "Favorable contracts — buy 12% cheaper, sell 10% dearer." },
+  eureka:     { ico: "🔬", name: "Eureka!", kind: "boon", domain: "science", phases: ["early", "mid", "late"], weight: 8,
+                mods: { researchMult: 0.35 }, blurb: "Inspired lab — +35% research output." },
+  capital:    { ico: "🏛️", name: "Political Capital", kind: "boon", domain: "politics", phases: ["mid", "late"], weight: 8,
+                mods: { influenceMult: 0.40, repMult: 0.50 }, blurb: "The room is with you — +40% influence & +50% rep when lobbying." },
+  cleanburn:  { ico: "⛽", name: "Clean Burn", kind: "boon", domain: "logistics", phases: ["early", "mid"], weight: 8,
+                mods: { fuelMult: -0.25 }, blurb: "Tuned drives — jumps cost 25% less fuel." },
+  feared:     { ico: "🏴‍☠️", name: "Feared Name", kind: "boon", domain: "piracy", phases: ["mid", "late"], weight: 7,
+                mods: { lootMult: 0.25 }, blurb: "Your reputation precedes you — +25% raid credits." },
+  // ---- banes (gentle, always wear off; some clearable at a port) ----
+  reactorleak:{ ico: "🧯", name: "Reactor Leak", kind: "bane", domain: "logistics", phases: ["early", "mid", "late"], weight: 7,
+                mods: { actions: -1 }, clearCost: 600, blurb: "Power bleeds away — −1 action each cycle." },
+  crackdown:  { ico: "🚨", name: "Customs Crackdown", kind: "bane", domain: "economy", phases: ["mid", "late"], weight: 7,
+                mods: { buyDisc: -0.12, sellPrem: -0.10 }, clearCost: 800, blurb: "Inspectors everywhere — buy 12% dearer, sell 10% cheaper." },
+  ionstorm:   { ico: "🕳️", name: "Ion Storm", kind: "bane", domain: "combat", phases: ["early", "mid", "late"], weight: 6,
+                mods: { weaponMult: -0.18 }, blurb: "Fouled targeting — −18% weapon damage (wears off)." },
+  saboteur:   { ico: "🔧", name: "Saboteur Aboard", kind: "bane", domain: "combat", phases: ["mid", "late"], weight: 5,
+                mods: { incomingMult: 0.18 }, clearCost: 700, blurb: "Sabotaged systems — you take 18% more damage." },
+};
+const FX_MAX_ACTIVE = 4, FX_BUDGET = 1.1;
+function fxActive() { return Array.isArray(S.fx) ? S.fx.filter(f => f && FX[f.key]) : []; }
+function fxAdd(tag) { return fxActive().reduce((s, f) => s + ((FX[f.key].mods || {})[tag] || 0), 0); }   // additive tags (actions, buyDisc, sellPrem)
+function fxMult(tag) { return Math.max(0.1, 1 + fxAdd(tag)); }                                            // multiplicative tags (weaponMult, fuelMult, ...)
+function fxHas(key) { return fxActive().some(f => f.key === key); }
+function fxStrength(def) { const m = def.mods || {}; let s = 0; for (const k in m) s += (k === "actions") ? Math.abs(m[k]) * 0.35 : Math.abs(m[k]); return Math.max(0.05, s); }
+function fxDuration(def) { let d = (FX_BUDGET / fxStrength(def)) * (0.8 + Math.random() * 0.5); if (def.kind === "bane") d *= 1.25; return Math.max(1, Math.min(20, Math.round(d))); }
+function gamePhase() {
+  const nw = (typeof netWorth === "function") ? netWorth() : (S.res.credits || 0);
+  if (S.turn >= 55 || nw >= 60000 || (S.office || 0) >= 2) return "late";
+  if (S.turn >= 22 || nw >= 12000 || ((S.pirate && S.pirate.raids) || 0) > 0 || (S.office || 0) >= 1) return "mid";
+  return "early";
+}
+function grantFx(key, opts = {}) {
+  const def = FX[key]; if (!def) return null;
+  if (!Array.isArray(S.fx)) S.fx = [];
+  const dur = opts.dur || fxDuration(def);
+  const existing = S.fx.find(f => f.key === key);
+  if (existing) { existing.cyclesLeft = Math.max(existing.cyclesLeft, dur); }   // refresh, never stack
+  else {
+    if (S.fx.length >= FX_MAX_ACTIVE) {                                          // make room — evict the soonest to expire
+      let wi = 0; for (let i = 1; i < S.fx.length; i++) if (S.fx[i].cyclesLeft < S.fx[wi].cyclesLeft) wi = i;
+      S.fx.splice(wi, 1);
+    }
+    S.fx.push({ key, cyclesLeft: dur, gained: S.turn });
+  }
+  const good = def.kind === "boon";
+  log(`${def.ico} <b>${def.name}</b> — ${def.blurb} <span class="hint">(${dur} cyc)</span>`, good ? "good" : "bad");
+  toast(`${def.ico} ${def.name} (${dur} cyc)`, good ? "good" : "bad");
+  sfx(good ? "event" : "alarm");
+  return key;
+}
+function processFx() {     // tick down at the start of each cycle; expire at zero
+  if (!Array.isArray(S.fx)) { S.fx = []; return; }
+  for (let i = S.fx.length - 1; i >= 0; i--) {
+    const f = S.fx[i], def = FX[f.key];
+    if (!def) { S.fx.splice(i, 1); continue; }
+    if (--f.cyclesLeft <= 0) { S.fx.splice(i, 1); log(`${def.ico} ${def.name} has worn off.`, ""); }
+  }
+}
+function clearFx(key) {    // pay to shake off a clearable bane
+  const f = (S.fx || []).find(x => x.key === key), def = f && FX[f.key];
+  if (!f || !def || def.kind !== "bane" || !def.clearCost) return;
+  if ((S.res.credits || 0) < def.clearCost) return toast(`Clearing this needs ${fmt(def.clearCost)} cr.`, "bad");
+  S.res.credits -= def.clearCost;
+  S.fx = S.fx.filter(x => x !== f);
+  log(`🧹 You shook off <b>${def.name}</b> for ${fmt(def.clearCost)} cr.`, "good");
+  toast(`${def.name} cleared`, "good"); sfx("good"); saveGame(); renderAll();
+}
+function fxPool(kind) { const ph = gamePhase(); return Object.keys(FX).filter(k => { const d = FX[k]; return (!kind || d.kind === kind) && (!d.phases || d.phases.includes(ph)); }); }
+function fxWeightedPick(keys) { const tot = keys.reduce((s, k) => s + (FX[k].weight || 5), 0); let r = Math.random() * tot; for (const k of keys) { r -= (FX[k].weight || 5); if (r <= 0) return k; } return keys[keys.length - 1]; }
+function rollFx(kind) { const pool = fxPool(kind).filter(k => !fxHas(k)); return pool.length ? grantFx(fxWeightedPick(pool)) : null; }
+function maybeFortune() { if (Math.random() < 0.12) rollFx(Math.random() < 0.68 ? "boon" : "bane"); }   // ambient hope tick
 const EVENTS = [
   { msg: "Solar flare scrambles markets sector-wide.", type: "event",
     fn: () => COM_IDS.forEach(c => PLANETS.forEach(p => { S.prices[p.id][c] = Math.round(S.prices[p.id][c] * (0.7 + Math.random() * 0.7)); })) },
@@ -4725,7 +4819,8 @@ function endTurn(fromTravel = false) {
   if (!fromTravel && combatLocked()) return;
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent();
+  processFx();
+  processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune();
   if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (typeof decayBands === "function") decayBands();
   if (typeof processBandSupport === "function") processBandSupport();
@@ -4820,12 +4915,23 @@ function renderShip() {
      <div class="bar"><span style="width:${Math.min(100, cu/cc*100)}%"></span></div>
      <div class="ship-stat" style="margin-top:6px"><span class="k">Fuel</span><span class="v">${S.res.fuel}/${fuelCap()}</span></div>
      <div class="bar"><span style="width:${Math.min(100, S.res.fuel/fuelCap()*100)}%"></span></div>
-     <div class="ship-stat" style="margin-top:8px"><span class="k">Actions</span><span class="v">${actionsLeft()}/${ACTIONS_PER_CYCLE}</span></div>
+     <div class="ship-stat" style="margin-top:8px"><span class="k">Actions</span><span class="v">${actionsLeft()}/${actionsMax()}</span></div>
      ${(S.pirate && S.pirate.hull < HULL_MAX) ? `<div class="ship-stat" style="margin-top:6px"><span class="k">Hull</span><span class="v" style="color:${S.pirate.hull>=60?'var(--good)':S.pirate.hull>=30?'var(--warn)':'var(--bad)'}">${S.pirate.hull}/${HULL_MAX}</span></div>
      <div class="bar"><span style="width:${S.pirate.hull}%;background:${S.pirate.hull>=60?'var(--good)':S.pirate.hull>=30?'var(--warn)':'var(--bad)'}"></span></div>` : ""}
      <div class="ship-stat" style="margin-top:8px"><span class="k">Hold</span></div>
      <div style="font-size:12px;line-height:1.7">${held}</div>
-     ${mods ? `<div class="ship-stat" style="margin-top:8px"><span class="k">Mods</span></div><div style="font-size:13px">${mods}</div>` : ""}`;
+     ${mods ? `<div class="ship-stat" style="margin-top:8px"><span class="k">Mods</span></div><div style="font-size:13px">${mods}</div>` : ""}
+     ${renderFortunes()}`;
+}
+function renderFortunes() {
+  const act = fxActive();
+  if (!act.length) return "";
+  const chips = act.map(f => {
+    const def = FX[f.key], good = def.kind === "boon";
+    const clr = (def.kind === "bane" && def.clearCost) ? ` <button class="btn btn-sm" title="Pay ${fmt(def.clearCost)} cr to shake it off" onclick="clearFx('${f.key}')">🧹 ${fmt(def.clearCost)}</button>` : "";
+    return `<div class="ship-stat" style="margin-top:4px"><span class="k" style="color:${good ? "var(--good)" : "var(--bad)"}" title="${def.blurb}">${def.ico} ${def.name}</span><span class="v">${f.cyclesLeft} cyc${clr}</span></div>`;
+  }).join("");
+  return `<div class="ship-stat" style="margin-top:8px"><span class="k">✨ Fortunes</span></div>${chips}`;
 }
 function renderLog() {
   const el = document.getElementById("log"); if (!el) return;
@@ -7207,7 +7313,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.20.1";
+const APP_VERSION = "2.21.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7279,7 +7385,7 @@ function helpHTML() {
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
       <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Appears once you've crossed a pirate band.</li>
-      <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
+      <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules. Your active <b>✨ Fortunes</b> show here too — temporary boons &amp; banes (extra actions, weapon surges, trade winds, research sparks… or reactor leaks &amp; customs crackdowns) picked up by exploring new worlds, research breakthroughs and plain luck. Stronger ones are briefer; banes always wear off and many can be 🧹 cleared at a price. Keep exploring — there's always a chance of a windfall.</li>
     </ul>
 
     <h4>Header buttons</h4>
@@ -7563,6 +7669,7 @@ function init() {
     else if (!b.trade || typeof b.trade !== "object") b.trade = { on: false, exp: {}, imp: {}, cols: {} };
     else { b.trade.exp = b.trade.exp || {}; b.trade.imp = b.trade.imp || {}; b.trade.cols = b.trade.cols || {}; }
   });
+  if (!Array.isArray(S.fx)) S.fx = [];   // backfill Fortunes (temporary boons/banes)
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
   if (!S.discovered) S.discovered = {};
@@ -7650,6 +7757,7 @@ Object.assign(window, {
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSummonOnCall, repairShip,
+  clearFx,
   setBandTag, callBandSupport, bandFollow, bandStandDown, escortRallyOnCall,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, escortOutfitAdd, escortOutfitRemove, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
