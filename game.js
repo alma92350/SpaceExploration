@@ -920,6 +920,7 @@ function freshState(opts = {}) {
     reserves: {},               // per-planet, per-commodity deposit reserves { cur, max }
     crises: {},                 // active planetary crises: pid -> { type, cyclesLeft }
     fx: [],                     // active Fortunes (temporary boons/banes): [{ key, cyclesLeft, ... }]
+    signals: [],                // discoverable leads to investigate: [{ id, kind, tier, planet, ttl }]
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
@@ -2027,6 +2028,7 @@ function prowl() {
   const pirates = choices.filter(c => c.isPirate).length;
   log(`🔭 Sweep complete: <b>${choices.length}</b> contact(s) on the scope${pirates ? ` — ${pirates} flagged as pirates` : ""}. Read their class before you commit.`, "event");
   toast(`${choices.length} contacts on the scope`, "event");
+  if (typeof spawnSignal === "function" && Math.random() < 0.16) spawnSignal({ planet: S.location });   // a sweep can flush out a local anomaly
   afterAction();
 }
 function engageTarget(i) {
@@ -3790,6 +3792,7 @@ function travel(destId) {
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
   toast(`Arrived at ${dest.name}`, "event");
   if (firstVisit && Math.random() < 0.30) rollFx(Math.random() < 0.8 ? "boon" : "bane");   // exploring new worlds turns up Fortunes
+  if (firstVisit && Math.random() < 0.35) spawnSignal();                                   // …and reveals fresh leads to chase
   scanOnArrival(dest);
   maybeAmbush(dest);
   if (!S.encounter) maybeInterdict(dest);
@@ -4773,6 +4776,92 @@ function fxPool(kind) { const ph = gamePhase(); return Object.keys(FX).filter(k 
 function fxWeightedPick(keys) { const tot = keys.reduce((s, k) => s + (FX[k].weight || 5), 0); let r = Math.random() * tot; for (const k of keys) { r -= (FX[k].weight || 5); if (r <= 0) return k; } return keys[keys.length - 1]; }
 function rollFx(kind) { const pool = fxPool(kind).filter(k => !fxHas(k)); return pool.length ? grantFx(fxWeightedPick(pool)) : null; }
 function maybeFortune() { if (Math.random() < 0.12) rollFx(Math.random() < 0.68 ? "boon" : "bane"); }   // ambient hope tick
+/* ============================================================
+   SIGNALS — the hunt. Faint contacts you chase and INVESTIGATE
+   (an action + fuel) for a rarity-weighted roll: a Fortune, a
+   material windfall, or a dead end. They decay if ignored, so
+   timing and where-you-are matter. This is the "pleasure to search".
+   ============================================================ */
+const SIGNAL_KINDS = {
+  anomaly:  { ico: "⟁", name: "anomalous readings", blurb: "Strange energy signatures — could be a Fortune, could be nothing." },
+  cache:    { ico: "📦", name: "drifting cache", blurb: "An unclaimed container tumbling through the dark — likely salvage." },
+  derelict: { ico: "🛸", name: "derelict hulk", blurb: "A dead ship adrift — pick its bones for salvage." },
+  intel:    { ico: "📡", name: "encrypted chatter", blurb: "Scrambled comms hint at an edge worth chasing." },
+  distress: { ico: "🆘", name: "distress beacon", blurb: "A looping mayday — a rescue, or bait for a trap." },
+};
+const SIGNAL_MAX = 3, SIGNAL_TTL = [0, 6, 5, 4], SIGNAL_FUEL = [0, 5, 8, 12];
+function sigPlanetName(id) { const p = PLANETS.find(x => x.id === id); return p ? p.name : "?"; }
+function signalTier() { const r = Math.random(); if (r < 0.6) return 1; if (r < (gamePhase() === "late" ? 0.85 : 0.9)) return 2; return 3; }
+function planetsForSignal() {
+  const here = currentPlanet();
+  const near = PLANETS.filter(p => isActive(p) && galaxyKnown(p) && p.id !== here.id)
+    .sort((a, b) => ((here.distances || {})[a.id] || 9) - ((here.distances || {})[b.id] || 9)).slice(0, 4);
+  return [here, ...near];
+}
+function spawnSignal(opts = {}) {
+  if (!Array.isArray(S.signals)) S.signals = [];
+  if (S.signals.length >= SIGNAL_MAX) return null;
+  const kind = opts.kind || pick(Object.keys(SIGNAL_KINDS));
+  const tier = opts.tier || signalTier();
+  const planet = opts.planet || pick(planetsForSignal()).id;
+  if (S.signals.some(s => s.planet === planet && s.kind === kind)) return null;   // no dupes at a spot
+  const s = { id: "sig" + S.turn + "_" + Math.floor(Math.random() * 1e4), kind, tier, planet, ttl: SIGNAL_TTL[tier] || 5, born: S.turn };
+  S.signals.push(s);
+  const k = SIGNAL_KINDS[kind], tl = ["", "faint", "strong", "rare"][tier];
+  log(`${k.ico} A ${tl} signal — ${k.name} — flickers near <span class="c">${sigPlanetName(planet)}</span>. Investigate before it fades (${s.ttl} cyc).`, "event");
+  toast(`${k.ico} Signal near ${sigPlanetName(planet)}`, "event"); sfx("event");
+  return s;
+}
+function maybeSignal() { if (Math.random() < 0.20) spawnSignal(); }   // ambient: a new lead appears
+function processSignals() {
+  if (!Array.isArray(S.signals)) { S.signals = []; return; }
+  for (let i = S.signals.length - 1; i >= 0; i--) {
+    const s = S.signals[i];
+    if (--s.ttl <= 0) { S.signals.splice(i, 1); log(`${SIGNAL_KINDS[s.kind].ico} The ${SIGNAL_KINDS[s.kind].name} near ${sigPlanetName(s.planet)} faded before you reached it.`, ""); }
+  }
+}
+function signalOutcome(s) {        // weighted: boon / bane / loot / dud, by tier and biased by kind
+  const W = { boon: [0, 45, 52, 60][s.tier], bane: [0, 12, 15, 16][s.tier], loot: [0, 18, 23, 22][s.tier], dud: [0, 25, 10, 2][s.tier] };
+  const bias = { anomaly: { boon: 1.4, loot: 0.5 }, intel: { boon: 1.4, loot: 0.5 }, cache: { loot: 2.0, boon: 0.7 }, derelict: { loot: 2.0, boon: 0.7 }, distress: { bane: 1.7 } }[s.kind] || {};
+  Object.keys(W).forEach(k => W[k] *= (bias[k] || 1));
+  const tot = W.boon + W.bane + W.loot + W.dud; let r = Math.random() * tot;
+  for (const k of ["boon", "bane", "loot", "dud"]) { r -= W[k]; if (r <= 0) return k; }
+  return "dud";
+}
+function rollFxKeyForSignal(kind) { const pool = fxPool(kind).filter(k => !fxHas(k)); return pool.length ? fxWeightedPick(pool) : null; }
+function signalLoot(s) {
+  const t = s.tier, k = SIGNAL_KINDS[s.kind], pn = sigPlanetName(s.planet), r = Math.random();
+  if (r < 0.45) { const cr = (180 + Math.round(Math.random() * 520)) * t; S.res.credits += cr; log(`${k.ico} Salvage from the ${k.name} near ${pn}: +${fmt(cr)} cr.`, "good"); toast(`Salvage +${fmt(cr)} cr`, "good"); }
+  else if (r < 0.75) { const tp = (4 + Math.round(Math.random() * 8)) * t; S.res.tech += tp; log(`${k.ico} Recovered data cores near ${pn}: +${tp} 🔬 tech.`, "good"); toast(`+${tp} 🔬`, "good"); }
+  else {
+    const room = cargoFree(), c = pick(["metals", "electronics", "luxury", "goods", "relics", "spice"].filter(x => COM[x])), q = Math.min(room, 2 + t + Math.round(Math.random() * 3));
+    if (q > 0 && c) { S.res[c] = (S.res[c] || 0) + q; log(`${k.ico} Hauled ${q} ${COM[c].ico} ${COM[c].name} from the ${k.name} near ${pn}.`, "good"); toast(`+${q} ${COM[c].ico}`, "good"); }
+    else { const cr = (180 + Math.round(Math.random() * 300)) * t; S.res.credits += cr; log(`${k.ico} Hold full — you sold the salvage for ${fmt(cr)} cr.`, "good"); toast(`Salvage +${fmt(cr)} cr`, "good"); }
+  }
+  sfx("good");
+}
+function resolveSignal(s) {
+  const k = SIGNAL_KINDS[s.kind], pn = sigPlanetName(s.planet), out = signalOutcome(s);
+  if (out === "dud") { log(`${k.ico} You comb the ${k.name} near ${pn} but turn up nothing of use.`, ""); toast("A dead end.", ""); sfx("event"); return; }
+  if (out === "loot") return signalLoot(s);
+  const key = rollFxKeyForSignal(out);
+  if (!key) return signalLoot(s);          // pool exhausted — give salvage instead of nothing
+  log(`${k.ico} The ${k.name} near ${pn} pays off…`, out === "boon" ? "good" : "bad");
+  const dm = 1 + 0.3 * (s.tier - 1);       // rarer signals grant longer-lasting effects
+  grantFx(key, { dur: Math.min(20, Math.max(1, Math.round(fxDuration(FX[key]) * dm))) });
+}
+function investigateSignal(id) {
+  if (typeof combatLocked === "function" && combatLocked()) return;
+  const s = (S.signals || []).find(x => x.id === id); if (!s) return toast("That signal is gone.", "bad");
+  if (s.planet !== S.location) return toast(`You must be at ${sigPlanetName(s.planet)} to investigate.`, "bad");
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  const fuel = SIGNAL_FUEL[s.tier] || 6;
+  if (S.res.fuel < fuel) return toast(`Investigating needs ${fuel} ⛽.`, "bad");
+  S.res.fuel -= fuel; useAction();
+  S.signals = S.signals.filter(x => x !== s);   // consumed whatever the result
+  resolveSignal(s);
+  afterAction();
+}
 const EVENTS = [
   { msg: "Solar flare scrambles markets sector-wide.", type: "event",
     fn: () => COM_IDS.forEach(c => PLANETS.forEach(p => { S.prices[p.id][c] = Math.round(S.prices[p.id][c] * (0.7 + Math.random() * 0.7)); })) },
@@ -4819,8 +4908,8 @@ function endTurn(fromTravel = false) {
   if (!fromTravel && combatLocked()) return;
   S.turn++; S.actionsUsed = 0;
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  processFx();
-  processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune();
+  processFx(); processSignals();
+  processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
   if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (typeof decayBands === "function") decayBands();
   if (typeof processBandSupport === "function") processBandSupport();
@@ -4921,7 +5010,22 @@ function renderShip() {
      <div class="ship-stat" style="margin-top:8px"><span class="k">Hold</span></div>
      <div style="font-size:12px;line-height:1.7">${held}</div>
      ${mods ? `<div class="ship-stat" style="margin-top:8px"><span class="k">Mods</span></div><div style="font-size:13px">${mods}</div>` : ""}
-     ${renderFortunes()}`;
+     ${renderFortunes()}${renderSignals()}`;
+}
+function renderSignals() {
+  const sig = Array.isArray(S.signals) ? S.signals : [];
+  if (!sig.length) return "";
+  const rows = sig.map(s => {
+    const k = SIGNAL_KINDS[s.kind], here = s.planet === S.location;
+    const dist = here ? 0 : ((currentPlanet().distances || {})[s.planet] || "?");
+    const fuel = SIGNAL_FUEL[s.tier] || 6, tl = ["", "faint", "strong", "rare"][s.tier];
+    const can = here && actionsLeft() > 0 && S.res.fuel >= fuel && !(typeof combatLocked === "function" && combatLocked());
+    const ctl = here
+      ? `<button class="btn btn-sm ${can ? "btn-good" : ""}" ${can ? "" : "disabled"} title="${k.blurb} — spend 1 action + ${fuel}⛽" onclick="investigateSignal('${s.id}')">🔍 Investigate (${fuel}⛽)</button>`
+      : `<span class="hint">travel to ${sigPlanetName(s.planet)} (${dist} ly)</span>`;
+    return `<div class="ship-stat" style="margin-top:4px"><span class="k" title="${k.blurb}">${k.ico} ${tl} ${k.name}</span><span class="v">${s.ttl}c · ${ctl}</span></div>`;
+  }).join("");
+  return `<div class="ship-stat" style="margin-top:8px"><span class="k">📡 Signals</span></div>${rows}`;
 }
 function renderFortunes() {
   const act = fxActive();
@@ -7313,7 +7417,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.21.0";
+const APP_VERSION = "2.22.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7385,7 +7489,7 @@ function helpHTML() {
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Spend 🔫 weapons, 🛸 combat drones and 🧠 AI cores in <b>Outfit convoy</b> to add attack &amp; defense to any ship (harden the freighters!) — assets are consumed for the run. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
       <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Appears once you've crossed a pirate band.</li>
-      <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules. Your active <b>✨ Fortunes</b> show here too — temporary boons &amp; banes (extra actions, weapon surges, trade winds, research sparks… or reactor leaks &amp; customs crackdowns) picked up by exploring new worlds, research breakthroughs and plain luck. Stronger ones are briefer; banes always wear off and many can be 🧹 cleared at a price. Keep exploring — there's always a chance of a windfall.</li>
+      <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules. Your active <b>✨ Fortunes</b> show here too — temporary boons &amp; banes (extra actions, weapon surges, trade winds, research sparks… or reactor leaks &amp; customs crackdowns) picked up by exploring new worlds, research breakthroughs and plain luck. Stronger ones are briefer; banes always wear off and many can be 🧹 cleared at a price. <b>📡 Signals</b> appear here too — faint leads (anomalies, drifting caches, derelicts, chatter, distress calls) near worlds you know. Fly to one and <b>🔍 Investigate</b> it (an action + fuel) for a roll: a Fortune, salvage (credits/tech/cargo), or a dead end. Rarer signals pay better but fade faster — so keep exploring, and chase the ones worth the burn.</li>
     </ul>
 
     <h4>Header buttons</h4>
@@ -7670,6 +7774,7 @@ function init() {
     else { b.trade.exp = b.trade.exp || {}; b.trade.imp = b.trade.imp || {}; b.trade.cols = b.trade.cols || {}; }
   });
   if (!Array.isArray(S.fx)) S.fx = [];   // backfill Fortunes (temporary boons/banes)
+  if (!Array.isArray(S.signals)) S.signals = [];   // backfill discoverable signals
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
   if (!S.discovered) S.discovered = {};
@@ -7757,7 +7862,7 @@ Object.assign(window, {
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSummonOnCall, repairShip,
-  clearFx,
+  clearFx, investigateSignal,
   setBandTag, callBandSupport, bandFollow, bandStandDown, escortRallyOnCall,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, escortOutfitAdd, escortOutfitRemove, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,

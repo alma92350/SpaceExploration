@@ -1,5 +1,5 @@
 {
-  "version": "2.21.0",
+  "version": "2.22.0",
   "saveVersion": "v2",
-  "notes": "Fortunes (slice 1): temporary boons & banes you pick up by exploring new worlds, research breakthroughs, and plain luck. Boons like +1 action, +20% weapon damage, trade winds (cheaper buys/dearer sales), research sparks, political capital, clean burn (−fuel) and a feared name (+raid take); banes like reactor leaks, customs crackdowns, ion storms and saboteurs. Stronger effects are briefer (1–20 cycles); banes always wear off and many can be cleared at a port for credits. Active Fortunes show under your Ship stats. The pool shifts by game phase. Next slice: hunt faint signals you Investigate for a roll."
+  "notes": "Fortunes (slice 2) — the hunt. Faint 📡 Signals now appear near worlds you know: anomalous readings, drifting caches, derelict hulks, encrypted chatter, distress beacons. Fly to one and 🔍 Investigate it (an action + fuel) for a rarity-weighted roll — a Fortune (boon or bane), salvage (credits/tech/cargo), or a dead end. Signals come in faint/strong/rare tiers: rarer ones pay better and grant longer-lasting effects but fade faster and cost more fuel. They turn up from exploring new worlds, sweeping the lanes, and plain luck — and decay if you ignore them, so chase the ones worth the burn. Active signals show under your Ship stats."
 }

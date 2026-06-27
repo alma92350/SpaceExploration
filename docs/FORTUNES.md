@@ -57,9 +57,28 @@ Banes: 🧯 Reactor Leak (−1 action, clear 600) · 🚨 Customs Crackdown
 eviction, every system hook, tick/expiry, clear (and non-clearable), phase
 gating, HUD render.
 
+## Signals — the hunt (slice 2)
+Faint leads you chase and **Investigate** for a rarity-weighted roll — the core
+"pleasure to search" loop.
+- `SIGNAL_KINDS`: ⟁ anomalous readings · 📦 drifting cache · 🛸 derelict hulk ·
+  📡 encrypted chatter · 🆘 distress beacon. `S.signals = [{ id, kind, tier,
+  planet, ttl }]` (freshState + init migrate).
+- **Tiers 1–3** (`signalTier`, late game tilts higher): higher tier = better
+  payoff but shorter `ttl` (`SIGNAL_TTL`) and more fuel to investigate
+  (`SIGNAL_FUEL`).
+- **Spawn**: ambient cycle end (`maybeSignal` 20%, under `SIGNAL_MAX`=3), first
+  visit to a new world (35%), and lane sweeps (`prowl` 16%, local). Located at a
+  known world (`planetsForSignal`: current + nearest few); `processSignals` ticks
+  ttl and expires.
+- **Investigate** (`investigateSignal`): must be at the signal's world; costs an
+  action + tier fuel; consumes the signal. `signalOutcome` weights **boon / bane /
+  loot / dud** by tier, biased by kind (anomaly/intel→boon, cache/derelict→loot,
+  distress→more bane). Boon/bane → `grantFx` (rarer signals grant longer
+  durations); loot → `signalLoot` (credits / tech / cargo, tier-scaled).
+- **UI**: `renderSignals()` under Ship stats — each lead shows kind, ttl, and a
+  🔍 Investigate button when you're there (else "travel to X (N ly)").
+  `investigateSignal` exported. Tests: `signals.js`.
+
 ## Roadmap
-- **Slice 2 — the hunt**: faint *signals* ("anomalous readings near X" / drifting
-  caches) you spend an action+fuel to **Investigate** → weighted roll with rarity
-  tiers; signals decay if ignored. The core "pleasure to search" loop.
 - **Slice 3**: full catalog across all domains, deeper phase-gating, richer bane
-  mitigation, and a `fortunebal.js` tuning sim.
+  mitigation, signals surfaced on the Galaxy map, and a `fortunebal.js` tuning sim.
