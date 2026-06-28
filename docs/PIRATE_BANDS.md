@@ -63,7 +63,9 @@ and **📜 Mandates**.
   effects; `cancelMandate` recalls early (keep accrued, forfeit fee).
 - Tasks: **🎯 cull** (lawful — suppresses local `pirateLevel`, cut of bounties),
   **🛡️ protect** (lawful — steady suppression + fees), **🏴 raid** (piracy — fattest
-  cut but +Wanted/cycle and faction rep loss, no suppression). `mandateAct` caps
+  cut but +Wanted/cycle and faction rep loss, no suppression). The raid Wanted is
+  **waived when you hold a letter of marque against the target system's faction**
+  (`commissionCovers`) — sanctioned, though they still resent it. `mandateAct` caps
   yield scaling (`MANDATE_ACT_CAP`) so one mandate can't milk an infested system.
 - A commissioned band is `bandOnMandate` + `busyUntil`, so it can't be called,
   hired, or double-booked until the run ends.

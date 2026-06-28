@@ -1,5 +1,5 @@
 {
-  "version": "2.27.0",
+  "version": "2.27.1",
   "saveVersion": "v2",
-  "notes": "Contacts tab reorganized into three sub-views — 🤝 All contacts, 📍 Around here (crews based in this system plus its pirate-activity meter), and 📜 Mandates. Mandates are a new system: commission a band to work a chosen world for 3/6/9 cycles. 🎯 Cull pirates or 🛡️ Guard the lanes are lawful — they thin out pirate activity there; 🏴 Prey on shipping pays the fattest cut but is piracy in your name (your Wanted climbs and the locals turn on you). You pay a fee up front and bank a cut of the take when the run ends; recall early to keep what's earned. Balanced via simulation: lawful work is a modest earner plus security, raiding pays best but brings the law down on you."
+  "notes": "Piracy mandates honor your letter of marque. A 🏴 Prey on shipping mandate no longer raises your Wanted if you hold a letter of marque against the target system's faction — it's sanctioned privateering (the faction still resents the losses). Raiding a faction you have no marque against (or with a marque against a different faction) still piles on Wanted as before. The commission form spells out which case applies."
 }

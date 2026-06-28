@@ -6168,7 +6168,13 @@ function processMandates() {
     if (!b || !t) { S.mandates.splice(i, 1); continue; }
     md.accrued += Math.round(mandateCycleYield(b, md.planet, md.task) * md.cut);
     if (t.suppress && Math.random() < t.suppress + 0.06 * (b.level || 1)) S.pirates[md.planet] = Math.max(0, pirateLevel(md.planet) - 1);
-    if (md.task === "raid") { S.pirate.wanted = Math.min(100, (S.pirate.wanted || 0) + t.heat); const fac = (PLANETS.find(p => p.id === md.planet) || {}).faction; if (fac) addRep(fac, -1); clampPirate(); }
+    if (md.task === "raid") {
+      const fac = (PLANETS.find(p => p.id === md.planet) || {}).faction;
+      const sanctioned = fac && commissionCovers(fac);                 // a letter of marque vs this faction makes it legal
+      if (!sanctioned) S.pirate.wanted = Math.min(100, (S.pirate.wanted || 0) + t.heat);
+      if (fac) addRep(fac, -1);                                        // you're still hurting them either way
+      clampPirate();
+    }
     md.cyclesLeft--;
     if (md.cyclesLeft <= 0) {
       S.res.credits += md.accrued; bandRepAdd(b, 6); b.mandate = null; b.loc = md.planet;
@@ -6293,7 +6299,13 @@ function renderContactsMandates() {
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Duration</span> ${durBtns}</div>
       <div class="ship-stat" style="margin-top:8px"><span class="k">Fee (upfront)</span><span class="v" style="color:${afford ? "inherit" : "var(--bad)"}">${fmt(fee)} cr</span></div>
       <div class="ship-stat"><span class="k">Your cut</span><span class="v">${Math.round(t.cut * 100)}% of the take · <span class="hint">est. ~${fmt(est)} cr over ${f.dur} cyc</span></span></div>
-      ${t.heat ? `<div class="hint" style="color:var(--bad)">⚠️ Piracy in your name — raises your Wanted and angers ${(PLANETS.find(p => p.id === f.planet) || {}).faction ? FACTIONS[(PLANETS.find(p => p.id === f.planet)).faction].name : "the locals"}.</div>` : `<div class="hint" style="color:var(--good)">Lawful work — suppresses pirate activity at the target.</div>`}
+      ${t.heat
+        ? (() => { const fac = (PLANETS.find(p => p.id === f.planet) || {}).faction, sanc = fac && commissionCovers(fac), fn = fac ? FACTIONS[fac].name : "the locals";
+            return sanc
+              ? `<div class="hint" style="color:var(--good)">⚖️ Sanctioned — your letter of marque against ${fn} makes this legal: <b>no Wanted</b>, though they'll resent it all the same.</div>`
+              : `<div class="hint" style="color:var(--bad)">⚠️ Piracy in your name — raises your Wanted and angers ${fn}.${(S.commission ? ` (Your letter of marque is against ${FACTIONS[S.commission.target].name}, not them.)` : " A letter of marque against them would make it legal.")}</div>`;
+          })()
+        : `<div class="hint" style="color:var(--good)">Lawful work — suppresses pirate activity at the target.</div>`}
       <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${afford ? "" : "disabled"} onclick="commissionMandate('${f.band}','${f.planet}','${f.task}',${f.dur})">📜 Commission (${fmt(fee)} cr)</button></div>
     </div>`;
   }
@@ -7726,7 +7738,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.27.0";
+const APP_VERSION = "2.27.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7798,7 +7810,7 @@ function helpHTML() {
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Set each vessel's <b>combat stance</b> — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to <b>3 levels of fit</b> for it, paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
-      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe). You pay a fee up front and bank a cut of the take when the run ends. Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
+      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules. A compact readout of your active <b>✨ Fortunes</b> and <b>📡 signals</b> also shows in the sidebar; manage them in full on the ✨ Fortunes tab.</li>
     </ul>
 
