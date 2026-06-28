@@ -1,5 +1,5 @@
 {
-  "version": "2.30.1",
+  "version": "2.31.0",
   "saveVersion": "v2",
-  "notes": "Crews on a mandate are properly 'busy': they no longer show up to hire or rally for a convoy escort while under contract. But they're stationed at their contract world — so if you go raiding in that same system, they're in the area and can be summoned as a raid ally, pitching in without abandoning their mandate."
+  "notes": "No more mystery credit changes. Several recurring flows used to move your balance each cycle while only logging occasionally (or not at all) — colony tax, colony export revenue, organization upkeep, haven tribute, and the UBI / monopoly-grant policies. They now all report into a single '💰 Cycle accounts' line at the end of every cycle that itemizes each source and the net, so every credit move is explained. (Trade-network, decree, logistics, mandate and commission income already logged their own lines.)"
 }

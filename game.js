@@ -2856,10 +2856,7 @@ function havenTakeAll() {
 function processHaven() {
   if (!S.haven || !S.pirate) return;
   const tribute = havenTributeRate();
-  if (tribute > 0) {
-    S.res.credits += tribute;
-    if (S.turn % 4 === 0) log(`👑 Your haven drew ${fmt(tribute)} cr in tribute from rim crews who fear your name.`, "good");
-  }
+  if (tribute > 0) { S.res.credits += tribute; cycleLedger("haven tribute", tribute); }
 }
 
 /* ------------------------------------------------------------
@@ -3207,7 +3204,7 @@ function processOrgs() {
   // upkeep — if you can't make payroll, the priciest org downsizes (a scandal)
   const due = orgUpkeepTotal();
   if (due > 0) {
-    if (S.res.credits >= due) S.res.credits -= due;
+    if (S.res.credits >= due) { S.res.credits -= due; cycleLedger("org upkeep", -due); }
     else {
       const ids = Object.keys(S.orgs).sort((a, b) =>
         orgDef(b).upkeep * S.orgs[b].tier - orgDef(a).upkeep * S.orgs[a].tier);
@@ -3337,14 +3334,14 @@ function applyPolicyEffects() {
   if (policyActive("ubi")) {
     const cost = 2000;
     if (S.res.credits >= cost) {
-      S.res.credits -= cost; applyPolDelta({ popularity: 2 });
+      S.res.credits -= cost; cycleLedger("UBI policy", -cost); applyPolDelta({ popularity: 2 });
       Object.values(S.colonies || {}).forEach(c => c.unrest = Math.max(0, (c.unrest || 0) - 1));
     } else {
       delete S.policies.ubi; applyPolDelta({ popularity: -6 });
       log("⚠️ The treasury couldn't fund Universal Basic Income — it lapsed amid protests.", "bad");
     }
   }
-  if (policyActive("monopoly_grant")) { S.res.credits += 1200; applyPolDelta({ heat: 4 }); }
+  if (policyActive("monopoly_grant")) { S.res.credits += 1200; cycleLedger("monopoly grant", 1200); applyPolDelta({ heat: 4 }); }
   if (policyActive("martial")) {
     Object.values(S.colonies || {}).forEach(c => c.unrest = Math.max(0, (c.unrest || 0) - 2));
     applyPolDelta({ popularity: -1 });
@@ -4572,7 +4569,7 @@ function processColonies() {
 
     // 5) tax income
     const income = colonyTaxIncome(col);
-    if (income > 0) S.res.credits += income;
+    if (income > 0) { S.res.credits += income; cycleLedger("colony tax", income); }
     if (col.faction && S.turn % 5 === 0) addRep(col.faction, 1);   // loyal colonies endear you to their bloc
 
     // 5a-bis) your bases get first claim on finished goods before the colony sells the rest
@@ -4593,8 +4590,7 @@ function processColonies() {
       }
       if (revenue > 0) {
         if (col.faction) revenue = Math.round(revenue * 1.15);     // bloc merchants pay a premium
-        S.res.credits += revenue; col._exp = (col._exp || 0) + revenue;
-        if (S.turn % 4 === 0) { log(`🛰️ <span class="c">${planet.name}</span>'s spaceport exported manufactured goods (+${fmt(col._exp)} cr).`, "good"); col._exp = 0; }
+        S.res.credits += revenue; cycleLedger("colony exports", revenue);
       }
     }
 
@@ -5128,9 +5124,21 @@ function applyDecreeIncome() {
     log(`Monopoly on ${COM[c].ico} ${COM[c].name} paid <span class="c">${fmt(income)}</span> credits this cycle.`, "good");
   }
 }
+// ---- per-cycle treasury ledger: the recurring automatic flows (tax, upkeep,
+// tribute, policy income/cost…) each report here so the cycle's credit moves are
+// summarised in one line — no more "credits changed for unknown reasons".
+let _cledger = null;
+function cycleLedger(cat, amt) { amt = Math.round(amt || 0); if (_cledger && amt) _cledger[cat] = (_cledger[cat] || 0) + amt; }
+function reportCycleLedger() {
+  const L = _cledger; _cledger = null; if (!L) return;
+  const ent = Object.entries(L).filter(([, v]) => v !== 0); if (!ent.length) return;
+  const net = ent.reduce((s, [, v]) => s + v, 0);
+  const parts = ent.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(([k, v]) => `${v > 0 ? "+" : "−"}${fmt(Math.abs(v))} ${k}`);
+  log(`💰 Cycle accounts: ${parts.join(" · ")} → net ${net >= 0 ? "+" : "−"}${fmt(Math.abs(net))} cr.`, net >= 0 ? "good" : "bad");
+}
 function endTurn(fromTravel = false) {
   if (!fromTravel && combatLocked()) return;
-  S.turn++; S.actionsUsed = 0;
+  S.turn++; S.actionsUsed = 0; _cledger = {};
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
   processFx(); processSignals();
   processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
@@ -5139,6 +5147,7 @@ function endTurn(fromTravel = false) {
   if (typeof processBandSupport === "function") processBandSupport();
   if (typeof processMandates === "function") processMandates();
   if (typeof processTruces === "function") processTruces();
+  reportCycleLedger();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -7817,7 +7826,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.30.1";
+const APP_VERSION = "2.31.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
