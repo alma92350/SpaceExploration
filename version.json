@@ -1,5 +1,5 @@
 {
-  "version": "2.29.0",
+  "version": "2.30.0",
   "saveVersion": "v2",
-  "notes": "Feuds: temporary truces. A full 🤝 Broker peace can get pricey, so you can now buy a cheaper 🕊️ Truce instead — about a third of the cost — that sets two rival crews' feud aside for 6 cycles so they'll serve together meanwhile. The feud isn't gone: when the truce lapses it smoulders back (re-buy to extend), whereas full peace ends it for good. Both options appear on the Contacts card with live prices."
+  "notes": "Fuel is now a full part of the economy. New ⛽ Fuel Refinery — a base module (buildable anywhere, 5 tiers) that cracks stored 🧊 ice into fuel each cycle, and a colony building (6 tiers) that refines ice + energy into fuel. Fuel can be stockpiled in bases and colonies, ordered by colonies, and imported/exported across the base↔colony trade network like any other good (bases collect colony fuel surplus; a refinery world can supply others). Withdraw fuel straight into your tank (capped to tank size) or deposit it from your tank into storage. Buying and selling fuel at ports works as before. Build an ice-world refinery and run fuel to where it's needed."
 }

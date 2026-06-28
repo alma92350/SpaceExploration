@@ -74,7 +74,8 @@ const COM = {
                  illegalAt: ["terra", "verdani", "kybernet", "forge", "glacius"], hazard: true },
 };
 const COM_IDS = Object.keys(COM);
-const CARGO_IDS = COM_IDS.filter(id => !COM[id].isFuel); // everything except fuel uses cargo
+const CARGO_IDS = COM_IDS.filter(id => !COM[id].isFuel); // everything except fuel uses the ship's cargo hold
+const STORE_IDS = CARGO_IDS.concat(["fuel"]);            // base/colony storage & the trade network also hold/move fuel
 const TIERS = ["Raw", "Refined", "Component", "Finished", "Luxury", "Strategic"];
 
 function isIllegalAt(comId, planetId) {
@@ -711,6 +712,8 @@ function baseModuleList(planet) {
       desc: "Expands how much this base can stockpile." },
     { id: "solar", name: "Solar Array", ico: "🔆", tiers: 5, baseCost: 2000, costMul: 1.7, produces: "energy",
       desc: "Generates Energy Cells every cycle — buildable anywhere." },
+    { id: "fuelrefinery", name: "Fuel Refinery", ico: "⛽", tiers: 5, baseCost: 2800, costMul: 1.8, produces: "fuel", consumes: "ice", refiner: true,
+      desc: "Cracks stored 🧊 Ice into ⛽ Fuel every cycle — buildable anywhere (keep ice in the depot)." },
   ];
   Object.keys(planet.deposits || {}).forEach(c => {
     const meta = BASE_EXTRACTORS[c] || { name: "Extractor: " + COM[c].name, ico: COM[c].ico };
@@ -720,8 +723,11 @@ function baseModuleList(planet) {
   });
   return list;
 }
+const REFINERY_RATE = 5;          // fuel/cycle per tier (capped by stored ice)
+const REFINERY_ICE_PER_FUEL = 1.5; // ice cracked per unit of fuel (mirrors the crackice recipe, 3:2)
 function moduleOutput(planet, mod, tier) {
   if (tier <= 0 || !mod.produces) return 0;
+  if (mod.refiner) return tier * REFINERY_RATE;   // nominal cap (actual run limited by ice on hand)
   if (mod.id === "solar") return tier * 6;
   return Math.round(tier * 5 * (planet.deposits[mod.produces] || 0));
 }
@@ -774,6 +780,9 @@ function colonyBuildingList(planet) {
     { id: "chem_plant", name: "Chemical Plant", ico: "⚗️", tiers: 6, baseCost: 2600, costMul: 1.6, pollute: 0.2,
       recipe: { in: { biomass: 2, energy: 1 }, out: "chemicals", outQty: 2, rate: 3, stage: 2 },
       desc: "Processes biomass into Chemicals (consumes Energy)." },
+    { id: "fuelrefinery", name: "Fuel Refinery", ico: "⛽", tiers: 6, baseCost: 2600, costMul: 1.6, pollute: 0.1,
+      recipe: { in: { ice: 2, energy: 1 }, out: "fuel", outQty: 2, rate: 3, stage: 2 },
+      desc: "Cracks Ice into Fuel (consumes Energy) — order in Ice and export the Fuel." },
     { id: "foundry", name: "Foundry",         ico: "🛠️", tiers: 6, baseCost: 3200, costMul: 1.7, req: "metallurgy", pollute: 0.25,
       recipe: { in: { metals: 2, energy: 2 }, out: "alloys", outQty: 1, rate: 2, stage: 3 },
       desc: "Forges Metals into Alloys (consumes Energy)." },
@@ -3986,8 +3995,9 @@ function transferFromBase(c, qty) {
   if (!b) return;
   qty = Math.min(Math.max(0, Math.floor(qty)), b.storage[c] || 0);
   if (qty <= 0) return;
-  qty = Math.min(qty, cargoFree());
-  if (qty <= 0) return toast("Cargo hold is full.", "bad");
+  const space = COM[c].isFuel ? (fuelCap() - S.res.fuel) : cargoFree();   // fuel goes to the tank, everything else to the hold
+  qty = Math.min(qty, space);
+  if (qty <= 0) return toast(COM[c].isFuel ? "Fuel tank is full." : "Cargo hold is full.", "bad");
   b.storage[c] -= qty; S.res[c] += qty;
   log(`Withdrew ${qty} ${COM[c].ico} ${COM[c].name} from ${currentPlanet().name} base.`);
   afterAction();
@@ -4057,6 +4067,7 @@ function processBases() {
     const planet = PLANETS.find(p => p.id === pid);
     const cap = baseStorageCap(pid);
     baseModuleList(planet).forEach(mod => {
+      if (mod.refiner) return;                       // refineries consume inputs — handled below
       const out = moduleOutput(planet, mod, b.modules[mod.id] || 0);
       if (out <= 0) return;
       const add = Math.min(out, cap - baseStorageUsed(b));
@@ -4065,6 +4076,17 @@ function processBases() {
         summary[mod.produces] = (summary[mod.produces] || 0) + add;
       }
     });
+    // Fuel Refinery: crack stored ice into fuel, limited by ice on hand and free space
+    const reflvl = b.modules.fuelrefinery || 0;
+    if (reflvl > 0) {
+      const ice = b.storage.ice || 0, room = cap - baseStorageUsed(b);
+      let made = Math.min(reflvl * REFINERY_RATE, Math.floor(ice / REFINERY_ICE_PER_FUEL), room);
+      if (made > 0) {
+        b.storage.ice -= Math.ceil(made * REFINERY_ICE_PER_FUEL);
+        b.storage.fuel = (b.storage.fuel || 0) + made;
+        summary.fuel = (summary.fuel || 0) + made;
+      }
+    }
   });
   const keys = Object.keys(summary);
   if (keys.length) log(`🏗️ Your bases produced ${keys.map(c => summary[c] + COM[c].ico).join(" ")}.`, "good");
@@ -4084,7 +4106,7 @@ const TRADE_SEIZE_CHANCE = 0.18;     // per-cycle customs risk for routing contr
 function worldDist(a, b) { const pa = PLANETS.find(p => p.id === a); return (pa && pa.distances[b]) || 1; }
 function isFinishedGood(c) { return ["Finished", "Luxury", "Strategic"].includes(COM[c].tier) || c === "medicine"; }
 // what a base will import from colonies: finished goods + combat drones (a Component colonies manufacture)
-function baseImportable(c) { return isFinishedGood(c) || c === "drones"; }
+function baseImportable(c) { return isFinishedGood(c) || c === "drones" || c === "fuel"; }   // bases also collect colony fuel
 function colonyFinishedReserve(col, c) {
   if (c === "goods") return col.pop;                       // mirror the colony's own happiness reserve
   if (c === "luxury" || c === "medicine") return Math.ceil(col.pop / 3);
@@ -4120,7 +4142,7 @@ function processBaseTrade() {
       const dist = worldDist(bid, cid);
       if (!tradeColOk(b, cid)) return;
       const tariff = col.faction ? 1.25 : 1;
-      CARGO_IDS.forEach(c => {                       // export ANY product the base stocks to fill colony orders
+      STORE_IDS.forEach(c => {                        // export ANY product the base stocks (incl. fuel) to fill colony orders
         if (!baseExporting(b, c)) return;            // ...unless it's set to import (avoid loops)
         const need = (col.orders[c] || 0) - (col.storage[c] || 0);
         if (need <= 0) return;
@@ -4147,7 +4169,7 @@ function runBaseImport(col, cid, cp) {
     const dist = worldDist(bid, cid);
     if (!tradeColOk(b, cid)) return;
     const tariff = col.faction ? 1.25 : 1;
-    CARGO_IDS.filter(baseImportable).forEach(c => {
+    STORE_IDS.filter(baseImportable).forEach(c => {
       if (!tradeImpOk(b, c)) return;
       const reserve = colonyFinishedReserve(col, c) + (col.orders[c] || 0);
       const surplus = (col.storage[c] || 0) - reserve;
@@ -4449,8 +4471,9 @@ function colonyWithdraw(c) {
   const col = S.colonies[S.location];
   if (!col) return;
   let qty = Math.min(+document.getElementById("col-" + c).value || 0, col.storage[c] || 0);
-  qty = Math.floor(Math.max(0, Math.min(qty, cargoFree())));
-  if (qty <= 0) return toast("Nothing to withdraw (or hold full).", "bad");
+  const space = COM[c].isFuel ? (fuelCap() - S.res.fuel) : cargoFree();   // fuel to the tank, else the hold
+  qty = Math.floor(Math.max(0, Math.min(qty, space)));
+  if (qty <= 0) return toast(COM[c].isFuel ? "Nothing to withdraw (or tank full)." : "Nothing to withdraw (or hold full).", "bad");
   col.storage[c] -= qty; S.res[c] += qty;
   log(`Withdrew ${qty} ${COM[c].ico} ${COM[c].name} from ${currentPlanet().name} colony.`);
   afterAction();
@@ -4611,7 +4634,7 @@ function processColonies() {
 /* ============================================================
    LOGISTICS NETWORK  (automated colony supply via Spaceports)
    ============================================================ */
-const COLONY_SUPPLY = ["biomass", "energy", "alloys", "medicine", "goods", "luxury"];  // staples every colony can order by default
+const COLONY_SUPPLY = ["biomass", "energy", "alloys", "medicine", "goods", "luxury", "fuel"];  // staples every colony can order by default
 // everything the network will carry for a given cycle: staples, plus anything
 // any networked colony stores or has ordered — so mines feed factories too
 function networkGoods(nets) {
@@ -4620,7 +4643,7 @@ function networkGoods(nets) {
     Object.entries(c.orders || {}).forEach(([k, v]) => { if (v > 0) set.add(k); });
     Object.entries(c.storage || {}).forEach(([k, v]) => { if (v > 0) set.add(k); });
   });
-  return CARGO_IDS.filter(c => set.has(c));
+  return STORE_IDS.filter(c => set.has(c));
 }
 function spaceportTier(col) { return col.buildings.spaceport || 0; }
 function colonyNetworked(col) { return spaceportTier(col) > 0; }
@@ -6559,7 +6582,7 @@ function renderBases() {
     if (view === "modules") {
       body = `<div class="cards">${modCards}</div>`;
     } else if (view === "inventory") {
-      const ids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 || (b.storage[c] || 0) > 0);
+      const ids = STORE_IDS.filter(c => (S.res[c] || 0) > 0 || (b.storage[c] || 0) > 0);
       const rows = ids.length ? ids.map(c => `<tr>
         <td>${COM[c].ico} ${COM[c].name} <span class="hint">@ ${fmt(sellPrice(pid, c))}</span></td>
         <td class="num">${fmt(S.res[c] || 0)}</td>
@@ -6589,8 +6612,8 @@ function renderBases() {
         body = `<div class="card"><div class="hint">Found a colony to trade with — your base will ship it raw materials and import its manufactured goods.</div></div>`;
       } else {
         // eligible commodities to offer as toggles
-        const expGoods = CARGO_IDS.filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.orders[c] || 0) > 0));
-        const impGoods = CARGO_IDS.filter(baseImportable).filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.storage[c] || 0) > 0));
+        const expGoods = STORE_IDS.filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.orders[c] || 0) > 0));
+        const impGoods = STORE_IDS.filter(baseImportable).filter(c => (b.storage[c] || 0) > 0 || cols.some(([, col]) => (col.storage[c] || 0) > 0));
         const chip = (dir, c) => {
           const on = dir === "imp" ? baseImporting(b, c) : baseExporting(b, c);
           const otherActive = !on && (dir === "imp" ? baseExporting(b, c) : baseImporting(b, c));   // locked by the opposite direction
@@ -6601,8 +6624,8 @@ function renderBases() {
         };
         const colRows = cols.map(([cid, col]) => {
           const cpl = PLANETS.find(p => p.id === cid), on = tradeColOk(b, cid), dist = worldDist(pid, cid);
-          const needs = CARGO_IDS.filter(c => (col.orders[c] || 0) > (col.storage[c] || 0)).map(c => COM[c].ico).join("") || "—";
-          const offers = CARGO_IDS.filter(c => baseImportable(c) && (col.storage[c] || 0) > colonyFinishedReserve(col, c) + (col.orders[c] || 0)).map(c => COM[c].ico).join("") || "—";
+          const needs = STORE_IDS.filter(c => (col.orders[c] || 0) > (col.storage[c] || 0)).map(c => COM[c].ico).join("") || "—";
+          const offers = STORE_IDS.filter(c => baseImportable(c) && (col.storage[c] || 0) > colonyFinishedReserve(col, c) + (col.orders[c] || 0)).map(c => COM[c].ico).join("") || "—";
           return `<div class="ship-stat" style="align-items:center"><span class="k"><button class="btn btn-sm ${t.on && on ? "btn-good" : ""}" ${t.on ? "" : "disabled"} onclick="setBaseTradeColony('${pid}','${cid}')">${on ? "✓" : "✗"} ${cpl.name}</button> <span class="hint">${dist} ly${col.faction ? " · " + FACTIONS[col.faction].ico + " tariff" : ""}</span></span>
             <span class="v hint">needs ${needs} · offers ${offers}</span></div>`;
         }).join("");
@@ -6780,7 +6803,7 @@ function renderColonies() {
       if (!shown.length) return `<div class="hint" style="grid-column:1/-1">🔒 <b>${label}</b> — ${colonyCatHint(cat)}.</div>`;
       return `<div class="section-title" style="grid-column:1/-1">${label}${!revealed ? ' <span class="hint">(more unlocks later)</span>' : ""}</div>` + shown.map(buildCard).join("");
     }).join("");
-    const sids = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 || (col.storage[c] || 0) > 0);
+    const sids = STORE_IDS.filter(c => (S.res[c] || 0) > 0 || (col.storage[c] || 0) > 0);
     const rows = sids.length ? sids.map(c => `<tr>
       <td>${COM[c].ico} ${COM[c].name}</td>
       <td class="num">${fmt(S.res[c] || 0)}</td><td class="num">${fmt(col.storage[c] || 0)}</td>
@@ -6807,7 +6830,7 @@ function renderColonies() {
         colonyBuildingList(planet).forEach(b => {
           if ((col.buildings[b.id] || 0) > 0 && b.recipe) Object.keys(b.recipe.in).forEach(i => set.add(i));
         });
-        return CARGO_IDS.filter(c2 => set.has(c2));
+        return STORE_IDS.filter(c2 => set.has(c2));
       })();
       const orderRows = orderable.map(c => {
         const tgt = (col.orders && col.orders[c]) || 0;
@@ -7792,7 +7815,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.29.0";
+const APP_VERSION = "2.30.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7860,8 +7883,8 @@ function helpHTML() {
       <li>✨ <b>Fortunes</b> — temporary <b>boons &amp; banes</b> you pick up by exploring new worlds, sweeping the lanes and plain luck — extra actions, weapon surges, trade winds, research sparks, and rarer grand effects… balanced by reactor leaks, customs crackdowns and the like. This tab tracks your active effects (with time left and 🧹 clear buttons for banes), the <b>📡 signals</b> on your scope, and an <b>almanac</b> of every effect you've discovered. Chase a signal and <b>🔍 Investigate</b> it for a roll — stronger effects are briefer, and the rare, powerful ones are the prize of a hunted signal. Short on leads? The <b>🛰️ Sensor Office</b> sells scans that flush fresh signals onto your scope. Catalogue <b>every</b> effect in a domain to earn a 🏅 <b>Mastery</b> — a permanent passive edge. Unlocks once a Fortune or signal turns up.</li>
       <li>🎯 <b>Missions</b> — time-bound contracts, long-term career missions, and your legacy goals.</li>
       <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law.</li>
-      <li>🏗️ <b>Bases</b> — automated off-world production.</li>
-      <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
+      <li>🏗️ <b>Bases</b> — automated off-world production. Build a <b>⛽ Fuel Refinery</b> (any base, 5 tiers) to crack stored 🧊 ice into fuel each cycle, and route fuel through the base↔colony trade network (import/export it like any good).</li>
+      <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains, including a <b>⛽ Fuel Refinery</b> (ice + energy → fuel). Order in ice, export the fuel — fuel is now a tradeable part of the economy: buy/sell it at ports, stock it in bases &amp; colonies, and ship it across your network.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Set each vessel's <b>combat stance</b> — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to <b>3 levels of fit</b> for it, paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
       <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Some crews hold <b>blood feuds</b> and won't serve alongside their rival — you can settle it: a cheap <b>🕊️ Truce</b> sets the feud aside for a few cycles so they'll serve together for now, or a full <b>🤝 Broker peace</b> ends it for good (the fee scales with the feud's depth and eases with your standing &amp; Dread). Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
