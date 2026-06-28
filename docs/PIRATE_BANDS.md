@@ -133,11 +133,18 @@ with a **depth 1–3** in `feudDepth`). A band won't ally or hire on while its r
 already serves you (`bandRivalServing` → `bandWillAlly` / recruit refusal), and
 **siding with one band angers its rival** (−8 rep on ally or hire, `bandFoe`).
 
-**Brokering peace** (`reconcileBands`, Contacts card 🕊️ button): pay
+**Brokering peace** (`reconcileBands`, Contacts card 🤝 button): pay
 `bandReconcileCost` — `1500 × depth`, discounted by the two crews' average standing
 and your Dread (cheaper when they trust/fear you), pricier for hostile crews,
-floored at 300 — to settle the feud. Both `feudWith`/`feudDepth` clear, both crews
-gain +4 rep, and they can serve side by side thereafter. Tests: `feud.js`.
+floored at 300 — to settle the feud for good. Both `feudWith`/`feudDepth`/`truceUntil`
+clear, both crews gain +4 rep, and they can serve side by side thereafter.
+
+**Temporary truce** (`brokerTruce`, 🕊️ button): a cheaper alternative —
+`bandTruceCost` ≈ 35% of the full cost — buys `BAND_TRUCE_DURATION` (6) cycles of
+peace. `truceUntil` is set on both bands; `bandTruceActive` makes `bandRivalServing`
+stand down so they can serve together meanwhile. The feud isn't cleared — when the
+window lapses (`processTruces` in `endTurn`) it smoulders back. Re-buy to extend.
+Tests: `feud.js`.
 
 **Spare & recruit** (`raidSpareRecruit`): once a pirate is beaten to ≤35% hull
 (`raidCanSpare`) a "🤝 Spare crew" action appears in the raid — hold fire and the

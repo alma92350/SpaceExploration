@@ -2169,6 +2169,7 @@ function bandLootShare(b) {
 // a feuding band refuses to serve alongside its rival
 function bandRivalServing(b) {
   const rivalId = b && b.feudWith; if (!rivalId) return false;
+  if (bandTruceActive(b)) return false;                    // a bought truce lets former rivals serve together
   if ((S.allies || []).some(a => a.bandId === rivalId)) return true;
   if (S.escort && S.escort.fleet && S.escort.fleet.some(s => s.hired && s.alive && s.bandId === rivalId)) return true;
   return false;
@@ -2177,6 +2178,30 @@ function bandWillAlly(b) { return bandTier(b).key !== "hostile" && !bandRivalSer
 // blood feuds run 1–3 deep; you can broker peace for a price that scales with the
 // depth and eases with your standing (they trust you) and Dread (they fear you).
 function bandFeudDepth(b) { return b && b.feudWith ? (b.feudDepth || 2) : 0; }
+const BAND_TRUCE_DURATION = 6;   // cycles a bought truce holds before the feud smoulders back
+function bandTruceActive(b) { return !!(b && b.feudWith && b.truceUntil && S.turn <= b.truceUntil); }
+function bandTruceCost(b) { return bandFoe(b) ? Math.max(120, Math.round(bandReconcileCost(b) * 0.35)) : 0; }   // a fraction of a full settlement
+function brokerTruce(id) {
+  const b = bandById(id), rival = bandFoe(b);
+  if (!b || !rival) return toast("No feud to settle there.", "bad");
+  const cost = bandTruceCost(b);
+  if ((S.res.credits || 0) < cost) return toast(`A truce costs ${fmt(cost)} cr.`, "bad");
+  S.res.credits -= cost;
+  const until = S.turn + BAND_TRUCE_DURATION;
+  b.truceUntil = until; rival.truceUntil = until;
+  log(`🕊️ You bought a ${BAND_TRUCE_DURATION}-cycle truce between the ${b.ico} ${b.name} and the ${rival.ico} ${rival.name} for ${fmt(cost)} cr — they'll set the feud aside for now.`, "event");
+  toast(`Truce: ${b.name} & ${rival.name} (${BAND_TRUCE_DURATION} cyc)`, "good"); sfx("event"); saveGame(); renderAll();
+}
+function processTruces() {       // lapsed truces let the feud smoulder back
+  const seen = {};
+  bandList().forEach(b => {
+    if (b.truceUntil && S.turn > b.truceUntil) {
+      const rival = bandById(b.feudWith), key = [b.id, b.feudWith || ""].sort().join("|");
+      b.truceUntil = 0;
+      if (!seen[key]) { seen[key] = true; log(`⚔️ The truce between the ${b.ico} ${b.name}${rival ? ` and the ${rival.ico} ${rival.name}` : ""} has lapsed — their feud smoulders again.`, ""); }
+    }
+  });
+}
 function bandReconcileCost(b) {
   const rival = bandFoe(b); if (!rival) return 0;
   const depth = bandFeudDepth(b);
@@ -2191,7 +2216,7 @@ function reconcileBands(id) {
   const cost = bandReconcileCost(b);
   if ((S.res.credits || 0) < cost) return toast(`Brokering this peace costs ${fmt(cost)} cr.`, "bad");
   S.res.credits -= cost;
-  b.feudWith = null; b.feudDepth = 0; rival.feudWith = null; rival.feudDepth = 0;
+  b.feudWith = null; b.feudDepth = 0; b.truceUntil = 0; rival.feudWith = null; rival.feudDepth = 0; rival.truceUntil = 0;
   bandRepAdd(b, 4); bandRepAdd(rival, 4);                                      // both crews are grateful
   log(`🕊️ You brokered peace between the ${b.ico} ${b.name} and the ${rival.ico} ${rival.name} for ${fmt(cost)} cr — their feud is settled and they'll serve side by side now.`, "event");
   toast(`Peace brokered: ${b.name} & ${rival.name}`, "good"); sfx("event"); saveGame(); renderAll();
@@ -5090,6 +5115,7 @@ function endTurn(fromTravel = false) {
   if (typeof decayBands === "function") decayBands();
   if (typeof processBandSupport === "function") processBandSupport();
   if (typeof processMandates === "function") processMandates();
+  if (typeof processTruces === "function") processTruces();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -6252,7 +6278,12 @@ function contactCard(b) {
       <div class="ship-stat"><span class="k">As an ally</span><span class="v">${bandWillAlly(b) ? `wants ${cut}% of loot` : "won't fight for you"}</span></div>
       <div class="ship-stat"><span class="k">As a hire</span><span class="v">${fmt(fee)} cr · ${risk}% desert risk</span></div>
       <div class="ship-stat"><span class="k">Support</span><span class="v">${supStatus}</span></div>
-      ${rival ? `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px"><button class="btn btn-sm" ${S.res.credits >= bandReconcileCost(b) ? "" : "disabled"} title="Broker peace with the ${rival.name} (feud depth ${bandFeudDepth(b)}) — cheaper with higher standing &amp; Dread. Then they'll serve alongside each other." onclick="reconcileBands('${b.id}')">🕊️ Broker peace with ${rival.name} (${fmt(bandReconcileCost(b))} cr)</button></div>` : ""}
+      ${rival ? (() => { const truce = bandTruceActive(b), tc = bandTruceCost(b), pc = bandReconcileCost(b);
+        return `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px;align-items:center">
+          ${truce ? `<span class="hint" style="color:var(--warn)">🕊️ truce w/ ${rival.name}: ${b.truceUntil - S.turn} cyc</span>` : ""}
+          <button class="btn btn-sm" ${S.res.credits >= tc ? "" : "disabled"} title="A temporary truce for ${BAND_TRUCE_DURATION} cycles — they'll serve together for now, then the feud resumes" onclick="brokerTruce('${b.id}')">🕊️ ${truce ? "Extend truce" : "Truce"} (${fmt(tc)} cr · ${BAND_TRUCE_DURATION} cyc)</button>
+          <button class="btn btn-sm" ${S.res.credits >= pc ? "" : "disabled"} title="Settle the feud with the ${rival.name} for good (depth ${bandFeudDepth(b)}) — cheaper with higher standing &amp; Dread" onclick="reconcileBands('${b.id}')">🤝 Broker peace (${fmt(pc)} cr)</button>
+        </div>`; })() : ""}
       <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px"><span class="hint">Tag:</span> ${tagBtns}</div>
       <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px">
         <button class="btn btn-sm" ${callDisabled ? "disabled" : ""} title="Call them to your side — nearby crews come at once, distant ones may travel in" onclick="callBandSupport('${b.id}')">📣 Call for support</button>
@@ -7761,7 +7792,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.28.0";
+const APP_VERSION = "2.29.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7833,7 +7864,7 @@ function helpHTML() {
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Set each vessel's <b>combat stance</b> — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to <b>3 levels of fit</b> for it, paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
-      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Some crews hold <b>blood feuds</b> and won't serve alongside their rival — you can <b>🕊️ Broker peace</b> between them for a fee that scales with the feud's depth and eases with your standing &amp; Dread, after which they'll fight side by side. Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
+      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Some crews hold <b>blood feuds</b> and won't serve alongside their rival — you can settle it: a cheap <b>🕊️ Truce</b> sets the feud aside for a few cycles so they'll serve together for now, or a full <b>🤝 Broker peace</b> ends it for good (the fee scales with the feud's depth and eases with your standing &amp; Dread). Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules. A compact readout of your active <b>✨ Fortunes</b> and <b>📡 signals</b> also shows in the sidebar; manage them in full on the ✨ Fortunes tab.</li>
     </ul>
 
@@ -8213,7 +8244,7 @@ Object.assign(window, {
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSummonOnCall, repairShip,
   clearFx, investigateSignal, buySignalScan,
   setBandTag, callBandSupport, bandFollow, bandStandDown, escortRallyOnCall,
-  commissionMandate, cancelMandate, setMandateField, reconcileBands,
+  commissionMandate, cancelMandate, setMandateField, reconcileBands, brokerTruce,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,
