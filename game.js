@@ -1601,10 +1601,17 @@ function foeFleeCheck(foe) {
    without resources (flee/fight are free; complying needs no purchase). */
 function inCombat() { return !!(S.encounter || S.interdiction || S.prey || (typeof escortInCombat === "function" && escortInCombat())); }
 function combatHomeTab() { return (typeof escortInCombat === "function" && escortInCombat() && !(S.encounter || S.interdiction || S.prey)) ? "escort" : "raid"; }
+let _combatLockToastAt = 0;
 function combatLocked() {
   if (!inCombat()) return false;
-  const foe = S.encounter ? `the ${S.encounter.name}` : S.prey ? `the ${S.prey.name}` : (typeof escortInCombat === "function" && escortInCombat()) ? "the convoy's attackers" : "the navy patrol";
-  toast(`⚔️ You're in the middle of an engagement with ${foe} — finish it or disengage first.`, "bad");
+  // combatLocked() guards many actions and can fire several times in one gesture;
+  // debounce so the "you're in combat" toast shows once, not a stutter of duplicates.
+  const now = (typeof performance !== "undefined" ? performance.now() : Date.now());
+  if (now - _combatLockToastAt > 600) {
+    _combatLockToastAt = now;
+    const foe = S.encounter ? `the ${S.encounter.name}` : S.prey ? `the ${S.prey.name}` : (typeof escortInCombat === "function" && escortInCombat()) ? "the convoy's attackers" : "the navy patrol";
+    toast(`⚔️ Still in the fight with ${foe} — finish it or break off first.`, "bad");
+  }
   return true;
 }
 /* how hard the law is hunting you, by Wanted level */
@@ -7574,7 +7581,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.26.0";
+const APP_VERSION = "2.26.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
