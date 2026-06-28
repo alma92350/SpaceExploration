@@ -1,5 +1,5 @@
 {
-  "version": "2.30.0",
+  "version": "2.30.1",
   "saveVersion": "v2",
-  "notes": "Fuel is now a full part of the economy. New ⛽ Fuel Refinery — a base module (buildable anywhere, 5 tiers) that cracks stored 🧊 ice into fuel each cycle, and a colony building (6 tiers) that refines ice + energy into fuel. Fuel can be stockpiled in bases and colonies, ordered by colonies, and imported/exported across the base↔colony trade network like any other good (bases collect colony fuel surplus; a refinery world can supply others). Withdraw fuel straight into your tank (capped to tank size) or deposit it from your tank into storage. Buying and selling fuel at ports works as before. Build an ice-world refinery and run fuel to where it's needed."
+  "notes": "Crews on a mandate are properly 'busy': they no longer show up to hire or rally for a convoy escort while under contract. But they're stationed at their contract world — so if you go raiding in that same system, they're in the area and can be summoned as a raid ally, pitching in without abandoning their mandate."
 }

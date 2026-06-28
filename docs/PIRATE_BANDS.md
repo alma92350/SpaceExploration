@@ -67,8 +67,12 @@ and **📜 Mandates**.
   **waived when you hold a letter of marque against the target system's faction**
   (`commissionCovers`) — sanctioned, though they still resent it. `mandateAct` caps
   yield scaling (`MANDATE_ACT_CAP`) so one mandate can't milk an infested system.
-- A commissioned band is `bandOnMandate` + `busyUntil`, so it can't be called,
-  hired, or double-booked until the run ends.
+- A commissioned band is `bandOnMandate` + `busyUntil`, so it can't be called for
+  support, hired/rallied for a convoy (`escortRecruitableBands`/`escortRecruitBand`
+  refuse it), or double-booked until the run ends. But it sits at its contract
+  world (`b.loc = planet`), so if you go **raiding that same system** it's in the
+  area and can be summoned as a raid ally (`bandsRaidable`, distance 0) — joining
+  the fight without dropping its mandate. Tests: `mandatebusy.js`.
 - **Balance** (`mandatebal.js`, 3k runs/case): cull ROI +12–68% at active systems
   (−29% on a clean one — don't farm empties), protect ~+26% steady, raid +20–73%
   but +15–22 Wanted over the run plus faction anger. Tests: `mandates.js`.

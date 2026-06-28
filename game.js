@@ -2254,7 +2254,7 @@ function decayBands() {                                  // standings drift towa
 }
 // escort recruitment: friendly bands hire on as escort ships for a negotiated fee
 function escortRecruitFee(b) { return Math.round((800 + b.level * 700) * (1 - ((b.rep || 0) / 100) * 0.4) * bandPers(b).fee); }
-function escortRecruitableBands() { return bandList().filter(b => ["neutral", "friendly", "sworn"].includes(bandTier(b).key)); }
+function escortRecruitableBands() { return bandList().filter(b => ["neutral", "friendly", "sworn"].includes(bandTier(b).key) && !bandOnMandate(b) && !bandBusy(b)); }   // crews under contract / tied up can't be hired
 function bandBetrayChance(b) { return Math.max(0, Math.min(0.6, 0.26 - ((b.rep || 0) / 100) * 0.32 - Math.min(0.18, ((S.pirate && S.pirate.dread) || 0) / 100 * 0.18) + bandPers(b).betray)); }
 /* ---- Tags (your loose brotherhood) + location + call-for-support ---- */
 const BAND_TAGS = {
@@ -7352,6 +7352,8 @@ function escortRecruitBand(id) {
   const e = ensureEscort(); if (!e.active) return;
   if (escortInCombat()) return toast("You can't strike a deal mid-ambush.", "bad");
   const b = bandById(id); if (!b) return;
+  if (bandOnMandate(b)) return toast(`The ${b.name} are away on a contract — they can't fly escort right now.`, "bad");
+  if (bandBusy(b)) return toast(`The ${b.name} are tied up with their own business right now.`, "bad");
   if (e.fleet.some(s => s.hired && s.bandId === id)) return toast(`The ${b.name} already flies with you.`, "bad");
   if (e.fleet.filter(s => s.hired && !s.support && s.alive).length >= ESCORT_MAX_HIRED) return toast(`You can field at most ${ESCORT_MAX_HIRED} hired bands — dismiss one first.`, "bad");
   const rival = bandFoe(b);
@@ -7815,7 +7817,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.30.0";
+const APP_VERSION = "2.30.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
