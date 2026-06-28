@@ -1,5 +1,5 @@
 {
-  "version": "2.27.1",
+  "version": "2.28.0",
   "saveVersion": "v2",
-  "notes": "Piracy mandates honor your letter of marque. A 🏴 Prey on shipping mandate no longer raises your Wanted if you hold a letter of marque against the target system's faction — it's sanctioned privateering (the faction still resents the losses). Raiding a faction you have no marque against (or with a marque against a different faction) still piles on Wanted as before. The commission form spells out which case applies."
+  "notes": "Broker peace between feuding crews. Blood feuds now have a depth (1–3), and you can 🕊️ Broker peace between two rival bands from their Contacts card. The fee scales with how deep the feud runs and gets cheaper the more they trust you (standing) and fear you (Dread) — pricier for hostile crews. Settle it and the feud clears, both crews warm to you, and they'll finally serve side by side in your raids, escorts and mandates."
 }

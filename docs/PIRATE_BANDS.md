@@ -128,10 +128,16 @@ deserts), ⚔️ Bold (+22% firepower as ally/hire), 🦊 Cunning (*steals*),
 `escortRecruitFee` (×fee), `bandBetrayChance` (+betray) and ally/hire firepower
 (×fp).
 
-~35% of new bands carry a **feud** with an existing band (`feudWith`, mutual).
-A band won't ally or hire on while its rival already serves you
-(`bandRivalServing` → `bandWillAlly` / recruit refusal), and **siding with one
-band angers its rival** (−8 rep on ally or hire, `bandFoe`).
+~35% of new bands carry a **feud** with an existing band (`feudWith`, mutual,
+with a **depth 1–3** in `feudDepth`). A band won't ally or hire on while its rival
+already serves you (`bandRivalServing` → `bandWillAlly` / recruit refusal), and
+**siding with one band angers its rival** (−8 rep on ally or hire, `bandFoe`).
+
+**Brokering peace** (`reconcileBands`, Contacts card 🕊️ button): pay
+`bandReconcileCost` — `1500 × depth`, discounted by the two crews' average standing
+and your Dread (cheaper when they trust/fear you), pricier for hostile crews,
+floored at 300 — to settle the feud. Both `feudWith`/`feudDepth` clear, both crews
+gain +4 rep, and they can serve side by side thereafter. Tests: `feud.js`.
 
 **Spare & recruit** (`raidSpareRecruit`): once a pirate is beaten to ≤35% hull
 (`raidCanSpare`) a "🤝 Spare crew" action appears in the raid — hold fire and the
