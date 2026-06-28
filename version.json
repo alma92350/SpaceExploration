@@ -1,5 +1,5 @@
 {
-  "version": "2.26.1",
+  "version": "2.27.0",
   "saveVersion": "v2",
-  "notes": "Fix: the 'you're still in a fight — finish it or break off' toast could appear twice in a row when an action was blocked mid-combat. It now shows once per attempt (debounced), with slightly tighter wording."
+  "notes": "Contacts tab reorganized into three sub-views — 🤝 All contacts, 📍 Around here (crews based in this system plus its pirate-activity meter), and 📜 Mandates. Mandates are a new system: commission a band to work a chosen world for 3/6/9 cycles. 🎯 Cull pirates or 🛡️ Guard the lanes are lawful — they thin out pirate activity there; 🏴 Prey on shipping pays the fattest cut but is piracy in your name (your Wanted climbs and the locals turn on you). You pay a fee up front and bank a cut of the take when the run ends; recall early to keep what's earned. Balanced via simulation: lawful work is a modest earner plus security, raiding pays best but brings the law down on you."
 }

@@ -50,6 +50,27 @@ Surviving a delivery raises the band's rep (+8); deserting drops it (−12).
 - 🛡️ Escort staging → **🤝 Hire pirate escorts** card (out of combat) with fee
   and desertion-risk per band.
 
+## Contacts tab sub-views + Mandates
+The Contacts panel is split via the shared `subTabBar` into **🤝 All contacts**,
+**📍 Around here** (crews based in the current system + its pirate-activity meter),
+and **📜 Mandates**.
+
+- **Mandates** (`MANDATE_TASKS`, `S.mandates`): commission a band to work a chosen
+  system for `MANDATE_DURATIONS` (3/6/9) cycles. Pay an upfront `mandateFee`
+  (scales with band level, duration, distance, task `feeMul`, minus a standing
+  discount); bank a `cut` of each cycle's take (`mandateCycleYield`, paid lump at
+  completion). `processMandates` (in `endTurn`) accrues the cut and applies world
+  effects; `cancelMandate` recalls early (keep accrued, forfeit fee).
+- Tasks: **🎯 cull** (lawful — suppresses local `pirateLevel`, cut of bounties),
+  **🛡️ protect** (lawful — steady suppression + fees), **🏴 raid** (piracy — fattest
+  cut but +Wanted/cycle and faction rep loss, no suppression). `mandateAct` caps
+  yield scaling (`MANDATE_ACT_CAP`) so one mandate can't milk an infested system.
+- A commissioned band is `bandOnMandate` + `busyUntil`, so it can't be called,
+  hired, or double-booked until the run ends.
+- **Balance** (`mandatebal.js`, 3k runs/case): cull ROI +12–68% at active systems
+  (−29% on a clean one — don't farm empties), protect ~+26% steady, raid +20–73%
+  but +15–22 Wanted over the run plus faction anger. Tests: `mandates.js`.
+
 ## Tags, location & call-for-support (brotherhood)
 - **Tags** (`BAND_TAGS`: ⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival; `setBandTag`,
   toggle): a player label shown next to the band's name everywhere (Contacts,

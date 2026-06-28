@@ -923,6 +923,7 @@ function freshState(opts = {}) {
     signals: [],                // discoverable leads to investigate: [{ id, kind, tier, planet, ttl }]
     fxSeen: {},                 // Fortunes almanac: which effects you've experienced
     fxMastery: {},              // domains fully catalogued → permanent passive bonuses
+    mandates: [],               // active pirate mandates: [{ id, bandId, planet, task, cyclesLeft, ... }]
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
@@ -5066,6 +5067,7 @@ function endTurn(fromTravel = false) {
   if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (typeof decayBands === "function") decayBands();
   if (typeof processBandSupport === "function") processBandSupport();
+  if (typeof processMandates === "function") processMandates();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -6112,29 +6114,108 @@ function renderRaid() {
     <div class="cards" style="margin-top:14px">${intelCard}${commCard}${havenCard}${lordCard}${marshalCard}</div>`;
 }
 // ---- Pirate Contacts tab: manage the bands you've built history with ----
+/* ============================================================
+   MANDATES — commission a band to work a system for several cycles:
+   cull pirates, guard the lanes, or prey on shipping. You pay an
+   upfront fee and take a cut of what they bring in over the run.
+   ============================================================ */
+const MANDATE_TASKS = {
+  cull:    { ico: "🎯", name: "Cull pirates",     cut: 0.55, base: 180, perLvl: 110, feeMul: 1.0, scalesPirate: true,  suppress: 0.30, heat: 0,   blurb: "Drive hostile crews out — lowers the system's pirate activity; you take a cut of the bounties." },
+  protect: { ico: "🛡️", name: "Guard the lanes",  cut: 0.50, base: 150, perLvl: 90,  feeMul: 0.85, scalesPirate: false, suppress: 0.22, heat: 0,   blurb: "Patrol the system — steadily suppresses pirates; a share of the escort fees." },
+  raid:    { ico: "🏴", name: "Prey on shipping", cut: 0.50, base: 190, perLvl: 110, feeMul: 1.1, scalesPirate: true,  suppress: 0,    heat: 2.5, blurb: "Plunder shipping in the system — a fat cut of the loot, but it's piracy in your name: Wanted climbs and the locals seethe." },
+};
+const MANDATE_DURATIONS = [3, 6, 9];
+const MANDATE_ACT_CAP = 1.3;   // diminishing returns: a single mandate can't milk an infested system forever
+function mdPlanetName(id) { const p = PLANETS.find(x => x.id === id); return p ? p.name : "?"; }
+function bandOnMandate(b) { return !!(b && b.mandate); }
+function mandateFee(b, planetId, task, dur) {
+  const here = currentPlanet(), dist = (here.distances && here.distances[planetId]) || 0, lvl = b.level || 1;
+  let fee = (70 + lvl * 42) * dur * (1 + dist * 0.025) * ((MANDATE_TASKS[task] || MANDATE_TASKS.cull).feeMul || 1);
+  fee *= (1 - Math.min(0.30, ((b.rep || 0) / 100) * 0.30));   // friendlier crews charge less
+  return Math.max(150, Math.round(fee));
+}
+function mandateAct(planetId, t) { return t.scalesPirate ? Math.min(MANDATE_ACT_CAP, 0.45 + pirateLevel(planetId) * 0.22) : 0.9; }
+function mandateCycleYield(b, planetId, task) {
+  const lvl = b.level || 1, t = MANDATE_TASKS[task] || MANDATE_TASKS.cull;
+  return Math.round((t.base + lvl * t.perLvl) * mandateAct(planetId, t) * (0.6 + Math.random() * 0.8));
+}
+function mandateEstCut(b, planetId, task, dur) {   // average expected player cut over the run (preview)
+  const lvl = b.level || 1, t = MANDATE_TASKS[task] || MANDATE_TASKS.cull;
+  return Math.round((t.base + lvl * t.perLvl) * mandateAct(planetId, t) * t.cut * dur);
+}
+function mandateEligibleBands() { return bandList().filter(b => bandWillAlly(b) && !bandOnMandate(b) && !bandBusy(b) && !bandOnCall(b) && !bandInbound(b) && b.status === "active"); }
+function commissionMandate(bandId, planetId, task, dur) {
+  const b = bandById(bandId); if (!b) return toast("Pick a crew.", "bad");
+  if (!MANDATE_TASKS[task]) return; dur = MANDATE_DURATIONS.includes(dur) ? dur : 6;
+  if (bandOnMandate(b) || bandBusy(b)) return toast(`The ${b.name} are already occupied.`, "bad");
+  if (!bandWillAlly(b)) return toast(`The ${b.name} won't take your coin.`, "bad");
+  if (!planetId || !PLANETS.find(p => p.id === planetId)) return toast("Pick a target system.", "bad");
+  const fee = mandateFee(b, planetId, task, dur);
+  if ((S.res.credits || 0) < fee) return toast(`That mandate costs ${fmt(fee)} cr.`, "bad");
+  S.res.credits -= fee;
+  if (!Array.isArray(S.mandates)) S.mandates = [];
+  const id = "md" + S.turn + "_" + Math.floor(Math.random() * 1e4);
+  S.mandates.push({ id, bandId, planet: planetId, task, cyclesLeft: dur, total: dur, fee, accrued: 0, cut: MANDATE_TASKS[task].cut });
+  b.mandate = id; b.busyUntil = S.turn + dur; b.loc = planetId;
+  const t = MANDATE_TASKS[task];
+  log(`📜 You commissioned the ${b.ico} ${b.name} to <b>${t.name.toLowerCase()}</b> at ${mdPlanetName(planetId)} for ${dur} cycles (−${fmt(fee)} cr).`, "event");
+  toast(`${b.name} on mandate (${dur} cyc)`, "good"); sfx("event"); saveGame(); renderAll();
+}
+function processMandates() {
+  if (!Array.isArray(S.mandates) || !S.mandates.length) return;
+  for (let i = S.mandates.length - 1; i >= 0; i--) {
+    const md = S.mandates[i], b = bandById(md.bandId), t = MANDATE_TASKS[md.task];
+    if (!b || !t) { S.mandates.splice(i, 1); continue; }
+    md.accrued += Math.round(mandateCycleYield(b, md.planet, md.task) * md.cut);
+    if (t.suppress && Math.random() < t.suppress + 0.06 * (b.level || 1)) S.pirates[md.planet] = Math.max(0, pirateLevel(md.planet) - 1);
+    if (md.task === "raid") { S.pirate.wanted = Math.min(100, (S.pirate.wanted || 0) + t.heat); const fac = (PLANETS.find(p => p.id === md.planet) || {}).faction; if (fac) addRep(fac, -1); clampPirate(); }
+    md.cyclesLeft--;
+    if (md.cyclesLeft <= 0) {
+      S.res.credits += md.accrued; bandRepAdd(b, 6); b.mandate = null; b.loc = md.planet;
+      log(`📜 The ${b.ico} ${b.name} finished their ${t.name.toLowerCase()} at ${mdPlanetName(md.planet)} — your cut: <b>${fmt(md.accrued)} cr</b>.`, "good");
+      if (typeof toast === "function") toast(`${b.name} mandate done: +${fmt(md.accrued)} cr`, "good");
+      if (typeof sfx === "function") sfx("good");
+      S.mandates.splice(i, 1);
+    }
+  }
+}
+function cancelMandate(id) {
+  const i = (S.mandates || []).findIndex(m => m.id === id); if (i < 0) return;
+  const md = S.mandates[i], b = bandById(md.bandId);
+  S.res.credits += md.accrued;                       // keep what they've earned so far; the fee is forfeit
+  if (b) { b.mandate = null; b.busyUntil = S.turn; bandRepAdd(b, -4); }
+  log(`📜 You recalled the ${b ? b.name : "crew"} from their mandate early — banked ${fmt(md.accrued)} cr (fee forfeit).`, "");
+  toast("Mandate ended", ""); S.mandates.splice(i, 1); saveGame(); renderAll();
+}
+let mandateForm = { band: null, planet: null, task: "cull", dur: 6 };
+function setMandateField(k, v) { mandateForm[k] = (k === "dur") ? (parseInt(v, 10) || 6) : v; renderContacts(); }
 function renderContacts() {
   const el = document.getElementById("panel-contacts"); if (!el) return;
-  const bands = bandList().sort((a, b) => (b.rep || 0) - (a.rep || 0));
+  const views = [["all", "🤝 All contacts"], ["around", "📍 Around here"], ["mandates", "📜 Mandates"]];
+  const view = subView("contacts", views);
+  const body = view === "around" ? renderContactsAround() : view === "mandates" ? renderContactsMandates() : renderContactsAll();
+  el.innerHTML = `<h2>🏴‍☠️ Pirate Contacts</h2>${subTabBar("contacts", views)}${body}`;
+}
+function contactCard(b) {
   const giftCargo = ["weapons", "fuel", "luxury", "ai", "drones"].filter(c => (S.res[c] || 0) > 0);
-  const cards = bands.map(b => {
-    const t = bandTier(b), pr = bandPers(b), rival = bandFoe(b), mark = bandTagMark(b);
-    const cargoBtns = giftCargo.map(c => `<button class="btn btn-sm" title="Gift 1 ${COM[c].name} (+standing)" onclick="giftBandCargo('${b.id}','${c}',1)">${COM[c].ico}+</button>`).join("");
-    const pct = Math.round((((b.rep || 0) + 100) / 200) * 100);
-    const cut = Math.round(bandLootShare(b) * 100), fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100);
-    const dist = bandDistance(b);
-    const tagBtns = BAND_TAG_KEYS.map(k => `<button class="btn btn-sm ${b.tag === k ? "btn-primary" : ""}" title="Tag as ${BAND_TAGS[k].name}" onclick="setBandTag('${b.id}','${k}')">${BAND_TAGS[k].ico}</button>`).join("");
-    const supStatus = bandFollowing(b) ? `<span style="color:var(--good)">🛰️ riding with you (${b.followUntil - S.turn} cyc)</span>`
-      : bandOnCall(b) ? `<span style="color:var(--good)">standing by (${b.onCallUntil - S.turn} cyc)</span>`
-      : bandInbound(b) ? `<span style="color:var(--warn)">inbound (${b.inboundTurn - S.turn} cyc)</span>`
-      : bandBusy(b) ? `<span class="hint">busy (${b.busyUntil - S.turn} cyc)</span>`
-      : `${Math.round(bandSupportOdds(b) * 100)}% to answer`;
-    const callDisabled = bandOnCall(b) || bandInbound(b) || bandBusy(b) || !bandWillAlly(b);
-    // controls for a crew you've summoned: have them follow you across jumps, or send them home
-    const followBtn = bandOnCall(b) && !bandFollowing(b)
-      ? `<button class="btn btn-sm btn-good" title="They'll jump where you jump for ${BAND_FOLLOW_DURATION} cycles" onclick="bandFollow('${b.id}')">🛰️ Follow me</button>` : "";
-    const standDownBtn = (bandOnCall(b) || bandInbound(b))
-      ? `<button class="btn btn-sm" title="Send them back to their own affairs now" onclick="bandStandDown('${b.id}')">✖ ${bandInbound(b) ? "Recall" : "Stand down"}</button>` : "";
-    return `<div class="card">
+  const t = bandTier(b), pr = bandPers(b), rival = bandFoe(b), mark = bandTagMark(b);
+  const cargoBtns = giftCargo.map(c => `<button class="btn btn-sm" title="Gift 1 ${COM[c].name} (+standing)" onclick="giftBandCargo('${b.id}','${c}',1)">${COM[c].ico}+</button>`).join("");
+  const pct = Math.round((((b.rep || 0) + 100) / 200) * 100);
+  const cut = Math.round(bandLootShare(b) * 100), fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100);
+  const dist = bandDistance(b);
+  const tagBtns = BAND_TAG_KEYS.map(k => `<button class="btn btn-sm ${b.tag === k ? "btn-primary" : ""}" title="Tag as ${BAND_TAGS[k].name}" onclick="setBandTag('${b.id}','${k}')">${BAND_TAGS[k].ico}</button>`).join("");
+  const supStatus = bandOnMandate(b) ? `<span style="color:var(--accent)">📜 on mandate</span>`
+    : bandFollowing(b) ? `<span style="color:var(--good)">🛰️ riding with you (${b.followUntil - S.turn} cyc)</span>`
+    : bandOnCall(b) ? `<span style="color:var(--good)">standing by (${b.onCallUntil - S.turn} cyc)</span>`
+    : bandInbound(b) ? `<span style="color:var(--warn)">inbound (${b.inboundTurn - S.turn} cyc)</span>`
+    : bandBusy(b) ? `<span class="hint">busy (${b.busyUntil - S.turn} cyc)</span>`
+    : `${Math.round(bandSupportOdds(b) * 100)}% to answer`;
+  const callDisabled = bandOnCall(b) || bandInbound(b) || bandBusy(b) || bandOnMandate(b) || !bandWillAlly(b);
+  const followBtn = bandOnCall(b) && !bandFollowing(b)
+    ? `<button class="btn btn-sm btn-good" title="They'll jump where you jump for ${BAND_FOLLOW_DURATION} cycles" onclick="bandFollow('${b.id}')">🛰️ Follow me</button>` : "";
+  const standDownBtn = (bandOnCall(b) || bandInbound(b))
+    ? `<button class="btn btn-sm" title="Send them back to their own affairs now" onclick="bandStandDown('${b.id}')">✖ ${bandInbound(b) ? "Recall" : "Stand down"}</button>` : "";
+  return `<div class="card">
       <h4>${mark ? mark + " " : ""}${b.ico} ${b.name}</h4>
       <div class="hint">${pr.ico} ${pr.name} · L${b.level} · ${t.label} (${b.rep})${rival ? ` · <span style="color:var(--bad)">⚔️ feud: ${rival.name}</span>` : ""}</div>
       <div class="bar"><span style="width:${pct}%;background:${(b.rep||0) >= 41 ? "var(--good)" : (b.rep||0) < -10 ? "var(--bad)" : "var(--warn)"}"></span></div>
@@ -6151,10 +6232,74 @@ function renderContacts() {
         <button class="btn btn-sm" ${S.res.credits >= 2000 ? "" : "disabled"} title="Pay a 2,000 cr tribute" onclick="giftBandCredits('${b.id}',2000)">💰 2k</button>
         ${cargoBtns}
       </div></div>`;
-  }).join("");
-  el.innerHTML = `<h2>🏴‍☠️ Pirate Contacts</h2>
-    <div class="subtitle">Crews you've crossed in the void — your loose brotherhood. <b>Tag</b> them to track who's who; the mark shows wherever they appear. <b>Standing</b> rises when you ally, spare a beaten crew, pay tributes or gift valued cargo — and with your <b>Dread</b>; it craters when you kill them. <b>📣 Call for support</b> to summon a crew: those in your system fall in at once, distant ones may travel in over a cycle (the odds depend on standing, distance, your Dread &amp; whether they're busy) and then stand by, ready to join a raid or escort. Once a crew is standing by you can ask them to <b>🛰️ Follow</b> — they'll jump where you jump for a stretch, so they're on hand wherever you roam — or <b>✖ Stand down</b> to send them home early. Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Feuding crews won't serve alongside a rival.</div>
+}
+function renderContactsAll() {
+  const bands = bandList().sort((a, b) => (b.rep || 0) - (a.rep || 0));
+  const cards = bands.map(contactCard).join("");
+  return `<div class="subtitle">Crews you've crossed in the void — your loose brotherhood. <b>Tag</b> them to track who's who. <b>Standing</b> rises when you ally, spare a beaten crew, pay tributes or gift valued cargo — and with your <b>Dread</b>; it craters when you kill them. <b>📣 Call for support</b> to summon a crew; once standing by, ask them to <b>🛰️ Follow</b> or <b>✖ Stand down</b>. Friendlier bands take a smaller loot cut, hire cheaper &amp; answer calls readily. Use <b>📍 Around here</b> for crews &amp; pirate activity in this system, and <b>📜 Mandates</b> to put a crew to work patrolling a world.</div>
     <div class="cards">${cards || '<div class="card"><div class="hint">No pirate bands on your books yet — hunt or ally with them from the ⚔️ Raider tab.</div></div>'}</div>`;
+}
+function pirateLevelLabel(n) { return n <= 0 ? "🟢 clear" : n >= 4 ? "🔴 infested" : n >= 2 ? "🟠 active" : "🟡 light"; }
+function renderContactsAround() {
+  const here = currentPlanet(), plv = pirateLevel(here.id);
+  const local = bandList().filter(b => b.loc === here.id).sort((a, b) => (b.rep || 0) - (a.rep || 0));
+  const onMandateHere = (S.mandates || []).filter(m => m.planet === here.id);
+  const meter = `<div class="card"><h4>📍 ${here.name} <span class="pill ${plv >= 2 ? "bad" : plv === 0 ? "good" : ""}">${pirateLevelLabel(plv)} (${plv}/5)</span></h4>
+    <div class="hint">Pirate activity here drives ambush, interdiction and convoy threat. Hunt raiders in the ⚔️ Raider tab, or commission a 🎯 <b>Cull pirates</b> mandate to drive them out${onMandateHere.length ? ` — <span style="color:var(--accent)">${onMandateHere.length} mandate(s) working this system now</span>` : ""}.</div>
+    <div class="row" style="margin-top:8px"><button class="btn btn-sm btn-primary" onclick="setMandateField('planet','${here.id}');setSubView('contacts','mandates')">📜 Commission a mandate here</button></div></div>`;
+  const cards = local.map(contactCard).join("");
+  return `<div class="subtitle">Crews based in <b>${here.name}</b> right now, and how lawless these lanes are. Bands relocate as you cross them and as they finish mandates.</div>
+    ${meter}
+    <div class="cards">${cards || '<div class="card"><div class="hint">No known crews are based in this system. Sweep the lanes (⚔️ Raider) to turn some up.</div></div>'}</div>`;
+}
+function renderContactsMandates() {
+  // ---- active mandates ----
+  const active = (S.mandates || []).map(md => {
+    const b = bandById(md.bandId), t = MANDATE_TASKS[md.task], done = md.total - md.cyclesLeft;
+    const pct = Math.round(done / md.total * 100);
+    return `<div class="card">
+      <h4>${t.ico} ${b ? b.ico + " " + b.name : "crew"} <span class="hint">${t.name} · ${mdPlanetName(md.planet)}</span></h4>
+      <div class="ship-stat"><span class="k">Progress</span><span class="v">${done}/${md.total} cycles</span></div>
+      <div class="bar"><span style="width:${pct}%;background:var(--accent)"></span></div>
+      <div class="ship-stat"><span class="k">Your cut so far</span><span class="v" style="color:var(--gold)">${fmt(md.accrued)} cr</span></div>
+      <div class="ship-stat"><span class="k">Paid in advance</span><span class="v">${fmt(md.fee)} cr</span></div>
+      <div class="row" style="margin-top:6px"><button class="btn btn-sm btn-bad" title="Recall the crew now — bank what they've earned, forfeit the fee" onclick="cancelMandate('${md.id}')">✖ Recall</button></div>
+    </div>`;
+  }).join("");
+  // ---- commission form ----
+  const elig = mandateEligibleBands();
+  const f = mandateForm;
+  if (!f.band || !elig.some(b => b.id === f.band)) f.band = elig.length ? elig[0].id : null;
+  if (!f.planet || !PLANETS.find(p => p.id === f.planet)) f.planet = S.location;
+  const known = PLANETS.filter(p => isActive(p) && galaxyKnown(p));
+  let form;
+  if (!elig.length) {
+    form = `<div class="card"><h4>📜 Commission a mandate</h4><div class="hint">No crew is free to take a contract right now — raise standing with a band (and make sure it isn't already busy, summoned, or on another mandate).</div></div>`;
+  } else {
+    const b = bandById(f.band);
+    const bandOpts = elig.map(x => `<option value="${x.id}" ${x.id === f.band ? "selected" : ""}>${x.ico} ${x.name} · L${x.level} · ${bandTier(x).label}</option>`).join("");
+    const planetOpts = known.map(p => `<option value="${p.id}" ${p.id === f.planet ? "selected" : ""}>${p.name}${p.id === S.location ? " (here)" : ""} · ${pirateLevelLabel(pirateLevel(p.id))}</option>`).join("");
+    const taskBtns = Object.keys(MANDATE_TASKS).map(k => { const t = MANDATE_TASKS[k]; return `<button class="btn btn-sm ${f.task === k ? "btn-primary" : ""}" title="${t.blurb}" onclick="setMandateField('task','${k}')">${t.ico} ${t.name}</button>`; }).join(" ");
+    const durBtns = MANDATE_DURATIONS.map(d => `<button class="btn btn-sm ${f.dur === d ? "btn-primary" : ""}" onclick="setMandateField('dur','${d}')">${d} cyc</button>`).join(" ");
+    const t = MANDATE_TASKS[f.task];
+    const fee = mandateFee(b, f.planet, f.task, f.dur), est = mandateEstCut(b, f.planet, f.task, f.dur);
+    const afford = (S.res.credits || 0) >= fee;
+    form = `<div class="card"><h4>📜 Commission a mandate</h4>
+      <div class="hint">${t.blurb}</div>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;align-items:center">
+        <span class="hint">Crew</span><select onchange="setMandateField('band',this.value)">${bandOpts}</select>
+        <span class="hint">System</span><select onchange="setMandateField('planet',this.value)">${planetOpts}</select></div>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Task</span> ${taskBtns}</div>
+      <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Duration</span> ${durBtns}</div>
+      <div class="ship-stat" style="margin-top:8px"><span class="k">Fee (upfront)</span><span class="v" style="color:${afford ? "inherit" : "var(--bad)"}">${fmt(fee)} cr</span></div>
+      <div class="ship-stat"><span class="k">Your cut</span><span class="v">${Math.round(t.cut * 100)}% of the take · <span class="hint">est. ~${fmt(est)} cr over ${f.dur} cyc</span></span></div>
+      ${t.heat ? `<div class="hint" style="color:var(--bad)">⚠️ Piracy in your name — raises your Wanted and angers ${(PLANETS.find(p => p.id === f.planet) || {}).faction ? FACTIONS[(PLANETS.find(p => p.id === f.planet)).faction].name : "the locals"}.</div>` : `<div class="hint" style="color:var(--good)">Lawful work — suppresses pirate activity at the target.</div>`}
+      <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${afford ? "" : "disabled"} onclick="commissionMandate('${f.band}','${f.planet}','${f.task}',${f.dur})">📜 Commission (${fmt(fee)} cr)</button></div>
+    </div>`;
+  }
+  return `<div class="subtitle">Put a crew to work: send them to a system for a set run to <b>cull pirates</b>, <b>guard the lanes</b> or <b>prey on shipping</b>. You pay an upfront fee and take a cut of what they bring in. Lawful tasks thin out pirate activity there; raiding pays more but is piracy in your name.</div>
+    ${active ? `<div class="cards">${active}</div>` : '<div class="card"><div class="hint">No active mandates. Commission one below.</div></div>'}
+    ${form}`;
 }
 /* ---------- Generic in-panel sub-tabs ----------
    A lightweight tab strip inside a panel. View state is UI-only (not saved);
@@ -6172,7 +6317,7 @@ function subTabBar(panel, views) {
 }
 function setSubView(panel, v) {
   subViews[panel] = v;
-  ({ ship: renderShipPanel, research: renderResearch, industry: renderIndustry, colonies: renderColonies, bases: renderBases }[panel] || renderAll)();
+  ({ ship: renderShipPanel, research: renderResearch, industry: renderIndustry, colonies: renderColonies, bases: renderBases, contacts: renderContacts }[panel] || renderAll)();
 }
 
 // Ship outfitting grouped into focused bays
@@ -7581,7 +7726,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.26.1";
+const APP_VERSION = "2.27.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7653,7 +7798,7 @@ function helpHTML() {
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Set each vessel's <b>combat stance</b> — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to <b>3 levels of fit</b> for it, paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
-      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. Friendlier bands take a smaller loot cut, hire cheaper &amp; more loyally, and answer calls readily. Appears once you've crossed a pirate band.</li>
+      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe). You pay a fee up front and bank a cut of the take when the run ends. Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules. A compact readout of your active <b>✨ Fortunes</b> and <b>📡 signals</b> also shows in the sidebar; manage them in full on the ✨ Fortunes tab.</li>
     </ul>
 
@@ -7942,6 +8087,7 @@ function init() {
   if (!Array.isArray(S.signals)) S.signals = [];   // backfill discoverable signals
   if (!S.fxSeen) S.fxSeen = {};                     // backfill Fortunes almanac
   if (!S.fxMastery) S.fxMastery = {};               // backfill almanac mastery
+  if (!Array.isArray(S.mandates)) S.mandates = [];   // backfill pirate mandates
   if (S.escort && Array.isArray(S.escort.fleet)) S.escort.fleet.forEach(sh => { if (!sh.fit) sh.fit = { aggressive: 0, balanced: 0, defensive: 0 }; if (!sh.stance) sh.stance = "balanced"; });   // migrate old outfit fleets to stance/fit
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
@@ -8032,6 +8178,7 @@ Object.assign(window, {
   prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSummonOnCall, repairShip,
   clearFx, investigateSignal, buySignalScan,
   setBandTag, callBandSupport, bandFollow, bandStandDown, escortRallyOnCall,
+  commissionMandate, cancelMandate, setMandateField,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,
