@@ -6370,7 +6370,7 @@ function renderContactsMandates() {
   } else {
     const b = bandById(f.band);
     const bandOpts = elig.map(x => `<option value="${x.id}" ${x.id === f.band ? "selected" : ""}>${x.ico} ${x.name} · L${x.level} · ${bandTier(x).label}</option>`).join("");
-    const planetOpts = known.map(p => `<option value="${p.id}" ${p.id === f.planet ? "selected" : ""}>${p.name}${p.id === S.location ? " (here)" : ""} · ${pirateLevelLabel(pirateLevel(p.id))}</option>`).join("");
+    const planetOpts = known.map(p => `<option value="${p.id}" ${p.id === f.planet ? "selected" : ""}>${p.name}${p.id === S.location ? " (here)" : ""} · ${pirateIntelKnows(p.id) ? pirateLevelLabel(pirateLevel(p.id)) : "activity ❔"}</option>`).join("");
     const taskBtns = Object.keys(MANDATE_TASKS).map(k => { const t = MANDATE_TASKS[k]; return `<button class="btn btn-sm ${f.task === k ? "btn-primary" : ""}" title="${t.blurb}" onclick="setMandateField('task','${k}')">${t.ico} ${t.name}</button>`; }).join(" ");
     const durBtns = MANDATE_DURATIONS.map(d => `<button class="btn btn-sm ${f.dur === d ? "btn-primary" : ""}" onclick="setMandateField('dur','${d}')">${d} cyc</button>`).join(" ");
     const t = MANDATE_TASKS[f.task];
@@ -6381,6 +6381,7 @@ function renderContactsMandates() {
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;align-items:center">
         <span class="hint">Crew</span><select onchange="setMandateField('band',this.value)">${bandOpts}</select>
         <span class="hint">System</span><select onchange="setMandateField('planet',this.value)">${planetOpts}</select></div>
+      <div class="hint" style="margin-top:4px">Pirate activity (❔) shows only for systems you hold current intel on — your current system, or worlds covered by a chart bought in the ⚔️ Raider tab.</div>
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Task</span> ${taskBtns}</div>
       <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Duration</span> ${durBtns}</div>
       <div class="ship-stat" style="margin-top:8px"><span class="k">Fee (upfront)</span><span class="v" style="color:${afford ? "inherit" : "var(--bad)"}">${fmt(fee)} cr</span></div>
@@ -7826,7 +7827,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.31.0";
+const APP_VERSION = "2.31.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {

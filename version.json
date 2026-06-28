@@ -1,5 +1,5 @@
 {
-  "version": "2.31.0",
+  "version": "2.31.1",
   "saveVersion": "v2",
-  "notes": "No more mystery credit changes. Several recurring flows used to move your balance each cycle while only logging occasionally (or not at all) — colony tax, colony export revenue, organization upkeep, haven tribute, and the UBI / monopoly-grant policies. They now all report into a single '💰 Cycle accounts' line at the end of every cycle that itemizes each source and the net, so every credit move is explained. (Trade-network, decree, logistics, mandate and commission income already logged their own lines.)"
+  "notes": "Mandate system picker now respects your pirate intel: a target world's pirate activity is shown only for systems you actually have current intel on — your current system, or worlds covered by a chart bought in the Raider tab. Other systems read 'activity ❔' until you scout them, matching how the Galaxy and Raider tabs already gate it."
 }

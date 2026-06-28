@@ -55,6 +55,10 @@ The Contacts panel is split via the shared `subTabBar` into **🤝 All contacts*
 **📍 Around here** (crews based in the current system + its pirate-activity meter),
 and **📜 Mandates**.
 
+- The commission form's system picker shows a world's **pirate activity only when
+  you hold current intel** on it (`pirateIntelKnows`: your current system, or a
+  world covered by a chart bought in the Raider tab) — otherwise `activity ❔`,
+  matching the Galaxy/Raid gating.
 - **Mandates** (`MANDATE_TASKS`, `S.mandates`): commission a band to work a chosen
   system for `MANDATE_DURATIONS` (3/6/9) cycles. Pay an upfront `mandateFee`
   (scales with band level, duration, distance, task `feeMul`, minus a standing
