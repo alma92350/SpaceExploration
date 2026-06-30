@@ -45,8 +45,19 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   (`pirateIntelKnows`). UI: dispatch card + per-ship mission status & recall in the
   Fleet tab. Exports added. Tests: `fleetmission.js`.
 
+## Slice 3 (shipped) — combat allies
+- **Raids**: `raidSummonFleet(shipId)` brings an idle warship in as a loyal ally
+  (`fleetAsAlly`, `share:0` — no loot cut). 100% callable (any prey, no distance/
+  odds); shares the 2-ally cap with band allies. `allyStrike` already handles a
+  band-less ally (fp 1.0). Buttons in `preyCombatCard` (pirate + faction prey).
+- **Escorts**: `escortRallyFleet(shipId)` adds a warship as a free `support` convoy
+  escort carrying `fleetId`; the ship is marked `status:"escort"`. It never deserts
+  (betrayal check skips `support`). `releaseFleetEscorts(e)` (called from
+  escortDeliver/abortEscort/escortFail) syncs the convoy ship's hull back to the
+  fleet ship, or removes it if it was destroyed.
+- A ship on a mission or escort can't be reassigned or scrapped. Exports added.
+  Tests: `fleetally.js`.
+
 ## Roadmap
-- **Slice 3 — Combat allies**: warships callable into raids & escorts as loyal,
-  free allies (no desertion, no cut).
 - **Slice 4 — Freight convoys**: freighters cut logistics/freight costs with
   piracy ambush risk, mitigated by escorting warships.
