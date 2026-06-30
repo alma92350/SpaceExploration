@@ -1,5 +1,5 @@
 {
-  "version": "2.32.0",
+  "version": "2.33.0",
   "saveVersion": "v2",
-  "notes": "Build your own fleet (slice 1). New 🏗️ Shipyard colony building (needs Metallurgy) and a dedicated ✦ Fleet tab. Construct your own ships — freighters (light → bulk hauler) to carry goods and warships (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can build and how many slipways run in parallel; ships cost credits and materials, take several cycles to construct, and draw upkeep each cycle (itemized in the Cycle accounts log). Repair or scrap ships at their home shipyard. These ships are loyal and fully yours — the next updates add fleet missions (100% of the take), calling them into your battles as loyal allies, and freight convoys."
+  "notes": "Fleet missions (slice 2). Dispatch your own warships to work a system — 🎯 cull pirates, 🛡️ guard the lanes, or 🏴 raid shipping — from the ✦ Fleet tab. Unlike hired pirate crews, these are your ships: no fee, and you keep 100% of the bounty/loot. The cost is upkeep plus combat wear — a ship takes hull damage each cycle scaled by the system's pirate activity, and a fragile hull pushed into an infested system can be lost (you still bank what it earned). Bigger hulls earn more and survive longer, so a battleship is the workhorse and a corvette is for soft targets. Raids honor your letter of marque, and you can recall a ship early to bank its take. (Calling ships into your own raids/escorts and freight convoys come next.)"
 }

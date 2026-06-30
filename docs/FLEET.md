@@ -30,10 +30,22 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
 - `fleetShipHullMax` / `fleetShipStr` derive from `SHIP_CLASSES` (warships) or
   cargo `cap` (freighters); `fleetShipUpkeep` scales with class str / capacity.
 
+## Slice 2 (shipped) — fleet missions
+- `assignFleetMission(shipId, planet, task, dur)` sends an **idle warship** to work
+  a system with the same `MANDATE_TASKS` (cull/protect/raid) as pirate mandates —
+  but **no fee** and **100% of the take** (`processFleet` mission loop credits
+  `mandateCycleYield` at full cut). Ship class → `shipMissionLevel` (corvette 2 …
+  battleship 5) drives yield; `fleetMissionEst` previews it.
+- **Risk** instead of a cut: `fleetMissionDamage` wears the hull each cycle by
+  pirate activity / class hull (protect ×0.35); a hull that hits 0 is **lost**
+  (you still bank what it earned). Upkeep keeps running. Raids honor the
+  letter-of-marque Wanted exemption (`commissionCovers`).
+- `recallFleetMission` ends early and banks the accrued take. A ship on mission
+  can't be reassigned or scrapped. Activity in the dispatch picker is intel-gated
+  (`pirateIntelKnows`). UI: dispatch card + per-ship mission status & recall in the
+  Fleet tab. Exports added. Tests: `fleetmission.js`.
+
 ## Roadmap
-- **Slice 2 — Fleet missions**: assign warships to system mandates (cull/protect/
-  raid) at **100% of the take** + upkeep instead of a fee (extends the mandate
-  engine; ship class drives yield).
 - **Slice 3 — Combat allies**: warships callable into raids & escorts as loyal,
   free allies (no desertion, no cut).
 - **Slice 4 — Freight convoys**: freighters cut logistics/freight costs with
