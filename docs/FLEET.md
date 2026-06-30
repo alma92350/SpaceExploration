@@ -58,6 +58,19 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
 - A ship on a mission or escort can't be reassigned or scrapped. Exports added.
   Tests: `fleetally.js`.
 
-## Roadmap
-- **Slice 4 — Freight convoys**: freighters cut logistics/freight costs with
-  piracy ambush risk, mitigated by escorting warships.
+## Slice 4 (shipped) — freight convoys
+- `assignLogistics(shipId, planetId)` stations an idle ship at one of your colonies
+  (`status:"logistics"`, `station`). Freighters there **haul its goods**; warships
+  there **guard the convoys**. `recallLogistics` frees them.
+- **Transport savings**: `colonyHaulDiscount` (stationed freighter capacity) cuts
+  the colony's `logisticsFee` (cheaper market imports); `colonyFreightMult` cuts
+  its base↔colony freight in both trade passes. Bigger freighters → bigger cut.
+- **Piracy risk**: `processConvoys` (in `processFleet`) — each cycle a stationed
+  hauler in a pirate-active system can be **ambushed** (hull damage + a credit
+  loss ledgered as "convoy losses"; hull 0 → lost). Stationed **warship guards**
+  cut the ambush chance (~×0.45 each) and the damage.
+- A ship on logistics duty can't be reassigned or scrapped. UI: a Logistics-duty
+  card (colony picker + assign hauler/guard + savings & risk readout) and station
+  status in the roster. Exports added. Tests: `fleetlogi.js`.
+
+This completes the player fleet: build → mission → ally → haul.

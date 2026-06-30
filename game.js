@@ -4152,7 +4152,7 @@ function processBaseTrade() {
         b.storage[c] -= move;
         if (tradeSeizeCheck(c, bid, cid)) { tradeFine(c, move); return; }
         col.storage[c] = (col.storage[c] || 0) + move;
-        _trade.freight += Math.ceil(dist * move * FREIGHT_RATE * tariff);
+        _trade.freight += Math.ceil(dist * move * FREIGHT_RATE * tariff * colonyFreightMult(cid));
         _trade.exp[c] = (_trade.exp[c] || 0) + move; _trade.exportedVal += move * COM[c].base;
       });
     });
@@ -4179,7 +4179,7 @@ function runBaseImport(col, cid, cp) {
       col.storage[c] -= move;
       if (tradeSeizeCheck(c, bid, cid)) { tradeFine(c, move); return; }
       b.storage[c] = (b.storage[c] || 0) + move;
-      _trade.freight += Math.ceil(dist * move * FREIGHT_RATE * tariff);
+      _trade.freight += Math.ceil(dist * move * FREIGHT_RATE * tariff * colonyFreightMult(cid));
       _trade.imp[c] = (_trade.imp[c] || 0) + move; _trade.importedVal += move * COM[c].base;
     });
   });
@@ -4496,7 +4496,7 @@ function orderShip(shipKey) {
 function scrapShip(id) {
   const i = fleetList().findIndex(s => s.id === id); if (i < 0) return;
   const s = fleetList()[i], def = FLEET_SHIPS[s.key];
-  if (s.status === "mission" || s.status === "escort") return toast("That ship is on duty — recall it first.", "bad");
+  if (s.status === "mission" || s.status === "escort" || s.status === "logistics") return toast("That ship is on duty — recall it first.", "bad");
   const refund = def ? Math.round((def.cost.metals || 0) * 0.4) : 0;
   if (refund) S.res.metals = (S.res.metals || 0) + refund;
   fleetList().splice(i, 1);
@@ -4542,6 +4542,49 @@ function releaseFleetEscorts(e) {     // sync convoy support ships back to the f
     const s = fleetList().find(x => x.id === sh.fleetId); if (!s) return;
     if (!sh.alive) { s._dead = true; log(`💥 Your ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name} was lost defending the convoy.`, "bad"); }
     else { s.status = "idle"; s.hull = Math.max(1, Math.round(sh.hull)); }
+  });
+  if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
+}
+// ---- freight convoys: station freighters at a colony to cut its transport costs;
+// station warships there to guard them from pirate ambush ----
+function colonyPidOf(col) { if (!col || !S.colonies) return null; for (const k in S.colonies) if (S.colonies[k] === col) return k; return null; }
+function colonyHaulers(pid) { return fleetList().filter(s => s.status === "logistics" && s.station === pid && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter"); }
+function colonyGuards(pid) { return fleetList().filter(s => s.status === "logistics" && s.station === pid && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
+function colonyHaulCap(pid) { return colonyHaulers(pid).reduce((s, x) => s + (FLEET_SHIPS[x.key].cap || 0), 0); }
+function colonyHaulDiscount(pid) { return pid ? Math.min(0.18, colonyHaulCap(pid) * 0.00025) : 0; }    // cheaper market imports
+function colonyFreightMult(pid) { return 1 - Math.min(0.5, colonyHaulCap(pid) * 0.0005); }              // cheaper base↔colony freight
+function assignLogistics(shipId, planetId) {
+  const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
+  if (!s || !def) return;
+  if (s.status !== "idle") return toast(`The ${s.name} isn't free.`, "bad");
+  if (!S.colonies || !S.colonies[planetId]) return toast("Pick one of your colonies.", "bad");
+  s.status = "logistics"; s.station = planetId;
+  const role = def.role === "freighter" ? "haul for" : "guard the convoys at";
+  log(`🚚 Your ${def.ico} ${s.name} is assigned to ${role} ${mdPlanetName(planetId)}.`, "event");
+  toast(`${s.name} → ${mdPlanetName(planetId)}`, "good"); sfx("event"); saveGame(); renderAll();
+}
+function recallLogistics(shipId) {
+  const s = fleetList().find(x => x.id === shipId); if (!s || s.status !== "logistics") return;
+  s.status = "idle"; s.station = null;
+  log(`🚚 Recalled your ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name} from logistics duty.`, "");
+  toast(`${s.name} recalled`, ""); saveGame(); renderAll();
+}
+function processConvoys() {       // pirate ambushes on your stationed freighters (guards cut the risk & damage)
+  const stations = {};
+  fleetList().forEach(s => { if (s.status === "logistics" && s.station) stations[s.station] = true; });
+  Object.keys(stations).forEach(pid => {
+    const haulers = colonyHaulers(pid); if (!haulers.length) return;
+    const plv = pirateLevel(pid); if (plv <= 0) return;
+    const guards = colonyGuards(pid).length;
+    const chance = (0.05 + plv * 0.04) * Math.pow(0.45, guards);
+    if (Math.random() >= chance) return;
+    const f = pick(haulers), name = mdPlanetName(pid);
+    const dmg = Math.round(plv * 6 * (0.5 + Math.random()) / (1 + guards));
+    const loss = Math.min(S.res.credits || 0, Math.round(plv * 40 * (0.5 + Math.random()) / (1 + guards)));
+    f.hull = Math.max(0, f.hull - dmg);
+    if (loss > 0) { S.res.credits -= loss; if (typeof cycleLedger === "function") cycleLedger("convoy losses", -loss); }
+    if (f.hull <= 0) { f._dead = true; log(`💥 Pirates destroyed your ${(FLEET_SHIPS[f.key] || {}).ico || ""} ${f.name} hauling for ${name}.`, "bad"); if (typeof toast === "function") toast(`${f.name} lost to pirates!`, "bad"); }
+    else log(`🏴‍☠️ Pirates ambushed your convoy at ${name} — ${f.name} took ${dmg} damage${loss ? ` and lost ${fmt(loss)} cr of goods` : ""}${guards ? " (your guards drove them off)" : " — assign a warship to guard it"}.`, "bad");
   });
   if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
 }
@@ -4607,11 +4650,14 @@ function processFleet() {
     }
   });
   if (f.some(s => s._dead)) S.fleet = f.filter(s => !s._dead);
+  processConvoys();
   const up = fleetUpkeep();
   if (up > 0) { const paid = Math.min(S.res.credits || 0, up); S.res.credits -= paid; if (typeof cycleLedger === "function") cycleLedger("fleet upkeep", -paid); if (paid < up) log(`⚠️ You couldn't fully cover fleet upkeep (${fmt(up)} cr) — crews grumble.`, "bad"); }
 }
 let fleetMissionForm = { ship: null, planet: null, task: "cull", dur: 6 };
 function setFleetMissionField(k, v) { fleetMissionForm[k] = (k === "dur") ? (parseInt(v, 10) || 6) : v; renderFleet(); }
+let fleetLogiForm = { planet: null };
+function setFleetLogiField(k, v) { fleetLogiForm[k] = v; renderFleet(); }
 function renderFleet() {
   const el = (typeof document !== "undefined") && document.getElementById("panel-fleet"); if (!el) return;
   const f = fleetList(), pid = S.location, col = S.colonies && S.colonies[pid], yard = colonyShipyardTier(pid);
@@ -4619,13 +4665,16 @@ function renderFleet() {
   const shipRow = s => {
     const def = FLEET_SHIPS[s.key]; if (!def) return "";
     const homeName = (PLANETS.find(p => p.id === s.home) || {}).name || "—", here = s.home === pid && yard > 0, rc = fleetRepairCost(s);
-    const onMission = s.status === "mission" && s.mission;
+    const onMission = s.status === "mission" && s.mission, onLogi = s.status === "logistics";
     const status = s.status === "building" ? `<span style="color:var(--warn)">🏗️ building (${s.buildLeft} cyc)</span>`
       : onMission ? `<span style="color:var(--accent)">🎯 ${MANDATE_TASKS[s.mission.task].name} @ ${mdPlanetName(s.mission.planet)} (${s.mission.cyclesLeft} cyc · +${fmt(s.mission.accrued)} cr)</span>`
+      : s.status === "escort" ? `<span style="color:var(--accent)">🛡️ escorting a convoy</span>`
+      : onLogi ? `<span style="color:var(--accent)">${def.role === "freighter" ? "🚚 hauling for" : "🛡️ guarding"} ${mdPlanetName(s.station)}</span>`
       : `<span style="color:var(--good)">idle</span>`;
     const repBtn = (s.status === "idle" && rc.miss > 0 && here) ? `<button class="btn btn-sm" title="Repair at home shipyard" onclick="repairFleetShip('${s.id}')">🔧 ${fmt(rc.credits)}</button>` : "";
     const ctlBtn = onMission ? `<button class="btn btn-sm" title="Recall — bank what it's earned" onclick="recallFleetMission('${s.id}')">↩ Recall</button>`
-      : s.status === "building" ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvage some metals)" onclick="scrapShip('${s.id}')">♻️</button>`;
+      : onLogi ? `<button class="btn btn-sm" title="Recall from logistics duty" onclick="recallLogistics('${s.id}')">↩ Recall</button>`
+      : s.status === "building" || s.status === "escort" ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvage some metals)" onclick="scrapShip('${s.id}')">♻️</button>`;
     const spec = def.role === "warship" ? `🔥${fleetShipStr(def)} · 🛡️${s.hullMax}` : `📦${def.cap} cargo`;
     return `<div class="ship-stat" style="align-items:center">
       <span class="k">${def.ico} ${s.name} <span class="hint">${SHIP_CLASSES[def.cls].name} · ${spec} · ⚓ ${homeName}</span></span>
@@ -4678,10 +4727,34 @@ function renderFleet() {
       <div class="row" style="margin-top:8px"><button class="btn btn-primary" onclick="assignFleetMission('${fm.ship}','${fm.planet}','${fm.task}',${fm.dur})">🎯 Dispatch (${fm.dur} cyc)</button></div>
     </div>`;
   }
+  // ---- logistics duty: station freighters (cheaper transport) + warship guards (cut ambush risk) ----
+  const myCols = Object.keys(S.colonies || {});
+  let logiCard = "";
+  if (myCols.length) {
+    const lf = fleetLogiForm; if (!lf.planet || !S.colonies[lf.planet]) lf.planet = myCols[0];
+    const colOpts = myCols.map(cid => `<option value="${cid}" ${cid === lf.planet ? "selected" : ""}>${mdPlanetName(cid)} · ${pirateIntelKnows(cid) ? pirateLevelLabel(pirateLevel(cid)) : "activity ❔"}</option>`).join("");
+    const feeDisc = Math.round(colonyHaulDiscount(lf.planet) * 100), frDisc = Math.round((1 - colonyFreightMult(lf.planet)) * 100);
+    const haulers = colonyHaulers(lf.planet), guards = colonyGuards(lf.planet), plv = pirateLevel(lf.planet);
+    const risk = haulers.length ? Math.round((0.05 + plv * 0.04) * Math.pow(0.45, guards.length) * 100) : 0;
+    const idleFr = f.filter(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
+    const idleWar = f.filter(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
+    const frBtns = idleFr.map(s => `<button class="btn btn-sm btn-good" onclick="assignLogistics('${s.id}','${lf.planet}')">🚚 ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
+    const warBtns = idleWar.map(s => `<button class="btn btn-sm" onclick="assignLogistics('${s.id}','${lf.planet}')">🛡️ ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
+    logiCard = `<div class="card"><h4>🚚 Logistics duty</h4>
+      <div class="hint">Station <b>freighters</b> at one of your colonies to haul its goods — cutting its market import fee and base↔colony freight. Pirate-active systems risk an <b>ambush</b> (your freighter takes damage and loses goods); station a <b>warship</b> there to guard the convoy and cut that risk. Activity shows for systems you hold intel on.</div>
+      <div class="row" style="margin-top:8px;align-items:center"><span class="hint">Colony</span> <select onchange="setFleetLogiField('planet',this.value)">${colOpts}</select></div>
+      <div class="ship-stat" style="margin-top:6px"><span class="k">Stationed</span><span class="v">${haulers.length} hauler(s) · ${guards.length} guard(s)</span></div>
+      <div class="ship-stat"><span class="k">Transport savings</span><span class="v">−${feeDisc}% import fee · −${frDisc}% freight</span></div>
+      ${haulers.length ? `<div class="ship-stat"><span class="k">Ambush risk</span><span class="v" style="color:${risk >= 15 ? "var(--bad)" : risk > 0 ? "var(--warn)" : "var(--good)"}">${risk}%/cyc${guards.length ? " (guarded)" : plv > 0 ? " — unguarded!" : ""}</span></div>` : ""}
+      ${idleFr.length ? `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Assign hauler</span> ${frBtns}</div>` : ""}
+      ${idleWar.length ? `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Assign guard</span> ${warBtns}</div>` : ""}
+      ${!idleFr.length && !idleWar.length ? '<div class="hint" style="margin-top:6px">No idle ships to assign — build more, or recall some.</div>' : ""}</div>`;
+  }
   el.innerHTML = `<h2>✦ Fleet</h2>
-    <div class="subtitle">Your own ships, built at colony shipyards — loyal and fully under your command. <b>Freighters</b> to haul your goods, <b>warships</b> to fight or work systems on contract. They cost credits &amp; materials to build and draw upkeep each cycle (see the 💰 Cycle accounts log). Dispatch a warship on a system mission below — unlike hired pirates, <b>you keep 100%</b> of what it brings in. (Calling ships into your own battles &amp; freight convoys come next.)</div>
+    <div class="subtitle">Your own ships, built at colony shipyards — loyal and fully under your command. <b>Freighters</b> to haul your goods, <b>warships</b> to fight or work systems on contract. They cost credits &amp; materials to build and draw upkeep each cycle (see the 💰 Cycle accounts log). Dispatch a warship on a system mission (you keep <b>100%</b>), call ships into your raids/escorts, or station freighters on logistics duty to cut transport costs.</div>
     ${roster}
     ${missionCard}
+    ${logiCard}
     ${yardCard}`;
 }
 function setTax(delta) {
@@ -4885,6 +4958,7 @@ function colonyNetworked(col) { return spaceportTier(col) > 0; }
 function logisticsFee(col) {
   let fee = 0.30 - spaceportTier(col) * 0.05;
   if (col.faction) fee -= col.faction === "frontier" ? 0.15 : 0.10;   // bloc trade routes
+  fee -= colonyHaulDiscount(colonyPidOf(col));                        // your own freighters haul it cheaper
   return Math.max(col.faction ? 0.05 : 0.10, fee);
 }
 function logisticsCap(col) { return spaceportTier(col) * 40; }  // throughput per commodity per cycle
@@ -8080,7 +8154,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.34.0";
+const APP_VERSION = "2.35.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8150,7 +8224,7 @@ function helpHTML() {
       <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law.</li>
       <li>🏗️ <b>Bases</b> — automated off-world production. Build a <b>⛽ Fuel Refinery</b> (any base, 5 tiers) to crack stored 🧊 ice into fuel each cycle, and route fuel through the base↔colony trade network (import/export it like any good).</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains, including a <b>⛽ Fuel Refinery</b> (ice + energy → fuel) and a <b>🏗️ Shipyard</b> (needs Metallurgy) that lets you build your own ships. Order in ice, export the fuel — fuel is now a tradeable part of the economy: buy/sell it at ports, stock it in bases &amp; colonies, and ship it across your network.</li>
-      <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. <b>Dispatch a warship on a mission</b> (🎯 cull / 🛡️ guard / 🏴 raid a system) and — unlike hired pirates — <b>you keep 100%</b> of the bounty/loot, paying no fee; the risk is combat wear (a fragile hull in an infested system can be lost) and ongoing upkeep. You can also <b>call idle warships into your own raids</b> (loyal allies that take <b>no loot cut</b>) and <b>assign them to escort your convoys</b> for free — they never desert, and any damage they take comes back to your fleet. Loyal and fully yours — freight convoys come next.</li>
+      <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. <b>Dispatch a warship on a mission</b> (🎯 cull / 🛡️ guard / 🏴 raid a system) and — unlike hired pirates — <b>you keep 100%</b> of the bounty/loot, paying no fee; the risk is combat wear (a fragile hull in an infested system can be lost) and ongoing upkeep. You can also <b>call idle warships into your own raids</b> (loyal allies that take <b>no loot cut</b>) and <b>assign them to escort your convoys</b> for free — they never desert, and any damage they take comes back to your fleet. <b>Station freighters at a colony</b> on logistics duty to haul its goods — cutting its market import fee and base↔colony freight — and <b>station a warship there to guard them</b>, since unguarded convoys in pirate-active systems get ambushed (damage &amp; lost goods, and a fragile hauler can be sunk). Loyal and fully yours.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Set each vessel's <b>combat stance</b> — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to <b>3 levels of fit</b> for it, paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
       <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Some crews hold <b>blood feuds</b> and won't serve alongside their rival — you can settle it: a cheap <b>🕊️ Truce</b> sets the feud aside for a few cycles so they'll serve together for now, or a full <b>🤝 Broker peace</b> ends it for good (the fee scales with the feud's depth and eases with your standing &amp; Dread). Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
@@ -8536,6 +8610,7 @@ Object.assign(window, {
   setBandTag, callBandSupport, bandFollow, bandStandDown, escortRallyOnCall,
   commissionMandate, cancelMandate, setMandateField, reconcileBands, brokerTruce,
   orderShip, scrapShip, repairFleetShip, assignFleetMission, recallFleetMission, setFleetMissionField, raidSummonFleet, escortRallyFleet,
+  assignLogistics, recallLogistics, setFleetLogiField,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,

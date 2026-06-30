@@ -1,5 +1,5 @@
 {
-  "version": "2.34.0",
+  "version": "2.35.0",
   "saveVersion": "v2",
-  "notes": "Fleet combat allies (slice 3). Your own warships can now fight alongside you. In a raid, call an idle warship into the fight as a loyal ally that takes NO loot cut — 100% callable, any target. In an escort, assign warships to your convoy for free; they never desert, and any damage they take (or a loss) carries back to your fleet when the run ends. Ships on a mission or escort can't be reassigned or scrapped until you bring them home. Build a navy and it finally fights at your side."
+  "notes": "Freight convoys (slice 4) — completes the player fleet. Station your freighters at a colony on logistics duty to haul its goods: it lowers that colony's market import fee and its base↔colony freight (bigger freighters save more). But a convoy in a pirate-active system risks ambush each cycle — your freighter takes damage and loses goods, and a fragile hauler can be sunk. Station a warship at the same colony to guard the convoys, cutting the ambush chance and the damage. Convoy losses are itemized in the Cycle accounts log. Build → mission → ally → haul: your navy and merchant marine are complete."
 }
