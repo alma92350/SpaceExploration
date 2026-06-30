@@ -822,6 +822,8 @@ function colonyBuildingList(planet) {
       desc: "Boosts colony trade liquidity and tax revenue." },
     { id: "garrison",  name: "Garrison",        ico: "🛡️", tiers: 5, baseCost: 3500, costMul: 1.7,
       defense: 1, desc: "Planetary defenses. Repels pirate raids and keeps order during unrest." },
+    { id: "shipyard",  name: "Shipyard",        ico: "🏗️", tiers: 4, baseCost: 5000, costMul: 1.8, req: "metallurgy",
+      desc: "Builds your own ships — freighters &amp; warships — in the ✦ Fleet tab. Higher tiers lay down bigger hulls (T1 corvette/light freighter → T4 battleship/bulk hauler) and add slipways for parallel builds." },
   ];
   Object.keys(planet.deposits || {}).forEach(c => {
     const meta = BASE_EXTRACTORS[c] || { name: "Extractor: " + COM[c].name, ico: COM[c].ico };
@@ -832,7 +834,7 @@ function colonyBuildingList(planet) {
 }
 function colonyBuildingMats(def, nextTier) {
   const mats = { metals: 10 + nextTier * 7 };
-  if (["factory", "lab", "spaceport", "garrison", "reactor", "foundry", "fabricator",
+  if (["factory", "lab", "spaceport", "garrison", "shipyard", "reactor", "foundry", "fabricator",
        "machine_works", "luxury_atelier", "pharma_lab", "arms_factory", "antimatter_forge",
        "drone_works", "datacenter"].includes(def.id)
       || ADVANCED_MODULES.includes(def.id))
@@ -933,6 +935,7 @@ function freshState(opts = {}) {
     fxSeen: {},                 // Fortunes almanac: which effects you've experienced
     fxMastery: {},              // domains fully catalogued → permanent passive bonuses
     mandates: [],               // active pirate mandates: [{ id, bandId, planet, task, cyclesLeft, ... }]
+    fleet: [],                  // your own ships built at colony shipyards: [{ id, key, home, status, hull, ... }]
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
@@ -4445,6 +4448,115 @@ function buildColonyBuilding(buildingId) {
   toast(`${def.name} → Tier ${tier + 1}`, "good");
   afterAction();
 }
+/* ============================================================
+   PLAYER FLEET — ships built at colony shipyards (freighters & warships).
+   Slice 1: tier-gated timed construction, roster, upkeep, repair, scrap.
+   Missions / combat allies / freight convoys land in later slices.
+   ============================================================ */
+const FLEET_HULL_BASE = 52, FLEET_FP_BASE = 15;
+const FLEET_SHIPS = {
+  // ---- civil freighters (cargo capacity; weak guns) ----
+  light_freighter: { role: "freighter", cls: "corvette",   name: "Light Freighter",  ico: "🚚", tier: 1, build: 2, cap: 120, cost: { credits: 2500,  metals: 30 } },
+  med_freighter:   { role: "freighter", cls: "frigate",    name: "Medium Freighter", ico: "🚛", tier: 2, build: 3, cap: 240, cost: { credits: 5000,  metals: 60,  electronics: 6 } },
+  heavy_freighter: { role: "freighter", cls: "cruiser",    name: "Heavy Freighter",  ico: "🚍", tier: 3, build: 5, cap: 420, cost: { credits: 9000,  metals: 110, electronics: 14 } },
+  bulk_freighter:  { role: "freighter", cls: "battleship", name: "Bulk Hauler",      ico: "🛳️", tier: 4, build: 7, cap: 700, cost: { credits: 16000, metals: 200, alloys: 20, electronics: 24 } },
+  // ---- warships (defense; combat stats from SHIP_CLASSES) ----
+  corvette:   { role: "warship", cls: "corvette",   name: "Corvette",   ico: "🚤", tier: 1, build: 2, cost: { credits: 3500,  metals: 40,  electronics: 6 } },
+  frigate:    { role: "warship", cls: "frigate",    name: "Frigate",    ico: "🚢", tier: 2, build: 3, cost: { credits: 7000,  metals: 80,  electronics: 14 } },
+  cruiser:    { role: "warship", cls: "cruiser",    name: "Cruiser",    ico: "🛡️", tier: 3, build: 5, cost: { credits: 13000, metals: 150, alloys: 18, electronics: 26 } },
+  battleship: { role: "warship", cls: "battleship", name: "Battleship", ico: "⚔️", tier: 4, build: 8, cost: { credits: 26000, metals: 280, alloys: 40, electronics: 50 } },
+};
+const FLEET_SHIP_KEYS = Object.keys(FLEET_SHIPS);
+function fleetList() { if (!Array.isArray(S.fleet)) S.fleet = []; return S.fleet; }
+function fleetShipHullMax(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return def.role === "freighter" ? Math.round(FLEET_HULL_BASE * 0.7 + (def.cap || 0) * 0.08) : Math.round(FLEET_HULL_BASE * c.hull); }
+function fleetShipStr(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return def.role === "freighter" ? Math.round(FLEET_FP_BASE * c.str * 0.35) : Math.round(FLEET_FP_BASE * c.str); }
+function fleetShipUpkeep(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return def.role === "freighter" ? Math.round(15 + (def.cap || 0) * 0.06) : Math.round(40 * c.str); }
+function fleetUpkeep() { return fleetList().filter(s => s.status !== "building").reduce((sum, s) => sum + (FLEET_SHIPS[s.key] ? fleetShipUpkeep(FLEET_SHIPS[s.key]) : 0), 0); }
+function colonyShipyardTier(pid) { const col = S.colonies && S.colonies[pid]; return (col && col.buildings && col.buildings.shipyard) || 0; }
+function fleetBuildingAt(pid) { return fleetList().filter(s => s.home === pid && s.status === "building").length; }
+function fleetNameFor(def, key) { const n = fleetList().filter(s => s.key === key).length + 1; return `${def.name} ${n}`; }
+function fleetMatsOf(def) { const m = {}; Object.keys(def.cost).forEach(k => { if (k !== "credits") m[k] = def.cost[k]; }); return m; }
+function orderShip(shipKey) {
+  const pid = S.location, col = S.colonies && S.colonies[pid];
+  if (!col) return toast("No colony here.", "bad");
+  const def = FLEET_SHIPS[shipKey]; if (!def) return;
+  const yard = colonyShipyardTier(pid);
+  if (yard <= 0) return toast("This colony has no Shipyard — build one in the Colonies tab.", "bad");
+  if (def.tier > yard) return toast(`A Tier ${def.tier} Shipyard is needed to lay down a ${def.name}.`, "bad");
+  if (fleetBuildingAt(pid) >= yard) return toast(`All ${yard} slipway(s) here are busy — wait for a hull to launch.`, "bad");
+  if ((S.res.credits || 0) < def.cost.credits) return toast(`A ${def.name} costs ${fmt(def.cost.credits)} cr.`, "bad");
+  const mats = fleetMatsOf(def);
+  if (!canAfford(mats)) return toast("Need materials in your hold: " + Object.keys(mats).map(c => `${mats[c]} ${COM[c].name}`).join(", ") + ".", "bad");
+  S.res.credits -= def.cost.credits; pay(mats);
+  const hm = fleetShipHullMax(def);
+  fleetList().push({ id: "sh" + S.turn + "_" + Math.floor(Math.random() * 1e4), key: shipKey, name: fleetNameFor(def, shipKey), home: pid, status: "building", buildLeft: def.build, hull: hm, hullMax: hm });
+  log(`🏗️ Laid down a ${def.ico} ${def.name} at ${currentPlanet().name} — ${def.build} cycles to launch.`, "event");
+  toast(`${def.name} under construction`, "good"); sfx("event"); saveGame(); renderAll();
+}
+function scrapShip(id) {
+  const i = fleetList().findIndex(s => s.id === id); if (i < 0) return;
+  const s = fleetList()[i], def = FLEET_SHIPS[s.key];
+  const refund = def ? Math.round((def.cost.metals || 0) * 0.4) : 0;
+  if (refund) S.res.metals = (S.res.metals || 0) + refund;
+  fleetList().splice(i, 1);
+  log(`♻️ Scrapped the ${def ? def.ico + " " + s.name : s.name}${refund ? ` — salvaged ${refund} ⛓️ metals` : ""}.`, "");
+  toast("Ship scrapped", ""); saveGame(); renderAll();
+}
+function fleetRepairCost(s) { const miss = (s.hullMax || 0) - (s.hull || 0); return { miss, credits: Math.round(miss * 9), metals: Math.ceil(miss / 12) }; }
+function repairFleetShip(id) {
+  const s = fleetList().find(x => x.id === id); if (!s || s.status === "building") return;
+  if (colonyShipyardTier(S.location) <= 0 || s.home !== S.location) return toast("Repair at the ship's home shipyard.", "bad");
+  const c = fleetRepairCost(s); if (c.miss <= 0) return toast("That ship is already sound.", "bad");
+  if ((S.res.credits || 0) < c.credits || (S.res.metals || 0) < c.metals) return toast(`Repair needs ${fmt(c.credits)} cr · ${c.metals} ⛓️.`, "bad");
+  S.res.credits -= c.credits; S.res.metals -= c.metals; s.hull = s.hullMax;
+  log(`🔧 Repaired the ${s.name} for ${fmt(c.credits)} cr.`, "good"); toast("Ship repaired", "good"); sfx("repair"); saveGame(); renderAll();
+}
+function processFleet() {
+  const f = fleetList(); if (!f.length) return;
+  f.forEach(s => { if (s.status === "building" && --s.buildLeft <= 0) { s.status = "idle"; s.buildLeft = 0; const def = FLEET_SHIPS[s.key]; log(`✅ The ${def ? def.ico + " " + s.name : s.name} launched from ${(PLANETS.find(p => p.id === s.home) || {}).name || "the yard"} — ready for orders.`, "good"); } });
+  const up = fleetUpkeep();
+  if (up > 0) { const paid = Math.min(S.res.credits || 0, up); S.res.credits -= paid; if (typeof cycleLedger === "function") cycleLedger("fleet upkeep", -paid); if (paid < up) log(`⚠️ You couldn't fully cover fleet upkeep (${fmt(up)} cr) — crews grumble.`, "bad"); }
+}
+function renderFleet() {
+  const el = (typeof document !== "undefined") && document.getElementById("panel-fleet"); if (!el) return;
+  const f = fleetList(), pid = S.location, col = S.colonies && S.colonies[pid], yard = colonyShipyardTier(pid);
+  const bar = (h, m) => { const pct = Math.max(0, Math.round(h / m * 100)), col2 = pct >= 60 ? "var(--good)" : pct >= 30 ? "var(--warn)" : "var(--bad)"; return `<div class="bar"><span style="width:${pct}%;background:${col2}"></span></div>`; };
+  const shipRow = s => {
+    const def = FLEET_SHIPS[s.key]; if (!def) return "";
+    const homeName = (PLANETS.find(p => p.id === s.home) || {}).name || "—", here = s.home === pid && yard > 0, rc = fleetRepairCost(s);
+    const status = s.status === "building" ? `<span style="color:var(--warn)">🏗️ building (${s.buildLeft} cyc)</span>` : `<span style="color:var(--good)">idle</span>`;
+    const repBtn = (s.status !== "building" && rc.miss > 0 && here) ? `<button class="btn btn-sm" title="Repair at home shipyard" onclick="repairFleetShip('${s.id}')">🔧 ${fmt(rc.credits)}</button>` : "";
+    const scrapBtn = s.status === "building" ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvage some metals)" onclick="scrapShip('${s.id}')">♻️</button>`;
+    const spec = def.role === "warship" ? `🔥${fleetShipStr(def)} · 🛡️${s.hullMax}` : `📦${def.cap} cargo`;
+    return `<div class="ship-stat" style="align-items:center">
+      <span class="k">${def.ico} ${s.name} <span class="hint">${SHIP_CLASSES[def.cls].name} · ${spec} · ⚓ ${homeName}</span></span>
+      <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${scrapBtn}</span></div>`;
+  };
+  const warships = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
+  const freighters = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
+  const roster = `<div class="card"><h4>✦ Your Fleet <span class="hint">${f.length} ship(s) · upkeep ${fmt(fleetUpkeep())} cr/cyc</span></h4>
+    ${f.length ? `${warships.length ? `<div class="ship-stat"><span class="k">⚔️ Warships</span></div>${warships.map(shipRow).join("")}` : ""}${freighters.length ? `<div class="ship-stat" style="margin-top:6px"><span class="k">🚚 Freighters</span></div>${freighters.map(shipRow).join("")}` : ""}` : '<div class="hint">No ships yet — lay down a hull at a colony Shipyard below.</div>'}</div>`;
+  let yardCard;
+  if (!col) yardCard = `<div class="card"><div class="hint">🏗️ Dock at one of your colonies with a <b>Shipyard</b> to build ships. (Build a Shipyard in the 🌍 Colonies tab — it needs Metallurgy.)</div></div>`;
+  else if (yard <= 0) yardCard = `<div class="card"><div class="hint">${currentPlanet().name} has no <b>Shipyard</b>. Build one in the 🌍 Colonies tab (needs Metallurgy) to construct ships here.</div></div>`;
+  else {
+    const slips = fleetBuildingAt(pid);
+    const rows = FLEET_SHIP_KEYS.filter(k => FLEET_SHIPS[k].tier <= yard).map(k => {
+      const d = FLEET_SHIPS[k], mats = fleetMatsOf(d), matStr = Object.keys(mats).map(x => `${mats[x]}${COM[x].ico}`).join(" ");
+      const ok = (S.res.credits || 0) >= d.cost.credits && canAfford(mats) && slips < yard;
+      const spec = d.role === "warship" ? `🔥${fleetShipStr(d)} · 🛡️${fleetShipHullMax(d)}` : `📦${d.cap}`;
+      return `<div class="ship-stat" style="align-items:center"><span class="k">${d.ico} ${d.name} <span class="hint">${spec} · ⏱️${d.build} cyc · T${d.tier}</span></span>
+        <span class="v"><span class="hint">${fmt(d.cost.credits)} cr ${matStr}</span> <button class="btn btn-sm ${ok ? "btn-good" : ""}" ${ok ? "" : "disabled"} title="${slips >= yard ? "All slipways busy" : ""}" onclick="orderShip('${k}')">Build</button></span></div>`;
+    }).join("");
+    yardCard = `<div class="card"><h4>🏗️ ${currentPlanet().name} Shipyard <span class="hint">Tier ${yard} · slipways ${slips}/${yard}</span></h4>
+      <div class="hint">Lay down hulls up to Tier ${yard}; construction takes several cycles and materials come from your hold. A bigger yard adds slipways for parallel builds (upgrade it in the 🌍 Colonies tab).</div>
+      ${rows}</div>`;
+  }
+  el.innerHTML = `<h2>✦ Fleet</h2>
+    <div class="subtitle">Your own ships, built at colony shipyards — loyal and fully under your command. <b>Freighters</b> to haul your goods, <b>warships</b> to fight at your side or work systems on contract. They cost credits &amp; materials to build and draw upkeep each cycle (see the 💰 Cycle accounts log). Missions, combat &amp; convoys arrive in upcoming updates.</div>
+    ${roster}
+    ${yardCard}`;
+}
 function setTax(delta) {
   const col = S.colonies[S.location];
   if (!col) return;
@@ -5147,6 +5259,7 @@ function endTurn(fromTravel = false) {
   if (typeof processBandSupport === "function") processBandSupport();
   if (typeof processMandates === "function") processMandates();
   if (typeof processTruces === "function") processTruces();
+  if (typeof processFleet === "function") processFleet();
   reportCycleLedger();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
@@ -7700,7 +7813,7 @@ function renderAll() {
   if (typeof document === "undefined") return;
   checkUnlocks(); checkDisclosure(); applyTabVisibility();
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
-  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderEscort(); renderContacts(); renderShipPanel(); renderFortunesPanel(); renderLog();
+  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderEscort(); renderContacts(); renderShipPanel(); renderFortunesPanel(); renderFleet(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
 }
 
@@ -7735,6 +7848,8 @@ const TAB_LADDER = [
     hint: "Unlocks once you're an established trader (50,000 cr in sales) — or you gain influence/office", test: s => (s.res.influence || 0) > 0 || s.office > 0 || (s.orgs && s.orgs.party) || (s.stats && s.stats.sales >= 50000) || s.turn >= 85 },
   { id: "colonies",  blurb: "found and grow your own worlds",
     hint: "Unlocks with the Colonial Charter (Research)", test: s => !!s.techs.colonial || currentPlanet().colonizable || Object.keys(s.colonies || {}).length > 0 },
+  { id: "fleet",     blurb: "build your own ships at colony shipyards",
+    hint: "Unlocks once you have a colony (build a Shipyard there)", test: s => Object.keys(s.colonies || {}).length > 0 || (Array.isArray(s.fleet) && s.fleet.length > 0) },
 ];
 const RAW_IDS = ["ore", "crystals", "radioactives", "ice", "biomass", "spice", "gas", "relics"];
 function tabUnlocked(id) { return S.showAllTabs || ALWAYS_TABS.includes(id) || !!(S.unlocked && S.unlocked[id]); }
@@ -7827,7 +7942,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.31.1";
+const APP_VERSION = "2.32.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -7896,7 +8011,8 @@ function helpHTML() {
       <li>🎯 <b>Missions</b> — time-bound contracts, long-term career missions, and your legacy goals.</li>
       <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law.</li>
       <li>🏗️ <b>Bases</b> — automated off-world production. Build a <b>⛽ Fuel Refinery</b> (any base, 5 tiers) to crack stored 🧊 ice into fuel each cycle, and route fuel through the base↔colony trade network (import/export it like any good).</li>
-      <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains, including a <b>⛽ Fuel Refinery</b> (ice + energy → fuel). Order in ice, export the fuel — fuel is now a tradeable part of the economy: buy/sell it at ports, stock it in bases &amp; colonies, and ship it across your network.</li>
+      <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains, including a <b>⛽ Fuel Refinery</b> (ice + energy → fuel) and a <b>🏗️ Shipyard</b> (needs Metallurgy) that lets you build your own ships. Order in ice, export the fuel — fuel is now a tradeable part of the economy: buy/sell it at ports, stock it in bases &amp; colonies, and ship it across your network.</li>
+      <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. Loyal and fully yours — missions, combat &amp; freight convoys come next.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Set each vessel's <b>combat stance</b> — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to <b>3 levels of fit</b> for it, paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
       <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Some crews hold <b>blood feuds</b> and won't serve alongside their rival — you can settle it: a cheap <b>🕊️ Truce</b> sets the feud aside for a few cycles so they'll serve together for now, or a full <b>🤝 Broker peace</b> ends it for good (the fee scales with the feud's depth and eases with your standing &amp; Dread). Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
@@ -8189,6 +8305,7 @@ function init() {
   if (!S.fxSeen) S.fxSeen = {};                     // backfill Fortunes almanac
   if (!S.fxMastery) S.fxMastery = {};               // backfill almanac mastery
   if (!Array.isArray(S.mandates)) S.mandates = [];   // backfill pirate mandates
+  if (!Array.isArray(S.fleet)) S.fleet = [];         // backfill player fleet
   if (S.escort && Array.isArray(S.escort.fleet)) S.escort.fleet.forEach(sh => { if (!sh.fit) sh.fit = { aggressive: 0, balanced: 0, defensive: 0 }; if (!sh.stance) sh.stance = "balanced"; });   // migrate old outfit fleets to stance/fit
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
@@ -8280,6 +8397,7 @@ Object.assign(window, {
   clearFx, investigateSignal, buySignalScan,
   setBandTag, callBandSupport, bandFollow, bandStandDown, escortRallyOnCall,
   commissionMandate, cancelMandate, setMandateField, reconcileBands, brokerTruce,
+  orderShip, scrapShip, repairFleetShip,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,

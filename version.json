@@ -1,5 +1,5 @@
 {
-  "version": "2.31.1",
+  "version": "2.32.0",
   "saveVersion": "v2",
-  "notes": "Mandate system picker now respects your pirate intel: a target world's pirate activity is shown only for systems you actually have current intel on — your current system, or worlds covered by a chart bought in the Raider tab. Other systems read 'activity ❔' until you scout them, matching how the Galaxy and Raider tabs already gate it."
+  "notes": "Build your own fleet (slice 1). New 🏗️ Shipyard colony building (needs Metallurgy) and a dedicated ✦ Fleet tab. Construct your own ships — freighters (light → bulk hauler) to carry goods and warships (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can build and how many slipways run in parallel; ships cost credits and materials, take several cycles to construct, and draw upkeep each cycle (itemized in the Cycle accounts log). Repair or scrap ships at their home shipyard. These ships are loyal and fully yours — the next updates add fleet missions (100% of the take), calling them into your battles as loyal allies, and freight convoys."
 }
