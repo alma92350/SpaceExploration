@@ -156,10 +156,57 @@ frontier worlds left behind" and "regenerated worlds are active with valid
 distances" — repeated-code reproducibility, garbage/blank input fallback,
 colony-mode compatibility, backfill derivation, and the subtitle display).
 
+## Slice 4 (shipped) — probe the frontier
+`explore()` already surveys hidden worlds, legacy and frontier alike, in a
+fixed nearest-first queue — no way to specifically push at the frontier
+ring, and no risk beyond the action spent. This slice adds a second,
+riskier lever aimed only at the frontier, and makes the existing signal
+system itself richer wherever it lands on a frontier world — not just
+through the new action.
+- **`probeFrontier()`**: 1 action + a flat 30 fuel (spent whether it pays
+  off or not — a real expedition cost, unlike the free `explore()`),
+  targeting the nearest undiscovered *frontier* world specifically via
+  `undiscoveredHidden().filter(p => p.frontier)`. Success chance
+  (`0.35 + lab*0.05`) is deliberately a harder shot than a routine survey's
+  `0.45 + lab*0.06` — the frontier is farther and less charted.
+- **Risk**: reuses the exact shape of the existing travel-ambush pattern
+  (`maybeAmbush`/`genPirate`) rather than inventing a new encounter system
+  — a probe against a lawless target (an archetype's own `lawless` flag,
+  or plain `enforce <= 0.15`) has a 22% chance of drawing a pirate
+  encounter instead of resolving discovery at all that cycle; a calmer
+  target only 10%. Ties directly into the frontier ring's own archetype
+  data rather than a flat number.
+- **Richer signals, systemically**: `spawnSignal()` itself (not just the
+  new action) now checks whether its target planet is a frontier world
+  and, if so, recovers that world's archetype via `frontierArchetypeFor()`
+  (matching `p.tag` back to `FRONTIER_ARCHETYPES` — the archetype was
+  always recoverable post-generation, just never read after the fact
+  until now) to bias the roll: tier is an **advantage roll**
+  (`Math.max(signalTier(), signalTier())`, skewing stronger), and kind
+  leans toward the archetype's flavor — lawless archetypes (Rogue
+  Outpost, Derelict Field, Ember Waste) toward salvage-flavored
+  `cache`/`derelict`, relics/crystals archetypes (Silent Reach, Mineral
+  Vein, Trade Shoal, and the lawless ones too) toward knowledge-flavored
+  `anomaly`/`intel`. Because this lives inside `spawnSignal()` itself,
+  *any* signal that happens to land on a frontier world is richer —
+  ambient rolls, first-visit spawns, purchased scans, not just probes —
+  while every non-frontier call site is provably unchanged (the archetype
+  lookup is `null` for any non-frontier planet, so `opts.tier || signalTier()`
+  and `opts.kind || pick(...)` reduce to exactly the pre-slice-4 code path).
+- **UI**: a "🔭 Probe the Frontier" card sits next to the existing
+  Deep-Space Survey card on the Galaxy tab, gated by the same Colonial
+  Charter tech, showing the remaining undiscovered-frontier count and
+  disabling itself when fuel or actions are short.
+
+Tests: `probe.js` (27 checks: every gate, exact fuel/action spend on both
+outcomes, the success/failure/ambush paths forced via a mocked `Math.random`,
+a 300-trial statistical check that a lawless target is ambushed more often
+than a calm one, a 400-trial check that frontier-targeted signals average a
+higher tier than core-world ones, kind-bias checks for both archetype
+flavors, confirmation that non-frontier `spawnSignal()` behavior is
+untouched, and the Galaxy tab card's visibility/state).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-4. **Exploration-as-gameplay** — a lightweight probe/scout action with
-   its own risk/reward, richer signals tied to the Fortunes system on
-   frontier worlds specifically.
 5. **A real 2D map** — the lane graph now has genuine topology, but the
    Galaxy tab still renders a flat card grid; a spatial layout (or a
    canvas node-link view) would let players *see* the chokepoints and

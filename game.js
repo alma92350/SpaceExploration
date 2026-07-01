@@ -5554,6 +5554,54 @@ function explore() {
   afterAction();
 }
 
+/* ---------- Probe the Frontier — slice 4 of procedural galaxy generation ----------
+   explore() surveys whatever's nearest, hidden worlds and legacy alike, with
+   no cost beyond the action and no way to say "the frontier ring specifically."
+   probeFrontier() is a second, riskier lever aimed only at the frontier ring:
+   it burns real fuel whether or not it pays off, and a lawless target can
+   draw an ambush — but it's the only way to deliberately push past the
+   charted 20 rather than wait for the queue. Reuses undiscoveredHidden()'s
+   existing sort (nearest-first) and maybeAmbush()'s "spend something, risk
+   a fight" shape, just filtered to frontier worlds and themed as a probe
+   drawing attention rather than a ship physically arriving.
+*/
+function frontierArchetypeFor(p) { return (p && p.frontier) ? FRONTIER_ARCHETYPES.find(a => a.tag === p.tag) : null; }
+const PROBE_FUEL_COST = 30;
+function probeFrontier() {
+  if (!canColonize()) return toast("Research Colonial Charter to push probes into the frontier.", "bad");
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  const pool = undiscoveredHidden().filter(p => p.frontier);
+  if (!pool.length) return toast("No uncharted frontier worlds remain.", "bad");
+  if (S.res.fuel < PROBE_FUEL_COST) return toast(`Probing the frontier needs ${PROBE_FUEL_COST} ⛽.`, "bad");
+  useAction();
+  S.res.fuel -= PROBE_FUEL_COST;
+  const target = pool[0], arch = frontierArchetypeFor(target), lawless = !!(arch && arch.lawless) || target.enforce <= 0.15;
+  if (!S.encounter && !S.interdiction && Math.random() < (lawless ? 0.22 : 0.1)) {
+    const pirate = genPirate(pirateOpposition(rint(1, 3), -1));
+    pirate.toll = Math.round(250 * pirate.level + Math.min(2000, (S.res.credits + cargoValue()) * 0.03));
+    S.encounter = pirate;
+    log(`🏴‍☠️ Your probe draws a ${pirate.ico} <span class="c">${pirate.name}</span> out of the dark — it demands ${fmt(pirate.toll)} cr, or your cargo.`, "bad");
+    toast(`Probe ambushed: ${pirate.name}!`, "bad");
+    announce("🏴‍☠️ Probe Ambushed", `A ${pirate.name} intercepted your probe. Pay, run, or fight.`, false);
+    unlock("raid"); if (typeof setTab === "function") setTab("raid");
+    afterAction();
+    return;
+  }
+  const sensors = 0.35 + S.upgrades.lab * 0.05;   // a harder shot than a routine survey — the frontier is farther and less charted
+  if (Math.random() < sensors) {
+    S.discovered[target.id] = true;
+    log(`🔭 Your probe charts a new frontier world: <span class="c">${target.name}</span> (${target.tag})!`, "event");
+    toast(`Probe discovered ${target.name}!`, "event");
+    announce("🔭 Frontier Charted", `${target.name} (${target.tag}) — a new world at the edge of the sector.`, false);
+    fireworks(2200, false);
+    spawnSignal({ planet: target.id });   // frontier worlds skew toward richer signals — see spawnSignal()
+  } else {
+    log("🔭 Your probe returns with nothing to show for the fuel it burned.", "");
+    toast("Probe found nothing.", "");
+  }
+  afterAction();
+}
+
 /* ============================================================
    TURN / EVENTS
    ============================================================ */
@@ -5731,12 +5779,19 @@ function planetsForSignal() {
     .sort((a, b) => ((here.distances || {})[a.id] || 9) - ((here.distances || {})[b.id] || 9)).slice(0, 4);
   return [here, ...near];
 }
+// a frontier world's signals skew richer: an advantage roll on tier, and a kind nudged toward its archetype's flavor
+function frontierSignalKind(arch) {
+  if (arch.lawless) return pick(["cache", "derelict"]);
+  if (arch.deposits.includes("relics") || arch.deposits.includes("crystals")) return pick(["anomaly", "intel"]);
+  return null;   // no strong flavor match — let the normal random pick apply
+}
 function spawnSignal(opts = {}) {
   if (!Array.isArray(S.signals)) S.signals = [];
   if (S.signals.length >= SIGNAL_MAX) return null;
-  const kind = opts.kind || pick(Object.keys(SIGNAL_KINDS));
-  const tier = opts.tier || signalTier();
   const planet = opts.planet || pick(planetsForSignal()).id;
+  const arch = frontierArchetypeFor(PLANETS.find(p => p.id === planet));
+  const kind = opts.kind || (arch && frontierSignalKind(arch)) || pick(Object.keys(SIGNAL_KINDS));
+  const tier = opts.tier || (arch ? Math.max(signalTier(), signalTier()) : signalTier());
   if (S.signals.some(s => s.planet === planet && s.kind === kind)) return null;   // no dupes at a spot
   const s = { id: "sig" + S.turn + "_" + Math.floor(Math.random() * 1e4), kind, tier, planet, ttl: SIGNAL_TTL[tier] || 5, born: S.turn };
   S.signals.push(s);
@@ -6251,6 +6306,12 @@ function renderGalaxy() {
     <h4>🛰️ Deep-Space Survey <span class="pill bad">locked</span></h4>
     <div class="desc">Uncharted worlds lie beyond the dark. Research <b>Colonial Charter</b> (in the Research tab) to build the sensors and authority to chart and settle them.</div>
   </div>`;
+  const frontierUnknown = undiscoveredHidden().filter(p => p.frontier).length;
+  const probeCard = canColonize() ? `<div class="card">
+    <h4>🔭 Probe the Frontier</h4>
+    <div class="desc">Push a probe straight at the frontier ring instead of waiting on a routine survey — fuel spent whether it pays off or not, and a lawless target can draw an ambush. But a frontier world charted this way turns up richer signals. ${frontierUnknown ? frontierUnknown + " frontier world(s) still uncharted." : "All frontier worlds charted."}</div>
+    <button class="btn btn-primary" ${frontierUnknown && actionsLeft() > 0 && S.res.fuel >= PROBE_FUEL_COST ? "" : "disabled"} onclick="probeFrontier()">Probe (1 action, ${PROBE_FUEL_COST}⛽)</button>
+  </div>` : '';
   const nCrises = S.crises ? Object.keys(S.crises).length : 0;
   const crisisBadge = nCrises ? `<span class="pill bad" title="Worlds in crisis — relief needed, prices spiking">🆘 ${nCrises} in crisis</span>` : "";
   const cl = Math.round(S.climate || 0);
@@ -6268,7 +6329,7 @@ function renderGalaxy() {
     <div class="planet-grid">${cards}</div>
     ${(() => { const beyond = PLANETS.filter(p => isActive(p) && !p.hidden && !p.colonizable && !galaxyKnown(p)).length; return beyond ? `<div class="hint" style="margin-top:8px">🛰️ ${beyond} more world(s) lie beyond your sensor range (~${GALAXY_FUEL_HORIZON} fuel) — travel toward the frontier to chart them.</div>` : ""; })()}
     <div class="section-title">🔭 Exploration</div>
-    <div class="cards">${survey}</div>
+    <div class="cards">${survey}${probeCard}</div>
     <div class="hint" style="margin-top:14px">🏆 Your long-term legacy goals and all contracts now live in the <b>🎯 Missions</b> tab.</div>`;
 }
 
@@ -8841,7 +8902,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.46.0";
+const APP_VERSION = "2.47.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8902,7 +8963,7 @@ function helpHTML() {
 
     <h4>The tabs</h4>
     <ul style="line-height:1.55;margin:0 0 6px 18px;padding:0">
-      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until your <b>🛰️ Deep-Space Survey</b> charts them, same as any other uncharted world. Travel distance isn't a straight line either: a seeded lane graph gives every game its own hazard-stretched routes and cheap hyperlane shortcuts, marked with a <b>🛰️ hyperlane</b> pill wherever one bypasses the usual path from your ship.</li>
+      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until your <b>🛰️ Deep-Space Survey</b> charts them, same as any other uncharted world. Travel distance isn't a straight line either: a seeded lane graph gives every game its own hazard-stretched routes and cheap hyperlane shortcuts, marked with a <b>🛰️ hyperlane</b> pill wherever one bypasses the usual path from your ship. Impatient? <b>🔭 Probe the Frontier</b> pushes straight at the frontier ring instead of a routine survey — burns fuel whether it pays off or not, and a lawless target can draw an ambush, but a world charted this way turns up richer <b>📡 signals</b>.</li>
       <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises. Quantity boxes remember what you last typed for each good; a 💡 hint flags the best <b>known</b> world to flip a commodity you buy here (profit per light-year), and <b>Sort: Best margin</b> ranks each tier by that same opportunity. <b>💰 Sell entire hold</b> unloads every legal good you're carrying at today's prices in one click (contraband here is held back — sell that individually if you'll risk the customs check).</li>
       <li>🏭 <b>Industry</b> — refine raw materials into finished goods.</li>
       <li>🔬 <b>Research</b> — unlock technologies.</li>
