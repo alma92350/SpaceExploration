@@ -205,10 +205,7 @@ const PLANETS = [
     desc: "A legendary garden world said to lie past the dark. The finest colony site in the galaxy.",
     deposits: { biomass: 2.0, spice: 1.2, crystals: 1.0 } },
 ];
-PLANETS.forEach(a => {
-  a.distances = {};
-  PLANETS.forEach(b => { if (a.id !== b.id) a.distances[b.id] = Math.max(1, Math.abs(a.x - b.x)); });
-});
+recomputeDistances();   // function declared below with the frontier-ring generator; hoisted, so this call is safe here
 
 /* ---------- Rotating roster ----------
    There are 15 core trade worlds, but each new game only features a random 9 of
@@ -237,6 +234,106 @@ function pickStart(active) {
 function isActive(p) { return !S.active || !!S.active[p.id]; }
 function activePlanets() { return PLANETS.filter(isActive); }
 function activeCoreTotal() { return CORE_PLANETS.filter(isActive).length; }
+function nonFrontierPlanets() { return PLANETS.filter(p => !p.frontier); }   // sector-wide averages (climate, pirate threat) ignore the uncharted ring
+
+/* ---------- Frontier Ring — procedural worlds beyond the charted 20 ----------
+   The 20 hand-authored worlds above are untouched. A further ring of worlds is
+   generated once per save, seeded by S.frontierSeed (rolled fresh each new
+   game — every playthrough's frontier differs), and appended live onto
+   PLANETS at init() time — same "PLANETS is static source, replay after every
+   load" pattern as replayTerritoryFlips(), just constructing new objects
+   instead of mutating existing ones. Every frontier world is `hidden`, so
+   charting them runs through the EXISTING Deep-Space Survey / explore()
+   pipeline unchanged — procedural generation, but discovery stays manual.
+*/
+function mulberry32(seed) {
+  return function () {
+    seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+const FRONTIER_NAME_POOL = [
+  "Kestrel Drift", "Solace", "Vaultbreak", "Ashwind", "Thornfield", "Meridian Reach",
+  "Coldharbor", "Rustmoor", "Driftwake", "Halcyon Deep", "Ember Hollow", "Voidmarch",
+  "Greywater", "Sablecrest", "Ninth Verge", "Cradle's End", "Farrow", "Ironveil",
+  "Duskgate", "Wraithmoor", "Sungrave", "Nightreach", "Palimpsest", "Last Anchorage",
+];
+const FRONTIER_ARCHETYPES = [
+  { tag: "Rogue Outpost", color: "#dc2626", deposits: ["ore", "radioactives", "relics"],
+    ind: [1, 3], tech: [1, 3], enf: [0.02, 0.14], lawless: true,
+    desc: r => `A rogue outpost at the edge of the charts, trading in ${r} with no questions asked and fewer patrols to ask them.` },
+  { tag: "Derelict Field", color: "#94a3b8", deposits: ["relics", "crystals", "ice"],
+    ind: [1, 2], tech: [1, 3], enf: [0.02, 0.12], lawless: true,
+    desc: r => `A graveyard of drifting hulks past the last charted lane — pick through the wreckage for ${r}, if the salvagers haven't beaten you to it.` },
+  { tag: "Gas Shoal", color: "#f59e0b", deposits: ["gas", "ice"],
+    ind: [1, 4], tech: [2, 4], enf: [0.1, 0.3],
+    desc: r => `A banded gas giant far past the trade lanes — skim its shoals for ${r} and hope your hull holds.` },
+  { tag: "Verdant Reach", color: "#22c55e", deposits: ["biomass", "spice"],
+    ind: [1, 2], tech: [1, 2], enf: [0.05, 0.2], colonizable: true,
+    desc: r => `An unclaimed, fertile world well beyond the frontier — ${r} grows wild for whoever founds a colony first.` },
+  { tag: "Mineral Vein", color: "#b45309", deposits: ["ore", "crystals", "radioactives"],
+    ind: [2, 5], tech: [1, 3], enf: [0.1, 0.35],
+    desc: r => `A mineral-rich claim worked by whoever's guild got here first — ${r} in quantity, law thin on the ground.` },
+  { tag: "Silent Reach", color: "#8b5cf6", deposits: ["crystals", "relics"],
+    ind: [1, 3], tech: [3, 6], enf: [0.15, 0.4],
+    desc: r => `A quiet research outpost far from any Syndicate oversight, still turning out ${r} for anyone who makes the trip.` },
+  { tag: "Ember Waste", color: "#f97316", deposits: ["ore", "crystals", "radioactives"],
+    ind: [1, 2], tech: [1, 2], enf: [0.03, 0.15], colonizable: true, lawless: true,
+    desc: r => `A restless volcanic waste at the far rim — brutal to settle, but its crust is thick with ${r}.` },
+  { tag: "Trade Shoal", color: "#06b6d4", deposits: ["ore", "crystals", "gas"],
+    ind: [3, 6], tech: [2, 5], enf: [0.2, 0.45],
+    desc: r => `A free-floating trade point strung along the outer lanes, moving ${r} to anyone willing to make the run out here.` },
+];
+const FRONTIER_FACTION_WEIGHTS = [["frontier", 60], ["miners", 20], ["syndicate", 10], ["agri", 10]];
+function frontierWeightedPick(rand, weights) {
+  const tot = weights.reduce((s, [, w]) => s + w, 0);
+  let r = rand() * tot;
+  for (const [k, w] of weights) { r -= w; if (r <= 0) return k; }
+  return weights[weights.length - 1][0];
+}
+function frontierSlug(name) { return name.toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function recomputeDistances() {
+  PLANETS.forEach(a => {
+    a.distances = {};
+    PLANETS.forEach(b => { if (a.id !== b.id) a.distances[b.id] = Math.max(1, Math.abs(a.x - b.x)); });
+  });
+}
+function generateFrontierRing() {
+  if (PLANETS.some(p => p.frontier)) return;   // already generated this load
+  const rand = mulberry32(S.frontierSeed);
+  const names = FRONTIER_NAME_POOL.slice();
+  for (let i = names.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [names[i], names[j]] = [names[j], names[i]]; }
+  const count = 8 + Math.floor(rand() * 5);   // 8-12 new worlds
+  let x = Math.max(...PLANETS.map(p => p.x)) + 3 + Math.floor(rand() * 4);
+  for (let i = 0; i < count && i < names.length; i++) {
+    const arch = FRONTIER_ARCHETYPES[Math.floor(rand() * FRONTIER_ARCHETYPES.length)];
+    const name = names[i];
+    const id = frontierSlug(name);
+    if (PLANETS.some(p => p.id === id)) continue;   // extremely unlikely collision with the charted 20 — skip rather than clash
+    const industry = arch.ind[0] + Math.floor(rand() * (arch.ind[1] - arch.ind[0] + 1));
+    const tech = arch.tech[0] + Math.floor(rand() * (arch.tech[1] - arch.tech[0] + 1));
+    const enforce = Math.round((arch.enf[0] + rand() * (arch.enf[1] - arch.enf[0])) * 100) / 100;
+    const deposits = {};
+    arch.deposits.forEach(res => { if (rand() < 0.8) deposits[res] = Math.round((0.6 + rand() * 1.4) * 10) / 10; });
+    if (!Object.keys(deposits).length) deposits[arch.deposits[0]] = 1.0;   // never leave a world with nothing to extract
+    const faction = frontierWeightedPick(rand, FRONTIER_FACTION_WEIGHTS);
+    const resNames = arch.deposits.filter(r => deposits[r]).map(r => COM[r].name.toLowerCase()).join("/");
+    const p = {
+      id, name, tag: arch.tag, color: arch.color, x, faction, industry, tech, enforce,
+      desc: arch.desc(resNames || COM[arch.deposits[0]].name.toLowerCase()),
+      deposits, hidden: true, frontier: true,
+    };
+    if (arch.colonizable && rand() < 0.55) p.colonizable = true;
+    if ((arch.lawless || enforce < 0.15) && rand() < 0.7) p.salvage = true;
+    if ((arch.lawless || enforce < 0.15) && rand() < 0.7) p.bounty = true;
+    PLANETS.push(p);
+    S.active[id] = true;
+    x += 3 + Math.floor(rand() * 4);
+  }
+  recomputeDistances();
+}
 
 /* ---------- Ship upgrades (15, 3 tiers each) ---------- */
 const UPGRADES = [
@@ -655,10 +752,10 @@ function lootCrisis() {
 }
 function maybeStartCrisis() {
   if (Object.keys(S.crises).length >= CRISIS_MAX_ACTIVE) return;
-  const meanPoll = PLANETS.reduce((s, p) => s + pollutionOf(p.id), 0) / PLANETS.length;
+  const _np1 = nonFrontierPlanets(); const meanPoll = _np1.reduce((s, p) => s + pollutionOf(p.id), 0) / _np1.length;
   const chance = 0.08 + (S.climate || 0) / 600 + meanPoll / 600;   // your footprint raises the odds
   if (Math.random() > chance) return;
-  const cands = PLANETS.filter(p => isActive(p) && !S.crises[p.id]);
+  const cands = PLANETS.filter(p => isVisible(p) && !S.crises[p.id]);   // never spoil an undiscovered frontier world by naming it in a crisis
   if (!cands.length) return;
   const w = cands.map(p => 1 + pollutionOf(p.id) / 20 + effIndustry(p) / 4 + (p.enforce <= 0.3 ? 1 : 0)
     + (p.deposits && (p.deposits.ore || p.deposits.crystals) ? (1 - reserveFrac(p.id, p.deposits.ore ? "ore" : "crystals")) * 2 : 0));
@@ -897,6 +994,7 @@ function freshState(opts = {}) {
   return {
     turn: 1,
     active,              // which planets feature in this playthrough
+    frontierSeed: Math.floor(Math.random() * 2**31),   // seeds the procedural frontier ring — different every new game
     location: start,
     res,
     pol,                // political meters: popularity / legitimacy / heat / slush
@@ -1382,7 +1480,7 @@ function processPollution() {
     if (S.pollution[pid] <= 0) delete S.pollution[pid];
   });
   // climate: a slow, smoothed echo of sector-wide pollution — clamped, decaying, never runaway
-  const mean = PLANETS.reduce((s, p) => s + pollutionOf(p.id), 0) / PLANETS.length;
+  const _np2 = nonFrontierPlanets(); const mean = _np2.reduce((s, p) => s + pollutionOf(p.id), 0) / _np2.length;
   let cl = (S.climate || 0) + (mean * 4 - (S.climate || 0)) * 0.08;   // a few fouled worlds = real sector stress
   if (S.techs.terraform) cl -= 0.4;                                        // terraforming actively heals the sector
   if (policyActive("greenpact")) cl -= 0.2;
@@ -2893,7 +2991,7 @@ function bandsWithHaven() { return bandList().filter(b => b.haven); }
 function pirateHavenWorlds() { return new Set(bandsWithHaven().map(b => b.haven.planet)); }
 function eligiblePirateHavenWorlds() {
   const claimed = pirateHavenWorlds();
-  return PLANETS.filter(p => isActive(p) && canHaven(p) && !claimed.has(p.id) && !(S.haven && S.haven.planet === p.id));
+  return PLANETS.filter(p => isVisible(p) && canHaven(p) && !claimed.has(p.id) && !(S.haven && S.haven.planet === p.id));   // never found/announce a haven on an undiscovered frontier world
 }
 function processPirateHavens() {
   if (S.turn % 5 !== 0) return;   // matches processPirates' own cadence — they rise and fall on the same rhythm
@@ -2978,7 +3076,7 @@ function territoryControlPct(pid) { const c = ensureTerritoryControl()[pid]; ret
 function processTerritoryContest() {
   if (S.turn % 5 !== 0) return;
   const ctrl = ensureTerritoryControl();
-  PLANETS.filter(p => isActive(p) && !p.colonizable).forEach(p => {
+  PLANETS.filter(p => isVisible(p) && !p.colonizable).forEach(p => {   // an undiscovered frontier world can't be seized in the log before you've even found it
     const contest = territoryContestFor(p), key = p.id, existing = ctrl[key];
     if (!contest) {
       if (existing) { existing.meter = Math.max(0, existing.meter - 15); if (existing.meter <= 0) { delete ctrl[key]; log(`🕊️ The contest for <span class="c">${p.name}</span> has cooled off — its hold is secure again.`, ""); } }
@@ -4407,7 +4505,7 @@ function runBaseImport(col, cid, cp) {
 function finalizeBaseTrade() {
   const t = _trade; _trade = null;
   if (!t) return;
-  const threat = PLANETS.reduce((s2, p) => s2 + pirateLevel(p.id), 0) / PLANETS.length;
+  const _np3 = nonFrontierPlanets(); const threat = _np3.reduce((s2, p) => s2 + pirateLevel(p.id), 0) / _np3.length;
   if (!pirateCalm() && (t.importedVal + t.exportedVal) > 0 && Math.random() < 0.05 + threat * 0.03) {
     t.ambushLoss = Math.min(S.res.credits, 150 + Math.round(threat * 350));
     S.res.credits -= t.ambushLoss;
@@ -5281,7 +5379,7 @@ function processLogistics() {
   if (!pirateCalm()) {
     const nets0 = Object.entries(S.colonies).filter(([id, c]) => colonyNetworked(c));
     if (nets0.length) {
-      const threat = PLANETS.reduce((s2, p) => s2 + pirateLevel(p.id), 0) / PLANETS.length;
+      const _np4 = nonFrontierPlanets(); const threat = _np4.reduce((s2, p) => s2 + pirateLevel(p.id), 0) / _np4.length;
       if (Math.random() < 0.04 + threat * 0.03) {
         const [vid, vcol] = nets0[Math.floor(Math.random() * nets0.length)];
         const vp = PLANETS.find(p => p.id === vid);
@@ -6084,7 +6182,7 @@ function renderGalaxy() {
     intelBadge = `<span class="pill ${hot ? "bad" : "good"}" title="Active pirate chart — ${left} cycle(s) left. Activity updates live on the map.">🏴 ${hot ? hot + " pirate hotspot" + (hot > 1 ? "s" : "") : "lanes charted"} · ${left}cyc</span>`;
   }
   el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}${intelBadge}</h2>
-    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Travelling costs fuel and advances a cycle.</div>
+    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with the 🛰️ Deep-Space Survey below. Travelling costs fuel and advances a cycle.</div>
     <div class="planet-grid">${cards}</div>
     ${(() => { const beyond = PLANETS.filter(p => isActive(p) && !p.hidden && !p.colonizable && !galaxyKnown(p)).length; return beyond ? `<div class="hint" style="margin-top:8px">🛰️ ${beyond} more world(s) lie beyond your sensor range (~${GALAXY_FUEL_HORIZON} fuel) — travel toward the frontier to chart them.</div>` : ""; })()}
     <div class="section-title">🔭 Exploration</div>
@@ -8661,7 +8759,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.43.0";
+const APP_VERSION = "2.44.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8722,7 +8820,7 @@ function helpHTML() {
 
     <h4>The tabs</h4>
     <ul style="line-height:1.55;margin:0 0 6px 18px;padding:0">
-      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises.</li>
+      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until your <b>🛰️ Deep-Space Survey</b> charts them, same as any other uncharted world.</li>
       <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises. Quantity boxes remember what you last typed for each good; a 💡 hint flags the best <b>known</b> world to flip a commodity you buy here (profit per light-year), and <b>Sort: Best margin</b> ranks each tier by that same opportunity. <b>💰 Sell entire hold</b> unloads every legal good you're carrying at today's prices in one click (contraband here is held back — sell that individually if you'll risk the customs check).</li>
       <li>🏭 <b>Industry</b> — refine raw materials into finished goods.</li>
       <li>🔬 <b>Research</b> — unlock technologies.</li>
@@ -9005,14 +9103,18 @@ function newGame(mode) {
 }
 function jotOpening(mode) {
   const p = currentPlanet();
-  const worlds = PLANETS.filter(isActive).map(x => x.name).join(", ");
+  const worlds = PLANETS.filter(isVisible).map(x => x.name).join(", ");   // an opening journal entry shouldn't spoil undiscovered worlds
   const intro = mode === "colony" ? "granted a Colonization charter to tame a frontier world"
     : mode === "politics" ? "entering public life with a party and a war chest"
     : "a free trader with a ship and a dream";
   jot(`The voyage begins at ${p.name} — ${intro}. The charted sector: ${worlds}.`, "origin");
 }
 function init() {
-  if (!loadGame()) { S = freshState(); rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); jotOpening("trade"); }
+  const isNewGame = !loadGame();
+  if (isNewGame) S = freshState();
+  if (!S.frontierSeed) S.frontierSeed = Math.floor(Math.random() * 2**31);   // backfill for saves from before the frontier ring
+  generateFrontierRing();   // procedural worlds beyond the charted 20 — deterministic from the seed, safe to call every load
+  if (isNewGame) { rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); jotOpening("trade"); }
   if (!S.prices || !S.prices[S.location]) rollPrices();
   if (!S.bases) S.bases = {};   // backfill for older saves
   Object.values(S.bases).forEach(b => {
