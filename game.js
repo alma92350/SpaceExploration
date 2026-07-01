@@ -6236,9 +6236,60 @@ function repBar(f) {
 }
 
 /* ----- Galaxy ----- */
+/* ---------- Starmap — slice 5 of procedural galaxy generation ----------
+   The lane graph (slice 2) has had real topology — hazard stretches,
+   hyperlane shortcuts — since it shipped, but the Galaxy tab only ever
+   surfaced it as text: a "🛰️ hyperlane" pill, an "ly" number on a card.
+   This draws it: an SVG node-link map of every world the player already
+   knows about, laid out by rank along x (not raw x, which would let a
+   handful of far-flung frontier worlds squash everything else into one
+   corner) on a gentle sine curve so it reads as a starlane, not a ruler.
+   Purely additive — the existing card grid is untouched, right below it,
+   with all the same detail and Travel buttons; this is a second, more
+   legible view onto data slice 2 already computed, not a replacement.
+   Same spoiler discipline as everywhere else in this arc: an edge only
+   draws when BOTH ends are already `galaxyKnown` — a hidden world's
+   hyperlanes never leak as a line pointing off into the dark.
+*/
+function renderStarmap(known) {
+  if (known.length < 2) return '';
+  const W = 760, H = 220, pad = 36;
+  const sorted = known.slice().sort((a, b) => a.x - b.x);
+  const n = sorted.length;
+  const pos = {};
+  sorted.forEach((p, i) => {
+    const t = n > 1 ? i / (n - 1) : 0.5;
+    pos[p.id] = { x: pad + t * (W - 2 * pad), y: H / 2 + Math.sin(i * 1.7) * (H / 2 - pad) * 0.65 };
+  });
+  const knownIds = new Set(known.map(p => p.id));
+  const drawn = new Set();
+  let edges = '';
+  known.forEach(p => {
+    (p.hyperlanes || []).forEach(nid => {
+      if (!knownIds.has(nid)) return;   // never draw toward an undiscovered world — the line itself would spoil it
+      const key = [p.id, nid].sort().join("|");
+      if (drawn.has(key)) return; drawn.add(key);
+      const a = pos[p.id], b = pos[nid], hot = p.id === S.location || nid === S.location;
+      edges += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${hot ? "var(--good)" : "#334155"}" stroke-width="${hot ? 2 : 1}" opacity="${hot ? 0.9 : 0.45}"/>`;
+    });
+  });
+  let nodes = '';
+  known.forEach(p => {
+    const here = p.id === S.location, q = pos[p.id];
+    nodes += `<g${here ? "" : ` style="cursor:pointer" onclick="travel('${p.id}')"`}>
+      <circle cx="${q.x}" cy="${q.y}" r="${here ? 9 : 5}" fill="${p.color}" stroke="${here ? "#fff" : "#0f172a"}" stroke-width="${here ? 2 : 1}"><title>${p.name}${here ? " — you are here" : ` — ${fuelCost(p.id)}⛽`}</title></circle>
+    </g>`;
+  });
+  return `<div class="card" style="overflow:auto">
+    <h4>🗺️ Starmap</h4>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-height:160px" preserveAspectRatio="xMidYMid meet">${edges}${nodes}</svg>
+    <div class="hint">Lines are the direct hyperlanes/routes on your ship's own charts — the bright ones touch wherever you're standing. Click a world to travel.</div>
+  </div>`;
+}
 function renderGalaxy() {
   const el = document.getElementById("panel-galaxy");
-  const cards = PLANETS.filter(galaxyKnown).map(p => {
+  const known = PLANETS.filter(galaxyKnown);
+  const cards = known.map(p => {
     const here = p.id === S.location;
     const fc = here ? 0 : fuelCost(p.id);
     const canGo = !here && S.res.fuel >= fc;
@@ -6326,6 +6377,7 @@ function renderGalaxy() {
   }
   el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}${intelBadge}</h2>
     <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with the 🛰️ Deep-Space Survey below. Travelling costs fuel and advances a cycle. <span class="hint">Sector code: <b>${seedCodeFor(S.frontierSeed)}</b> — share it, or start a new game from one, with the 🔑 Seed button.</span></div>
+    ${renderStarmap(known)}
     <div class="planet-grid">${cards}</div>
     ${(() => { const beyond = PLANETS.filter(p => isActive(p) && !p.hidden && !p.colonizable && !galaxyKnown(p)).length; return beyond ? `<div class="hint" style="margin-top:8px">🛰️ ${beyond} more world(s) lie beyond your sensor range (~${GALAXY_FUEL_HORIZON} fuel) — travel toward the frontier to chart them.</div>` : ""; })()}
     <div class="section-title">🔭 Exploration</div>
@@ -8902,7 +8954,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.47.0";
+const APP_VERSION = "2.48.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8963,7 +9015,7 @@ function helpHTML() {
 
     <h4>The tabs</h4>
     <ul style="line-height:1.55;margin:0 0 6px 18px;padding:0">
-      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until your <b>🛰️ Deep-Space Survey</b> charts them, same as any other uncharted world. Travel distance isn't a straight line either: a seeded lane graph gives every game its own hazard-stretched routes and cheap hyperlane shortcuts, marked with a <b>🛰️ hyperlane</b> pill wherever one bypasses the usual path from your ship. Impatient? <b>🔭 Probe the Frontier</b> pushes straight at the frontier ring instead of a routine survey — burns fuel whether it pays off or not, and a lawless target can draw an ambush, but a world charted this way turns up richer <b>📡 signals</b>.</li>
+      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. A <b>🗺️ Starmap</b> at the top charts every world you know about and the hyperlanes between them — click a node to travel there directly, or read the card grid below for full detail. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until your <b>🛰️ Deep-Space Survey</b> charts them, same as any other uncharted world. Travel distance isn't a straight line either: a seeded lane graph gives every game its own hazard-stretched routes and cheap hyperlane shortcuts, marked with a <b>🛰️ hyperlane</b> pill (and a bright line on the Starmap) wherever one bypasses the usual path from your ship. Impatient? <b>🔭 Probe the Frontier</b> pushes straight at the frontier ring instead of a routine survey — burns fuel whether it pays off or not, and a lawless target can draw an ambush, but a world charted this way turns up richer <b>📡 signals</b>.</li>
       <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises. Quantity boxes remember what you last typed for each good; a 💡 hint flags the best <b>known</b> world to flip a commodity you buy here (profit per light-year), and <b>Sort: Best margin</b> ranks each tier by that same opportunity. <b>💰 Sell entire hold</b> unloads every legal good you're carrying at today's prices in one click (contraband here is held back — sell that individually if you'll risk the customs check).</li>
       <li>🏭 <b>Industry</b> — refine raw materials into finished goods.</li>
       <li>🔬 <b>Research</b> — unlock technologies.</li>
