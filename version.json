@@ -1,5 +1,5 @@
 {
-  "version": "2.48.0",
+  "version": "2.49.0",
   "saveVersion": "v2",
-  "notes": "Starmap. The Galaxy tab now opens with a 🗺️ Starmap - an actual node-link chart of every world you know about and the hyperlanes between them, click a node to travel there directly. It's the same lane graph that's been quietly shaping fuel costs since the last update, finally drawn instead of just read off a pill. The full card grid below is unchanged - same detail, same buttons - this is a second, more legible view onto the same map."
+  "notes": "Core variance. The charted 20 worlds' names, history and identity never change - but their yields now do. Every Sector Code jitters each world's deposits, industry, tech and law level a little (resource types stay put; only quantities shift), so Ferros Prime's ore or Terra Nova's law level isn't always exactly what it was last game. Same Sector Code as always reproduces the whole galaxy - frontier ring, lane graph, and this too."
 }

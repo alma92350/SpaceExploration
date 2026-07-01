@@ -240,10 +240,64 @@ against a hand-computed known-known bound, a 30-seed stress sweep
 alternating full and realistic (fog-of-war) visibility, and full `endTurn()`
 integration).
 
+## Slice 6 (shipped) — core variance
+"Full proceduralization" as originally scoped meant replacing the charted
+20's hand-written names, descriptions and lore with the same
+archetype-template system the frontier ring uses. Checked with the user
+before touching it, since I'd flagged it in this doc as the riskiest,
+lowest-value slice — guts curated writing rather than adding around it.
+Landed on a scoped hybrid instead: the 20's identity (`id`, `name`, `tag`,
+`color`, `x`, `desc`, `faction`) stays exactly as hand-written, forever;
+only what each world *produces* — deposits, industry, tech, enforce —
+varies per Sector Code.
+- **`applyCoreVariance(seed)`**: deposit yields jitter ×0.7–1.4 (rounded to
+  1 decimal, floored at 0.3 so nothing vanishes), industry/tech jitter
+  ±1 (clamped 1–10), enforce jitters ×0.85–1.15 (clamped 0.02–0.98).
+  Resource *types* never change — Terra Nova stays mineral-poor, Ferros
+  Prime stays ore-rich — only quantities. Deliberately narrow bounds: this
+  is meant to add replay texture, not turn a hand-tuned capital into a
+  mining hub or a lawless rim world into a fortress.
+- **`CORE_BASELINE`**: a pristine snapshot of the charted 20's stats,
+  captured once at parse time, before anything can vary them.
+  `applyCoreVariance()` always recomputes FROM this baseline — never from
+  whatever a previous seed left on the same 20 objects. That matters
+  because, unlike the frontier ring (spliced out and rebuilt every
+  `newGame()`), the core 20 are the *same* object instances across a
+  mid-session New Game — recomputing from source instead of compounding
+  is what makes calling it again idempotent rather than a drifting mess.
+- **`S.coreSeed`**: derived from `S.frontierSeed` (a third fixed mix,
+  alongside `laneSeed`'s), so the one Sector Code a player already shares
+  still reproduces the whole galaxy — frontier ring, lane graph, *and*
+  core variance together.
+- **Ordering fix along the way**: `applyCoreVariance()` runs inside
+  `freshState()` itself, before `pickStart()` reads `enforce` to choose a
+  starting world — the one seed-derived value `pickStart` depends on
+  needed to be correct immediately, not just once `init()` catches up
+  afterward.
+- Every downstream consumer — `reserveOf()`, `rollPrices()`,
+  `canHaven()`, mission/achievement thresholds — already reads these
+  fields dynamically per-world with no fixed expectations, confirmed by
+  audit before writing a line of this slice, so nothing needed to change
+  to pick up the variance.
+
+Tests: `corevariance.js` (15 checks: identity fields provably unchanged
+across seeds, variance actually happening and staying in bounds across a
+60-seed sweep, determinism after a simulated reload, a different-seed
+producing different variance, `coreSeed` derivation and backfill, the
+idempotency guarantee under repeated calls, the critical mid-session
+`newGame()` round-trip check — switch seeds twice, land back on identical
+stats, no compounding drift — frontier-ring worlds staying untouched,
+`pickStart()` always resolving validly across 40 seeds, and a live
+`reserveOf()` check that reserves are computed from the varied deposit,
+not the hardcoded baseline). Found and fixed two hardcoded exact-deposit
+assertions in an older, unrelated test (`eco.js`, from long before this
+arc) that assumed Ferros Prime's ore deposit was always exactly 2.0 —
+updated to compute the expectation from the live (possibly-varied) value
+instead, the same category of fix as the unseeded-active-roster test bug
+found in slice 5.
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-6. **Full proceduralization** — generate the charted core itself from a
-   seed. Would need the same full audit territory contest, the frontier
-   ring, and slice 2 all did, extended to every place that assumes a
-   stable, permanent planet `id` (colonies, bases, contracts) — likely its
-   own multi-slice project, and maybe not worth it given how much
-   hand-tuning lives in the curated 20.
+None — all six brainstormed slices are shipped. Bigger, replayable maps
+(frontier ring, core variance), real geography (lane graph, starmap),
+deeper exploration (probe/richer signals) and a shareable Sector Code are
+all in. Anything past this would be new brainstorming, not backlog.
