@@ -1,5 +1,5 @@
 {
-  "version": "2.49.0",
+  "version": "2.50.0",
   "saveVersion": "v2",
-  "notes": "Core variance. The charted 20 worlds' names, history and identity never change - but their yields now do. Every Sector Code jitters each world's deposits, industry, tech and law level a little (resource types stay put; only quantities shift), so Ferros Prime's ore or Terra Nova's law level isn't always exactly what it was last game. Same Sector Code as always reproduces the whole galaxy - frontier ring, lane graph, and this too."
+  "notes": "Quality-of-life pass: press 1-9 to jump tabs and Enter/Space to end the cycle, a confirmation before scrapping a ship or attempting a coup, a quiet 'Saved' flash by the cycle counter, and screen-reader-friendly live regions on the ship log and toast notifications."
 }
