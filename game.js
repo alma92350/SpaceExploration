@@ -2917,6 +2917,17 @@ function factionRelTier(score) {
   return "war";
 }
 function factionRelation(a, b) { const score = factionRelScore(a, b); const tier = factionRelTier(score); return { score: Math.round(score), tier, ...FACTION_REL_META[tier] }; }
+// the single most newsworthy relationship a faction has right now — a war outranks an alliance for urgency
+function factionMostTenseRelation(f) { let worst = null; FACTION_KEYS.forEach(o => { if (o === f) return; const rel = factionRelation(f, o); if (!worst || rel.score < worst.rel.score) worst = { other: o, rel }; }); return worst; }
+function factionMostFriendlyRelation(f) { let best = null; FACTION_KEYS.forEach(o => { if (o === f) return; const rel = factionRelation(f, o); if (!best || rel.score > best.rel.score) best = { other: o, rel }; }); return best; }
+function factionWarFrontPill(f) {
+  if (!f) return "";
+  const worst = factionMostTenseRelation(f);
+  if (worst && worst.rel.tier === "war") return `<span class="pill bad" title="${FACTIONS[f].name} is at war with ${FACTIONS[worst.other].name} — see 🏛️ Politics">⚔️ at war w/ ${FACTIONS[worst.other].name}</span>`;
+  const best = factionMostFriendlyRelation(f);
+  if (best && best.rel.tier === "alliance") return `<span class="pill good" title="${FACTIONS[f].name} is allied with ${FACTIONS[best.other].name} — see 🏛️ Politics">🤝 allied w/ ${FACTIONS[best.other].name}</span>`;
+  return "";   // peace/cold-war is the boring default — no pill, keeps the map clean
+}
 function processFactionRelations() {
   const rel = ensureFactionRel();
   const keys = Object.keys(rel);
@@ -2936,10 +2947,10 @@ function processFactionRelations() {
     const afterTier = factionRelTier(rel[key]);
     log(`🌐 ${FACTIONS[a].name} &amp; ${FACTIONS[b].name}: ${good ? pick(FACTION_INCIDENTS_GOOD) : pick(FACTION_INCIDENTS_BAD)}.`, good ? "good" : "bad");
     if (afterTier !== beforeTier) {
-      const meta = FACTION_REL_META[afterTier];
+      const beforeMeta = FACTION_REL_META[beforeTier], meta = FACTION_REL_META[afterTier];
       const tone = afterTier === "war" ? "bad" : afterTier === "alliance" ? "good" : "";
       log(`${meta.ico} <b>${FACTIONS[a].name}</b> and <b>${FACTIONS[b].name}</b> now stand at <b>${meta.label}</b>.`, tone);
-      if (typeof digestNote === "function") digestNote("sector", `${FACTIONS[a].name}–${FACTIONS[b].name}: ${meta.ico} ${meta.label}`);
+      if (typeof digestNote === "function") digestNote("sector", `${FACTIONS[a].name}–${FACTIONS[b].name}: ${beforeMeta.ico} ${beforeMeta.label} → ${meta.ico} ${meta.label}`);
     }
   }
 }
@@ -5767,6 +5778,13 @@ function renderOps() {
     row(m.pirate ? "🏴" : "🛡️", `${m.pirate ? "Smuggling run" : "Escort"} → ${mdPlanetName(m.to)} · leg ${m.legs - m.legsLeft}/${m.legs}`, left != null ? left + "c" : null, "escort", left != null && left <= 2 ? "var(--bad)" : "var(--warn)"); }
   // letter of marque
   if (S.commission) { const c = S.commission; row("📜", `Marque vs ${FACTIONS[c.target].name} · ${c.done}/${c.quota} raids`, Math.max(0, c.expires - S.turn) + "c", "raid", "var(--good)"); }
+  // sector relations: only the newsworthy tiers (war/alliance) — cold war & peace are the boring baseline
+  ensureFactionRel();
+  FACTION_KEYS.forEach((a, i) => FACTION_KEYS.slice(i + 1).forEach(b => {
+    const rel = factionRelation(a, b);
+    if (rel.tier === "war") row("⚔️", `${FACTIONS[a].name} &amp; ${FACTIONS[b].name} at war`, null, "politics", "var(--bad)");
+    else if (rel.tier === "alliance") row("🤝", `${FACTIONS[a].name} &amp; ${FACTIONS[b].name} allied`, null, "politics", "var(--good)");
+  }));
   // brotherhood: following / standing by / inbound
   bandList().forEach(b => {
     if (bandFollowing(b)) row("🛰️", `${b.ico} ${b.name} following`, (b.followUntil - S.turn) + "c", "contacts", "var(--good)");
@@ -5872,6 +5890,7 @@ function renderGalaxy() {
       ? `<span class="pill" title="${_mandatesHere.map(m => `${(bandById(m.bandId) || {}).name || "crew"} — ${MANDATE_TASKS[m.task].name} (${m.cyclesLeft} cyc)`).join(" · ")}">📜 mandate ×${_mandatesHere.length}</span>` : '';
     const _sig = (S.signals || []).find(s => s.planet === p.id);
     const signalPill = _sig ? `<span class="pill good" title="${SIGNAL_KINDS[_sig.kind].blurb} — ${_sig.ttl} cyc to investigate">${SIGNAL_KINDS[_sig.kind].ico} ${["", "faint", "strong", "rare"][_sig.tier]} signal</span>` : '';
+    const sectorPill = (!p.colonizable && p.faction) ? factionWarFrontPill(p.faction) : '';
     const sigFuel = _sig ? (SIGNAL_FUEL[_sig.tier] || 6) : 0;
     const sigBtn = (_sig && here) ? `<button class="btn btn-sm ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "btn-good" : ""}" ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "" : "disabled"} title="${SIGNAL_KINDS[_sig.kind].blurb}" onclick="investigateSignal('${_sig.id}')">🔍 Investigate signal (${sigFuel}⛽)</button>` : '';
     return `<div class="planet-card ${here ? "current" : ""}">
@@ -5882,7 +5901,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${mandatePill}${signalPill}
+        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${mandatePill}${signalPill}${sectorPill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${sigBtn ? `<div class="row" style="margin-bottom:8px">${sigBtn}</div>` : ""}
@@ -8488,7 +8507,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.40.0";
+const APP_VERSION = "2.41.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8555,7 +8574,7 @@ function helpHTML() {
       <li>🔬 <b>Research</b> — unlock technologies.</li>
       <li>✨ <b>Fortunes</b> — temporary <b>boons &amp; banes</b> you pick up by exploring new worlds, sweeping the lanes and plain luck — extra actions, weapon surges, trade winds, research sparks, and rarer grand effects… balanced by reactor leaks, customs crackdowns and the like. This tab tracks your active effects (with time left and 🧹 clear buttons for banes), the <b>📡 signals</b> on your scope, and an <b>almanac</b> of every effect you've discovered. Chase a signal and <b>🔍 Investigate</b> it for a roll — stronger effects are briefer, and the rare, powerful ones are the prize of a hunted signal. Short on leads? The <b>🛰️ Sensor Office</b> sells scans that flush fresh signals onto your scope. Catalogue <b>every</b> effect in a domain to earn a 🏅 <b>Mastery</b> — a permanent passive edge. Unlocks once a Fortune or signal turns up.</li>
       <li>🎯 <b>Missions</b> — time-bound contracts, long-term career missions, and your legacy goals.</li>
-      <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law. A <b>🌐 Sector Relations</b> card tracks how the five great powers stand with <i>each other</i> — Alliance/Peace/Cold War/War — independent of your own reputation. It drifts on its own each cycle (rivals trend toward war, others settle toward peace) and occasional named incidents can tip a pair into a new state; your own active letters of marque stoke the rivalry you're fighting for. Notable shifts appear in the log and the 📋 cycle recap.</li>
+      <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law. A <b>🌐 Sector Relations</b> card tracks how the five great powers stand with <i>each other</i> — Alliance/Peace/Cold War/War — independent of your own reputation. It drifts on its own each cycle (rivals trend toward war, others settle toward peace) and occasional named incidents can tip a pair into a new state; your own active letters of marque stoke the rivalry you're fighting for. Notable shifts appear in the log and the 📋 cycle recap. A world's most newsworthy relationship (⚔️ at war / 🤝 allied) also shows as a pill on its 🪐 Galaxy card, and active wars &amp; alliances get their own line on the sidebar's Operations board.</li>
       <li>🏗️ <b>Bases</b> — automated off-world production. Build a <b>⛽ Fuel Refinery</b> (any base, 5 tiers) to crack stored 🧊 ice into fuel each cycle, and route fuel through the base↔colony trade network (import/export it like any good).</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains, including a <b>⛽ Fuel Refinery</b> (ice + energy → fuel) and a <b>🏗️ Shipyard</b> (needs Metallurgy) that lets you build your own ships. Order in ice, export the fuel — fuel is now a tradeable part of the economy: buy/sell it at ports, stock it in bases &amp; colonies, and ship it across your network.</li>
       <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. <b>Dispatch a warship on a mission</b> (🎯 cull / 🛡️ guard / 🏴 raid a system) and — unlike hired pirates — <b>you keep 100%</b> of the bounty/loot, paying no fee; the risk is combat wear (a fragile hull in an infested system can be lost) and ongoing upkeep. You can also <b>call idle warships into your own raids</b> (loyal allies that take <b>no loot cut</b>) and <b>assign them to escort your convoys</b> for free — they never desert, and any damage they take comes back to your fleet. <b>Station freighters at a colony</b> on logistics duty to haul its goods — cutting its market import fee and base↔colony freight — and <b>station a warship there to guard them</b>, since unguarded convoys in pirate-active systems get ambushed (damage &amp; lost goods, and a fragile hauler can be sunk). Loyal and fully yours. In a raid, you can also <b>✦ Deploy Battle Fleet</b> — your <b>whole idle warship fleet at once</b> (not the 2-ally cap) fights as a formation with an escort-style posture (screen/balanced/press). Positioning matters: assign ships to <b>🛡️ Vanguard</b> (tanks — soaks nearly all incoming fire while it holds), <b>⚔️ Line</b> (your best damage dealers, protected behind the Vanguard), or <b>🌌 Reserve</b> (safest, weakest). Lose the Vanguard and the Line is exposed next — the formation collapses tier by tier — and keeping a Vanguard alive screens you personally too. Real stakes: ships take real damage and can be lost in a hard fight. Recall the fleet any time.</li>

@@ -34,9 +34,28 @@ destabilize the ~90 places `PLANETS[i].faction` is already read.
 
 Tests: `sectorrel.js` (24 checks).
 
+## Slice 2 (shipped) — wider visibility
+Still read-only — no new mechanics, just making slice 1's state legible
+everywhere the player already looks.
+- **Galaxy map**: `factionWarFrontPill(f)` surfaces a world's owning faction's
+  single most newsworthy relationship — a red "⚔️ at war w/ X" pill if it's at
+  War with anyone (war always outranks an alliance for urgency), else a green
+  "🤝 allied w/ X" pill if it has an Alliance. Peace/Cold War (the common
+  baseline for most pairs) shows nothing, keeping the map uncluttered.
+  Colonizable/unowned worlds (no `p.faction`) never get a pill.
+  `factionMostTenseRelation`/`factionMostFriendlyRelation` do the lookup.
+- **Operations board** (`renderOps`): lists every pair currently at War or
+  Alliance (the two tiers that represent genuine drama from baseline), each
+  linking through to the Politics tab. Peace/Cold War pairs are omitted here
+  too, for the same reason.
+- **Deeper digest detail**: a tier-change note in the cycle recap now shows
+  the full transition (`❄️ Cold War → ⚔️ War`), not just the resulting tier —
+  more informative without adding volume, since it's still one note per
+  change.
+
+Tests: `sectorvis.js` (14 checks).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-2. **Wider visibility** — war-front pills on the Galaxy map, an Operations
-   board entry, deeper digest detail.
 3. **Rising pirate powers** — an exceptional band claims a lawless world as
    its own Haven and becomes a named, escalating threat (mirrors the
    player's Haven mechanic). Additive, no core-assumption risk.

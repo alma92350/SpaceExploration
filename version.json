@@ -1,5 +1,5 @@
 {
-  "version": "2.40.0",
+  "version": "2.41.0",
   "saveVersion": "v2",
-  "notes": "The sector now has a pulse. New 🌐 Sector Relations (Politics tab): the five great powers track a persistent Alliance/Peace/Cold War/War relationship with EACH OTHER, independent of your own reputation with them. It evolves on its own — rivals drift toward war, everyone else settles toward peace — and occasional named incidents (a border skirmish, a trade accord) can tip a pair into a new state, reported in the log and a new cycle recap. Your own active letters of marque stoke the specific rivalry you're fighting for. This is the foundation of a broader living-sector layer to come."
+  "notes": "Sector relations become visible everywhere. A world's owning faction now shows its single most newsworthy relationship right on its Galaxy card — a red ⚔️ 'at war w/' pill, or a green 🤝 'allied w/' pill (peace/cold war, the common baseline, stays quiet to keep the map clean). Any faction pair currently at war or allied also gets its own line on the sidebar's Operations board, linking straight to the Politics tab. And the cycle recap's sector notes now spell out the full transition (e.g. Cold War → War) instead of just the end state. Still entirely read-only — the sector's drama is now visible wherever you're already looking."
 }
