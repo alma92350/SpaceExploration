@@ -1,5 +1,5 @@
 {
-  "version": "2.53.0",
+  "version": "2.54.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the procedural galaxy generation (frontier ring, lane graph, Sector Code, core variance) out into its own file, galaxygen.js — slice 2 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the planetary crisis system (disasters, relief/gouge/loot responses) out into its own file, crises.js — slice 3 of the game.js split. No gameplay changes."
 }
