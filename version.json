@@ -1,5 +1,5 @@
 {
-  "version": "2.52.0",
+  "version": "2.53.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the static data tables out into their own file, data.js, loaded before game.js — the first step toward a more maintainable codebase. No gameplay changes."
+  "notes": "Internal: split the procedural galaxy generation (frontier ring, lane graph, Sector Code, core variance) out into its own file, galaxygen.js — slice 2 of the game.js split. No gameplay changes."
 }
