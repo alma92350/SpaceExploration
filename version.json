@@ -1,5 +1,5 @@
 {
-  "version": "2.46.0",
+  "version": "2.47.0",
   "saveVersion": "v2",
-  "notes": "Sector Code. Every galaxy now has a short, shareable code - one code recreates the exact same frontier ring and lane graph, hazards and hyperlanes included. Find it on the Galaxy tab or via the new 🔑 Seed button, which can also start a new game from any code (yours or a friend's). Also fixes a bug where starting a New Game mid-session (rather than reloading the page) could leave the previous run's frontier worlds stranded and unreachable."
+  "notes": "Probe the Frontier. A new, riskier alternative to a routine Deep-Space Survey: push a probe straight at the frontier ring for 1 action + 30 fuel, spent whether it pays off or not - a lawless target can draw a pirate ambush, but a frontier world charted this way turns up richer 📡 signals. That richness isn't limited to probing either: any signal that lands on a frontier world now skews toward a stronger tier and a kind matching that world's character - salvage leads on lawless outposts, knowledge leads on relic/crystal-rich worlds."
 }
