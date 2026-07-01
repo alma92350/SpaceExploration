@@ -294,10 +294,73 @@ function frontierWeightedPick(rand, weights) {
   return weights[weights.length - 1][0];
 }
 function frontierSlug(name) { return name.toLowerCase().replace(/[^a-z0-9]/g, ""); }
-function recomputeDistances() {
+
+/* ---------- Lane Graph — slice 2 of procedural galaxy generation ----------
+   Distance used to be pure |x1-x2|: a straight line, so every world's cost
+   to reach was exactly its coordinate gap from wherever you stood. Travel
+   itself stays single-hop/point-to-point (no new UI, no rebalancing of
+   ambush/escort/mandate mechanics beyond the distance number they already
+   read) — only how that distance NUMBER is computed changes: it's now the
+   shortest path across a small seeded graph built on top of the same
+   x-ordering, so the map gets real geography without touching any of the
+   ~14 existing call sites that read p.distances[...] (fuelCost, rollPrices,
+   escort/mandate economics, pirate intel, etc. all keep working unchanged —
+   same de-risking as territory contest and the frontier ring).
+   The graph: a backbone chain across every world in x-order (so unperturbed
+   distances match the old model exactly), with two seeded perturbations —
+   a fraction of backbone links get a hazard multiplier (an asteroid field or
+   patrol gauntlet, making that particular stretch pricier than raw distance
+   suggests) and a handful of hyperlane shortcuts bypass the backbone
+   entirely between two distant worlds (a cheap bypass, tagged on both
+   planets' `.hyperlanes` for the Galaxy tab to show). Guaranteed connected
+   by construction (the chain alone reaches every world), so no path is
+   ever missing — recomputeDistances() falls back to seed 1 the instant
+   PLANETS is declared (before S exists), and is called again with the real
+   per-save S.laneSeed once generateFrontierRing() runs from init().
+*/
+function buildLaneGraph(rand) {
+  const sorted = PLANETS.slice().sort((a, b) => a.x - b.x);
+  const adj = new Map(sorted.map(p => [p.id, []]));
+  const hyperlanes = new Map(sorted.map(p => [p.id, new Set()]));
+  function addEdge(a, b, w) {
+    adj.get(a).push({ to: b, w }); adj.get(b).push({ to: a, w });
+    hyperlanes.get(a).add(b); hyperlanes.get(b).add(a);
+  }
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i], b = sorted[i + 1];
+    let w = Math.max(1, b.x - a.x);
+    if (rand() < 0.25) w = Math.round(w * (1.5 + rand() * 1.5));   // a hazard stretch along the backbone
+    addEdge(a.id, b.id, w);
+  }
+  const shortcuts = 4 + Math.floor(rand() * 3);   // 4-6 hyperlanes bypassing the backbone
+  for (let k = 0; k < shortcuts; k++) {
+    const i = Math.floor(rand() * sorted.length), gap = 3 + Math.floor(rand() * 5);
+    const j = Math.min(sorted.length - 1, i + gap);
+    if (j <= i + 1) continue;
+    const a = sorted[i], b = sorted[j];
+    const w = Math.max(1, Math.round((b.x - a.x) * (0.3 + rand() * 0.3)));   // a real bypass, not a free ride
+    addEdge(a.id, b.id, w);
+  }
+  return { adj, hyperlanes, ids: sorted.map(p => p.id) };
+}
+function laneShortestPaths(ids, adj) {
+  const dist = {};
+  ids.forEach(a => { dist[a] = {}; ids.forEach(b => { dist[a][b] = a === b ? 0 : Infinity; }); });
+  adj.forEach((edges, id) => edges.forEach(({ to, w }) => { if (w < dist[id][to]) dist[id][to] = w; }));
+  ids.forEach(k => ids.forEach(i => ids.forEach(j => {
+    const via = dist[i][k] + dist[k][j];
+    if (via < dist[i][j]) dist[i][j] = via;
+  })));
+  return dist;
+}
+function recomputeDistances(seed) {
+  const rand = mulberry32(seed != null ? seed : 1);   // seed 1 is only ever used transiently, before S/S.laneSeed exists
+  const { adj, hyperlanes, ids } = buildLaneGraph(rand);
+  const dist = laneShortestPaths(ids, adj);
   PLANETS.forEach(a => {
     a.distances = {};
-    PLANETS.forEach(b => { if (a.id !== b.id) a.distances[b.id] = Math.max(1, Math.abs(a.x - b.x)); });
+    a.hyperlanes = Array.from(hyperlanes.get(a.id) || []);
+    PLANETS.forEach(b => { if (a.id !== b.id) a.distances[b.id] = Math.max(1, dist[a.id][b.id]); });
   });
 }
 function generateFrontierRing() {
@@ -332,7 +395,7 @@ function generateFrontierRing() {
     S.active[id] = true;
     x += 3 + Math.floor(rand() * 4);
   }
-  recomputeDistances();
+  recomputeDistances(S.laneSeed);
 }
 
 /* ---------- Ship upgrades (15, 3 tiers each) ---------- */
@@ -995,6 +1058,7 @@ function freshState(opts = {}) {
     turn: 1,
     active,              // which planets feature in this playthrough
     frontierSeed: Math.floor(Math.random() * 2**31),   // seeds the procedural frontier ring — different every new game
+    laneSeed: Math.floor(Math.random() * 2**31),       // seeds the lane graph's hazards/hyperlanes — different every new game
     location: start,
     res,
     pol,                // political meters: popularity / legitimacy / heat / slush
@@ -6141,6 +6205,8 @@ function renderGalaxy() {
     const pirateHavenPill = _pirHaven ? `<span class="pill bad" title="The ${_pirHaven.name} command a pirate haven here (tier ${_pirHaven.haven.tier}) — see 🏴‍☠️ Contacts">👑 ${_pirHaven.name}'s haven T${_pirHaven.haven.tier}</span>` : '';
     const _contest = (S.territoryControl || {})[p.id];
     const territoryPill = _contest ? `<span class="pill bad" title="The ${FACTIONS[_contest.challenger].name} are contesting this world, ${territoryControlPct(p.id)}% of the way to seizing it">🚩 contested by ${FACTIONS[_contest.challenger].ico} ${Math.round(_contest.meter)}%</span>` : '';
+    const hyperlanePill = (!here && (currentPlanet().hyperlanes || []).includes(p.id))
+      ? `<span class="pill good" title="A direct hyperlane bypasses the usual route — cheaper to reach than the map might suggest">🛰️ hyperlane</span>` : '';
     const sigFuel = _sig ? (SIGNAL_FUEL[_sig.tier] || 6) : 0;
     const sigBtn = (_sig && here) ? `<button class="btn btn-sm ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "btn-good" : ""}" ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "" : "disabled"} title="${SIGNAL_KINDS[_sig.kind].blurb}" onclick="investigateSignal('${_sig.id}')">🔍 Investigate signal (${sigFuel}⛽)</button>` : '';
     return `<div class="planet-card ${here ? "current" : ""}">
@@ -6151,7 +6217,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}${territoryPill}
+        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}${territoryPill}${hyperlanePill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${sigBtn ? `<div class="row" style="margin-bottom:8px">${sigBtn}</div>` : ""}
@@ -8759,7 +8825,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.44.0";
+const APP_VERSION = "2.45.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8820,7 +8886,7 @@ function helpHTML() {
 
     <h4>The tabs</h4>
     <ul style="line-height:1.55;margin:0 0 6px 18px;padding:0">
-      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until your <b>🛰️ Deep-Space Survey</b> charts them, same as any other uncharted world.</li>
+      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until your <b>🛰️ Deep-Space Survey</b> charts them, same as any other uncharted world. Travel distance isn't a straight line either: a seeded lane graph gives every game its own hazard-stretched routes and cheap hyperlane shortcuts, marked with a <b>🛰️ hyperlane</b> pill wherever one bypasses the usual path from your ship.</li>
       <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises. Quantity boxes remember what you last typed for each good; a 💡 hint flags the best <b>known</b> world to flip a commodity you buy here (profit per light-year), and <b>Sort: Best margin</b> ranks each tier by that same opportunity. <b>💰 Sell entire hold</b> unloads every legal good you're carrying at today's prices in one click (contraband here is held back — sell that individually if you'll risk the customs check).</li>
       <li>🏭 <b>Industry</b> — refine raw materials into finished goods.</li>
       <li>🔬 <b>Research</b> — unlock technologies.</li>
@@ -9113,6 +9179,7 @@ function init() {
   const isNewGame = !loadGame();
   if (isNewGame) S = freshState();
   if (!S.frontierSeed) S.frontierSeed = Math.floor(Math.random() * 2**31);   // backfill for saves from before the frontier ring
+  if (!S.laneSeed) S.laneSeed = Math.floor(Math.random() * 2**31);           // backfill for saves from before the lane graph
   generateFrontierRing();   // procedural worlds beyond the charted 20 — deterministic from the seed, safe to call every load
   if (isNewGame) { rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); jotOpening("trade"); }
   if (!S.prices || !S.prices[S.location]) rollPrices();
