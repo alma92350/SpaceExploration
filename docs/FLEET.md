@@ -73,4 +73,40 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   card (colony picker + assign hauler/guard + savings & risk readout) and station
   status in the roster. Exports added. Tests: `fleetlogi.js`.
 
-This completes the player fleet: build → mission → ally → haul.
+## Slice 5 (shipped) — Battle Group: fleet-vs-fleet raid combat
+Individual fleet allies (`raidSummonFleet`, slice 3) are still capped at the 2-ally
+wing. **Battle Group** is a separate, additive mechanic: deploy your **whole idle
+warship fleet at once** into a raid as a pooled formation, fought with an
+escort-style posture — reusing `ESCORT_POSTURES` (screen/balanced/press) directly.
+
+- `deployBattleGroup()` — marks every `fleetRaidable()` ship `status:"battle"`.
+  `recallBattleGroup()` frees them anytime, no penalty, hull as-is.
+- `battleGroupFirepower()` — pooled strength of the group (battered ships fire
+  less, same `hull/hullMax` factor as `escShipFP`), scaled by posture `.off`.
+  Added to `combatStrike`'s damage against `prey` each round alongside ally damage.
+- `battleGroupScreenMult()` — while a group is deployed, ALL incoming fire to the
+  player is scaled by posture `.def` (hooked into `foeStrikes`, same insertion
+  point as the Fortunes `incomingMult` hook) — **screen** protects you, **press**
+  exposes you more (mirrors escort semantics exactly).
+- `battleGroupTakeFire(prey)` — each round a random group member takes real
+  damage scaled by the prey's strength and posture `.def`; a ship at 0 hull is
+  **destroyed and removed from the fleet** (same `_dead` purge pattern as convoy
+  ambush/fleet missions). Real stakes: fielding a fleet against a strong foe can
+  cost you ships.
+- `releaseBattleGroup()` is folded into every raid-engagement end point:
+  `clearEngagement()` (the canonical exit — disengage/extort/pack-cleared),
+  `shipCrippled()` (towed off), and `travel()` (quarry slips away). Survivors
+  return to `idle` with their wear intact (repairable at a shipyard).
+- UI: `preyCombatCard` — "✦ Deploy Battle Fleet (N)" button when idle warships
+  exist; once deployed, a status line (pooled 🔥/🛡️) + posture buttons + Recall.
+  Surfaced on the Operations board (`renderOps`, "✦ ship · battle fleet (hull)").
+  `S.battleGroupPosture` in freshState + init migrate. Exports added.
+  Tests: `battlegroup.js`.
+
+## Galaxy map markers
+`renderGalaxy` now shows pills for fleet missions (🎯), stationed convoys (🚚),
+and pirate mandates (📜) at the planets they're running at, alongside the
+existing pirate/crisis/signal pills — so the map surfaces everything the
+Operations board tracks, spatially. Tests: `galaxymarkers.js`.
+
+This completes the player fleet: build → mission → ally → haul → battle group.

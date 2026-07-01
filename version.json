@@ -1,5 +1,5 @@
 {
-  "version": "2.36.0",
+  "version": "2.37.0",
   "saveVersion": "v2",
-  "notes": "New 📋 Operations board in the sidebar — one live digest of everything running in the background so nothing you set in motion gets forgotten. It lists your fleet's missions, convoys and ships under construction, pirate mandates, your active escort or smuggling run, a letter of marque, and crews standing by / inbound / following — each with a cycle countdown that clicks through to the right tab. Your active ✨ Fortunes (with clear buttons) and 📡 signals now live here too, consolidated from the Ship panel. Combat and detention show at the top when urgent."
+  "notes": "Galaxy map markers + Fleet Battle Groups. The Galaxy tab now shows pills for fleet missions, stationed convoys, and pirate mandates at the planets they're running at. And in a raid you can now ✦ Deploy Battle Fleet — your whole idle warship fleet at once (not the usual 2-ally cap) fights as a pooled formation with an escort-style posture (screen/balanced/press): its firepower adds to your strikes and it screens you from incoming fire, but it takes real damage each round and a ship can be lost in a hard fight. Recall it any time; survivors keep their wear and can be repaired at a shipyard. Your navy finally fights together as a fleet, not one ship at a time."
 }

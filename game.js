@@ -936,6 +936,7 @@ function freshState(opts = {}) {
     fxMastery: {},              // domains fully catalogued → permanent passive bonuses
     mandates: [],               // active pirate mandates: [{ id, bandId, planet, task, cyclesLeft, ... }]
     fleet: [],                  // your own ships built at colony shipyards: [{ id, key, home, status, hull, ... }]
+    battleGroupPosture: "balanced",   // posture for a deployed fleet Battle Group in raids
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
@@ -1516,7 +1517,7 @@ function playerStrikes(foe, wkey) {
 function foeStrikes(foe, intensity) {
   const postureFactor = Math.max(0.5, Math.min(1.8, 1 / Math.max(0.4, defenseMult())));   // evasive soaks, aggressive exposes
   intensity *= (1 + 0.12 * (foe.escorts || 0));                                            // escorts pile on
-  const raw = foe.strength * intensity * (0.7 + Math.random() * 0.6) * postureFactor * fxMult("incomingMult");
+  const raw = foe.strength * intensity * (0.7 + Math.random() * 0.6) * postureFactor * fxMult("incomingMult") * battleGroupScreenMult();
   let dmg = takeTypedDamage(raw, foe.wtype);
   const floor = Math.round(foe.strength * 0.06 * postureFactor);   // some fire always gets through
   if (dmg < floor) { const extra = floor - dmg; S.pirate.hull = Math.max(0, S.pirate.hull - extra); clampPirate(); if (S.pirate.hull <= 0) shipCrippled(); dmg = floor; }
@@ -2088,6 +2089,7 @@ function shipCrippled() {
   S.pirate.hull = 30; clampPirate();
   SUBSYS.forEach(k => damageSubsys(k, 15 + Math.random() * 20));   // a wreck damages everything
   S.prey = null; S.encounter = null; S.allies = null;             // the fight is over — you're towed off
+  if (typeof releaseBattleGroup === "function") releaseBattleGroup();
   S.actionsUsed = ACTIONS_PER_CYCLE;                               // the tow eats the rest of the cycle
   log(`💥 Your hull buckled! A tow drags you off — lost ${jettisoned.join(" ") || "no cargo"}, paid ${fmt(tow)} cr, systems battered, and the cycle is gone. End the cycle to limp on.`, "bad");
   toast("Ship crippled — cycle lost!", "bad");
@@ -2107,7 +2109,7 @@ function lootShare() {                                   // the PLAYER's cut = w
   return Math.max(0.1, 1 - taken);
 }
 function allHostiles(prey) { return [prey].concat((prey && prey.pack) || []); }
-function clearEngagement() { S.prey = null; S.encounter = null; S.allies = null; }
+function clearEngagement() { S.prey = null; S.encounter = null; S.allies = null; if (typeof releaseBattleGroup === "function") releaseBattleGroup(); }
 /* ============================================================
    PIRATE BANDS — a persistent roster of named crews you build history with.
    Fighting them drops their collaboration (rep); allying, sparing, gifts and
@@ -2492,6 +2494,8 @@ function combatStrike(noQuarter, wkey) {
   const tgt = applyTargetedDamage(prey, ps.dmg);
   let allyDmg = 0;
   (S.allies || []).forEach(a => { allyDmg += allyStrike(prey, a); });
+  const bgDmg = battleGroupFirepower();
+  if (bgDmg > 0) { prey.hp = foeHp(prey) - bgDmg; }
   if (prey.hp <= 0) {
     sfx("explode");
     if (prey.isPirate) raidWinPirate(prey); else raidWinMerchant(prey, noQuarter);
@@ -2507,7 +2511,12 @@ function combatStrike(noQuarter, wkey) {
     incoming.push(`${idx === 0 ? "" : hostiles[idx].ico + " "}−${fs.dmg}${subsysHitLog(fs.subHit)}`);
     if (!S.prey) break;   // shipCrippled ended the engagement
   }
-  log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${tgt.hullDmg} hull (now ${hpPct}%)${tgt.note}${allyDmg > 0 ? ` · 🤝 allies +${allyDmg}` : ""}; return fire — Hull ${incoming.join(", ")}.`, "");
+  if (battleGroupShips().length) {
+    const bgTaken = battleGroupTakeFire(prey);
+    if (bgTaken) incoming.push(`✦ battle fleet −${bgTaken}`);
+    if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
+  }
+  log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${tgt.hullDmg} hull (now ${hpPct}%)${tgt.note}${allyDmg > 0 ? ` · 🤝 allies +${allyDmg}` : ""}${bgDmg > 0 ? ` · ✦ battle fleet +${bgDmg}` : ""}; return fire — Hull ${incoming.join(", ")}.`, "");
   toast(`Foe hull ${hpPct}%${prey.pack && prey.pack.length ? ` · +${prey.pack.length} more` : ""}`, "");
   if (!S.prey) return afterAction();
   maybeRescue(prey);
@@ -3849,7 +3858,7 @@ function travel(destId) {
   if (!dest || !isVisible(dest)) return toast("That world isn't on your charts.", "bad");
   const cost = fuelCost(destId);
   if (S.res.fuel < cost) return toast(`Not enough fuel (need ${cost}).`, "bad");
-  if (S.prey) { log(`Your quarry, the ${S.prey.ico} ${S.prey.name}, slipped away as you left the system.`, ""); S.prey = null; }
+  if (S.prey) { log(`Your quarry, the ${S.prey.ico} ${S.prey.name}, slipped away as you left the system.`, ""); S.prey = null; if (typeof releaseBattleGroup === "function") releaseBattleGroup(); }
   if (S.preyChoices) S.preyChoices = null;
   S.allies = null;
   const firstVisit = !S.visited[destId];
@@ -4545,6 +4554,50 @@ function releaseFleetEscorts(e) {     // sync convoy support ships back to the f
   });
   if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
 }
+// ---- Battle Group: deploy your WHOLE idle warship fleet into a raid at once as a
+// pooled formation (not the 2-ally cap) — fought with an escort-style posture:
+// its firepower adds to your strikes, and it screens you from incoming fire, at
+// the cost of taking real damage (and possible losses) of its own each round. ----
+function battleGroupShips() { return fleetList().filter(s => s.status === "battle"); }
+function battleGroupPostureObj() { return ESCORT_POSTURES[S.battleGroupPosture || "balanced"] || ESCORT_POSTURES.balanced; }
+function setBattleGroupPosture(p) { if (ESCORT_POSTURES[p]) { S.battleGroupPosture = p; saveGame(); renderAll(); } }
+function deployBattleGroup() {
+  if (!S.prey) return toast("No engagement.", "bad");
+  const idle = fleetRaidable(); if (!idle.length) return toast("No idle warships to deploy.", "bad");
+  idle.forEach(s => { s.status = "battle"; });
+  log(`✦ Your battle fleet (${idle.length} ship${idle.length === 1 ? "" : "s"}) forms up around you — pooled firepower, no loot cut.`, "event");
+  toast(`Battle fleet deployed (${idle.length})`, "event"); sfx("event"); afterAction();
+}
+function recallBattleGroup() {
+  const grp = battleGroupShips(); if (!grp.length) return;
+  grp.forEach(s => { s.status = "idle"; });
+  log(`✦ Your battle fleet peels off and returns to standby.`, "");
+  toast("Battle fleet recalled", ""); saveGame(); renderAll();
+}
+function releaseBattleGroup() {   // combat ended: stand the group down (survivors keep their wear, repairable at a shipyard)
+  const grp = battleGroupShips(); if (!grp.length) return;
+  grp.forEach(s => { s.status = "idle"; });
+}
+function battleGroupScreenMult() { return battleGroupShips().length ? battleGroupPostureObj().def : 1; }   // your formation screens (or exposes) you
+function battleGroupFirepower() {
+  const grp = battleGroupShips(); if (!grp.length) return 0;
+  const off = battleGroupPostureObj().off;
+  return Math.round(grp.reduce((sum, s) => sum + fleetShipStr(FLEET_SHIPS[s.key]) * (0.5 + 0.5 * (s.hull / s.hullMax)), 0) * off);
+}
+// each combat round, a random battle-group ship absorbs a hit scaled by the foe and posture; can be lost
+function battleGroupTakeFire(prey) {
+  const grp = battleGroupShips(); if (!grp.length) return 0;
+  const def = battleGroupPostureObj().def;
+  const target = pick(grp);
+  const dmg = Math.max(1, Math.round((prey.strength || 20) * 0.16 * def * (0.6 + Math.random() * 0.8)));
+  target.hull = Math.max(0, target.hull - dmg);
+  if (target.hull <= 0) {
+    target._dead = true;
+    log(`💥 Your ${(FLEET_SHIPS[target.key] || {}).ico || ""} ${target.name} was lost fighting alongside you.`, "bad");
+    if (typeof toast === "function") toast(`${target.name} lost!`, "bad");
+  }
+  return dmg;
+}
 // ---- freight convoys: station freighters at a colony to cut its transport costs;
 // station warships there to guard them from pirate ambush ----
 function colonyPidOf(col) { if (!col || !S.colonies) return null; for (const k in S.colonies) if (S.colonies[k] === col) return k; return null; }
@@ -4751,7 +4804,7 @@ function renderFleet() {
       ${!idleFr.length && !idleWar.length ? '<div class="hint" style="margin-top:6px">No idle ships to assign — build more, or recall some.</div>' : ""}</div>`;
   }
   el.innerHTML = `<h2>✦ Fleet</h2>
-    <div class="subtitle">Your own ships, built at colony shipyards — loyal and fully under your command. <b>Freighters</b> to haul your goods, <b>warships</b> to fight or work systems on contract. They cost credits &amp; materials to build and draw upkeep each cycle (see the 💰 Cycle accounts log). Dispatch a warship on a system mission (you keep <b>100%</b>), call ships into your raids/escorts, or station freighters on logistics duty to cut transport costs.</div>
+    <div class="subtitle">Your own ships, built at colony shipyards — loyal and fully under your command. <b>Freighters</b> to haul your goods, <b>warships</b> to fight or work systems on contract. They cost credits &amp; materials to build and draw upkeep each cycle (see the 💰 Cycle accounts log). Dispatch a warship on a system mission (you keep <b>100%</b>), call ships into your raids/escorts, deploy your whole idle fleet as a raid Battle Group, or station freighters on logistics duty to cut transport costs.</div>
     ${roster}
     ${missionCard}
     ${logiCard}
@@ -5577,6 +5630,7 @@ function renderOps() {
     else if (s.status === "mission" && s.mission) row(MANDATE_TASKS[s.mission.task].ico, `${def.ico} ${s.name} · ${MANDATE_TASKS[s.mission.task].name} @ ${mdPlanetName(s.mission.planet)} <span style="color:var(--gold)">+${fmt(s.mission.accrued)}</span>`, s.mission.cyclesLeft + "c", "fleet", "var(--accent)");
     else if (s.status === "logistics") row(def.role === "freighter" ? "🚚" : "🛡️", `${def.ico} ${s.name} · ${def.role === "freighter" ? "hauling for" : "guarding"} ${mdPlanetName(s.station)}`, null, "fleet", "var(--accent)");
     else if (s.status === "escort") row("🛡️", `${def.ico} ${s.name} · escorting`, null, "escort", "var(--accent)");
+    else if (s.status === "battle") row("✦", `${def.ico} ${s.name} · battle fleet (${Math.round(s.hull)}/${s.hullMax})`, null, "raid", "var(--bad)");
   });
   // pirate mandates
   (S.mandates || []).forEach(m => { const b = bandById(m.bandId), t = MANDATE_TASKS[m.task]; if (!t) return;
@@ -5662,6 +5716,15 @@ function renderGalaxy() {
       : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
     const escortPill = (S.escort && S.escort.active && S.escort.mission && S.escort.mission.to === p.id)
       ? `<span class="pill" title="Your active convoy is bound here (${S.escort.mission.legsLeft} leg(s) left)">🛡️ convoy bound</span>` : '';
+    const _fMissions = fleetList().filter(s => s.status === "mission" && s.mission && s.mission.planet === p.id);
+    const fleetMissionPill = _fMissions.length
+      ? `<span class="pill" title="${_fMissions.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name} — ${MANDATE_TASKS[s.mission.task].name} (${s.mission.cyclesLeft} cyc)`).join(" · ")}">🎯 fleet mission ×${_fMissions.length}</span>` : '';
+    const _fLogi = fleetList().filter(s => s.status === "logistics" && s.station === p.id);
+    const fleetLogiPill = _fLogi.length
+      ? `<span class="pill" title="${_fLogi.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name} (${FLEET_SHIPS[s.key].role === "freighter" ? "hauler" : "guard"})`).join(" · ")}">🚚 convoy stationed</span>` : '';
+    const _mandatesHere = (S.mandates || []).filter(m => m.planet === p.id);
+    const mandatePill = _mandatesHere.length
+      ? `<span class="pill" title="${_mandatesHere.map(m => `${(bandById(m.bandId) || {}).name || "crew"} — ${MANDATE_TASKS[m.task].name} (${m.cyclesLeft} cyc)`).join(" · ")}">📜 mandate ×${_mandatesHere.length}</span>` : '';
     const _sig = (S.signals || []).find(s => s.planet === p.id);
     const signalPill = _sig ? `<span class="pill good" title="${SIGNAL_KINDS[_sig.kind].blurb} — ${_sig.ttl} cyc to investigate">${SIGNAL_KINDS[_sig.kind].ico} ${["", "faint", "strong", "rare"][_sig.tier]} signal</span>` : '';
     const sigFuel = _sig ? (SIGNAL_FUEL[_sig.tier] || 6) : 0;
@@ -5674,7 +5737,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${signalPill}
+        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${mandatePill}${signalPill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${sigBtn ? `<div class="row" style="margin-bottom:8px">${sigBtn}</div>` : ""}
@@ -6347,6 +6410,18 @@ function preyCombatCard(prey, al) {
     ? `<div class="hint">🤝 No allied crew on the scene. Summon one from the 🏴‍☠️ <b>Contacts</b> tab (📣 Call for support) or set a crew to 🛰️ <b>Follow</b> you — standing-by, following, and locally-based crews fight at your side here, even under a letter of marque.</div>` : "";
   const preyBand = prey.bandId ? bandById(prey.bandId) : null;
   const bandLine = preyBand ? `<div class="hint">${bandTagMark(preyBand)} of the <b>${preyBand.name}</b> · ${bandPers(preyBand).ico} ${bandPers(preyBand).name} · ${bandTier(preyBand).label} (${preyBand.rep}) · based at ${bandLocName(preyBand)}</div>` : "";
+  // Battle Group: your WHOLE idle warship fleet as a pooled formation, separate from the 2-ally cap
+  const bgShips = battleGroupShips(), bgIdle = fleetRaidable();
+  let bgBlock = "";
+  if (bgShips.length) {
+    const posture = S.battleGroupPosture || "balanced";
+    const postBtns = Object.entries(ESCORT_POSTURES).map(([k, p]) => `<button class="btn btn-sm ${posture === k ? "btn-primary" : ""}" title="${p.hint}" onclick="setBattleGroupPosture('${k}')">${p.label}</button>`).join(" ");
+    const bgHull = bgShips.reduce((s, x) => s + x.hull, 0), bgHullMax = bgShips.reduce((s, x) => s + x.hullMax, 0);
+    bgBlock = `<div class="hint" style="margin-top:6px">✦ <b>Battle fleet</b> (${bgShips.length} ship${bgShips.length === 1 ? "" : "s"}): 🔥${battleGroupFirepower()} pooled firepower · 🛡️ ${Math.round(bgHull)}/${bgHullMax} hull</div>
+      <div class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px"><span class="hint">Posture:</span> ${postBtns} <button class="btn btn-sm" onclick="recallBattleGroup()">↩ Recall fleet</button></div>`;
+  } else if (bgIdle.length) {
+    bgBlock = `<div class="row" style="margin-top:6px"><button class="btn btn-sm btn-good" title="Deploy your whole idle warship fleet (${bgIdle.length}) as a pooled formation — no loot cut, escort-style posture, but they take real damage and can be lost" onclick="deployBattleGroup()">✦ Deploy Battle Fleet (${bgIdle.length})</button></div>`;
+  }
   return `<div class="card" style="border-color:${isPirate ? "var(--good)" : "var(--warn)"}">
     <h4>${preyBand ? bandTagMark(preyBand) : ""}${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>
     ${bandLine}
@@ -6354,6 +6429,7 @@ function preyCombatCard(prey, al) {
     ${squadLine}${crewHint}
     ${tacticalHTML(prey, "raidAttack")}
     <div class="row" style="margin-top:6px">${buttons}</div>
+    ${bgBlock}
   </div>`;
 }
 function renderRaid() {
@@ -8189,7 +8265,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.36.0";
+const APP_VERSION = "2.37.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8259,7 +8335,7 @@ function helpHTML() {
       <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law.</li>
       <li>🏗️ <b>Bases</b> — automated off-world production. Build a <b>⛽ Fuel Refinery</b> (any base, 5 tiers) to crack stored 🧊 ice into fuel each cycle, and route fuel through the base↔colony trade network (import/export it like any good).</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains, including a <b>⛽ Fuel Refinery</b> (ice + energy → fuel) and a <b>🏗️ Shipyard</b> (needs Metallurgy) that lets you build your own ships. Order in ice, export the fuel — fuel is now a tradeable part of the economy: buy/sell it at ports, stock it in bases &amp; colonies, and ship it across your network.</li>
-      <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. <b>Dispatch a warship on a mission</b> (🎯 cull / 🛡️ guard / 🏴 raid a system) and — unlike hired pirates — <b>you keep 100%</b> of the bounty/loot, paying no fee; the risk is combat wear (a fragile hull in an infested system can be lost) and ongoing upkeep. You can also <b>call idle warships into your own raids</b> (loyal allies that take <b>no loot cut</b>) and <b>assign them to escort your convoys</b> for free — they never desert, and any damage they take comes back to your fleet. <b>Station freighters at a colony</b> on logistics duty to haul its goods — cutting its market import fee and base↔colony freight — and <b>station a warship there to guard them</b>, since unguarded convoys in pirate-active systems get ambushed (damage &amp; lost goods, and a fragile hauler can be sunk). Loyal and fully yours.</li>
+      <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. <b>Dispatch a warship on a mission</b> (🎯 cull / 🛡️ guard / 🏴 raid a system) and — unlike hired pirates — <b>you keep 100%</b> of the bounty/loot, paying no fee; the risk is combat wear (a fragile hull in an infested system can be lost) and ongoing upkeep. You can also <b>call idle warships into your own raids</b> (loyal allies that take <b>no loot cut</b>) and <b>assign them to escort your convoys</b> for free — they never desert, and any damage they take comes back to your fleet. <b>Station freighters at a colony</b> on logistics duty to haul its goods — cutting its market import fee and base↔colony freight — and <b>station a warship there to guard them</b>, since unguarded convoys in pirate-active systems get ambushed (damage &amp; lost goods, and a fragile hauler can be sunk). Loyal and fully yours. In a raid, you can also <b>✦ Deploy Battle Fleet</b> — your <b>whole idle warship fleet at once</b> (not the 2-ally cap) fights as a pooled formation with an escort-style posture (screen/balanced/press): its firepower adds to your strikes and it screens you from incoming fire, but it takes real damage and a ship can be lost in a hard fight. Recall it any time.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Set each vessel's <b>combat stance</b> — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to <b>3 levels of fit</b> for it, paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
       <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Some crews hold <b>blood feuds</b> and won't serve alongside their rival — you can settle it: a cheap <b>🕊️ Truce</b> sets the feud aside for a few cycles so they'll serve together for now, or a full <b>🤝 Broker peace</b> ends it for good (the fee scales with the feud's depth and eases with your standing &amp; Dread). Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
@@ -8554,6 +8630,7 @@ function init() {
   if (!S.fxMastery) S.fxMastery = {};               // backfill almanac mastery
   if (!Array.isArray(S.mandates)) S.mandates = [];   // backfill pirate mandates
   if (!Array.isArray(S.fleet)) S.fleet = [];         // backfill player fleet
+  if (!S.battleGroupPosture) S.battleGroupPosture = "balanced";
   if (S.escort && Array.isArray(S.escort.fleet)) S.escort.fleet.forEach(sh => { if (!sh.fit) sh.fit = { aggressive: 0, balanced: 0, defensive: 0 }; if (!sh.stance) sh.stance = "balanced"; });   // migrate old outfit fleets to stance/fit
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
@@ -8647,6 +8724,7 @@ Object.assign(window, {
   commissionMandate, cancelMandate, setMandateField, reconcileBands, brokerTruce,
   orderShip, scrapShip, repairFleetShip, assignFleetMission, recallFleetMission, setFleetMissionField, raidSummonFleet, escortRallyFleet,
   assignLogistics, recallLogistics, setFleetLogiField,
+  deployBattleGroup, recallBattleGroup, setBattleGroupPosture,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,
