@@ -379,12 +379,14 @@ feedback.js  — ship log, captain's journal, sound effects, toasts, fireworks/a
 resources.js — extraction, deposit reserves/depletion, pollution/climate
 combat.js    — piracy/combat: subsystems, typed weapons, matchmaking, ambushes
 pirateBands.js — named pirate crews: standing, feuds/truces, tags, call-for-support
+raiding.js   — raid resolution, plunder, dockside/field ship repair
 game.js      — game logic (economy, factions, production, rendering, save)
 test/        — automated tests (Node's built-in test runner, no dependencies)
 ```
 
 `data.js`, `galaxygen.js`, `crises.js`, `state.js`, `pricing.js`,
-`feedback.js`, `resources.js`, `combat.js`, `pirateBands.js` and `game.js`
+`feedback.js`, `resources.js`, `combat.js`, `pirateBands.js`, `raiding.js`
+and `game.js`
 are all plain classic `<script>` tags (no `type="module"`, no bundler)
 sharing one global
 scope, in that load

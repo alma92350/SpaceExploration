@@ -1,5 +1,5 @@
 {
-  "version": "2.60.0",
+  "version": "2.61.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the pirate band roster (named crews, standing, feuds/truces, tags, call-for-support) out into its own file, pirateBands.js — slice 9 of the game.js split. No gameplay changes."
+  "notes": "Internal: split raid combat resolution and ship repair (plunder, multi-round raids, dockside/field repair, Wanted cooldown) out into their own file, raiding.js — slice 10 of the game.js split. No gameplay changes."
 }
