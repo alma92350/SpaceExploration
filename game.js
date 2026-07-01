@@ -1105,6 +1105,8 @@ function freshState(opts = {}) {
   }
   return {
     turn: 1,
+    ironman: !!opts.ironman,        // optional hardcore toggle: disables Load for this run — live with your choices
+    lengthMult: opts.lengthMult || 1,   // scales the scalar legacy goals (net worth, colony pop) for a shorter/longer campaign
     active,              // which planets feature in this playthrough
     frontierSeed: freshFrontierSeed,                   // seeds the procedural frontier ring — different every new game
     laneSeed: deriveLaneSeed(freshFrontierSeed),        // derived, not rolled independently — one Sector Code reproduces both
@@ -4109,7 +4111,7 @@ function politicalLegacy(path) {
   toast(`⭐ ${title} — political legacy complete!`, "good");
 }
 
-function afterAction() { checkWin(); saveGame(); renderAll(); }
+function afterAction() { checkWin(); checkMilestones(); saveGame(); renderAll(); }
 
 /* ============================================================
    TRADE
@@ -6055,7 +6057,7 @@ function endTurn(fromTravel = false) {
   reportCycleLedger();
   reportCycleDigest();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
-  checkWin(); saveGame(); renderAll();
+  checkWin(); checkMilestones(); saveGame(); renderAll();
 }
 
 /* ============================================================
@@ -6080,12 +6082,18 @@ const OBJECTIVE_META = {
   colony:    { emoji: "🏙️", title: "Colonial Founder", sub: "A frontier colony has grown into a thriving capital!" },
 };
 function winProgress() {
+  // Sprint/Marathon game-length choice scales only the two open-ended grind
+  // goals; the milestone-y ones (terraform, governor, visit-all) stay fixed —
+  // they're a fixed achievement, not a number to inflate or deflate.
+  const mult = S.lengthMult || 1;
+  const worthTarget = Math.round(75000 * mult / 1000) * 1000;
+  const popTarget = Math.max(5, Math.round(25 * mult));
   return {
-    worth:     { have: netWorth() >= 75000,                  label: "Amass 75,000 credits net worth" },
+    worth:     { have: netWorth() >= worthTarget,             label: `Amass ${fmt(worthTarget)} credits net worth` },
     terraform: { have: !!S.techs.terraform,                  label: "Research Terraforming" },
     governor:  { have: !!S.perks.governor,                   label: "Become Sector Governor" },
     explored:  { have: CORE_PLANETS.filter(isActive).every(p => S.visited[p.id]), label: `Visit all ${activeCoreTotal()} core worlds` },
-    colony:    { have: Object.values(S.colonies).some(c => c.pop >= 25), label: "Grow a colony to 25k population" },
+    colony:    { have: Object.values(S.colonies).some(c => c.pop >= popTarget), label: `Grow a colony to ${popTarget}k population` },
   };
 }
 function syncObjectives() {
@@ -6120,6 +6128,44 @@ function checkWin() {
   }
 }
 
+/* ---- Milestones: a broader completionist checklist alongside the four
+   legacy win conditions above — smaller, earlier goals across every system
+   so there's always something nearby to chase. Earning one is permanent,
+   even if the underlying stat later drops (e.g. net worth spent back down).
+   Shown as a chip list at the bottom of the Missions tab. ---- */
+const MILESTONES = [
+  { id: "firstjump",    ico: "🚀", name: "First Steps",         desc: "Travel to another world.",                                  test: S => S.stats.jumps >= 1 },
+  { id: "firsttrade",   ico: "💹", name: "First Trade",          desc: "Buy or sell on a market.",                                  test: S => S.stats.trades >= 1 },
+  { id: "smallfortune", ico: "💰", name: "Small Fortune",        desc: "Reach 10,000 credits net worth.",                           test: () => netWorth() >= 10000 },
+  { id: "tourist",      ico: "🧭", name: "Frequent Flyer",       desc: "Visit 5 different worlds.",                                 test: S => Object.keys(S.visited || {}).length >= 5 },
+  { id: "firsttech",    ico: "🔬", name: "Eureka",               desc: "Research your first technology.",                          test: S => Object.keys(S.techs || {}).length >= 1 },
+  { id: "firstupgrade", ico: "🛠️", name: "Shipwright",           desc: "Install your first ship upgrade.",                          test: S => UPGRADES.some(u => (S.upgrades[u.id] || 0) > 0) },
+  { id: "firstbase",    ico: "🏗️", name: "Frontier Outpost",     desc: "Establish your first base.",                                test: S => Object.keys(S.bases || {}).length >= 1 },
+  { id: "firstcolony",  ico: "🌍", name: "Founder",              desc: "Found your first colony.",                                  test: S => Object.keys(S.colonies || {}).length >= 1 },
+  { id: "firstship",    ico: "⚓", name: "First Command",        desc: "Build your first ship at a colony shipyard.",               test: () => fleetList().length >= 1 },
+  { id: "fleetadmiral", ico: "🚢", name: "Fleet Admiral",        desc: "Command a fleet of 5 ships.",                               test: () => fleetList().length >= 5 },
+  { id: "firstraid",    ico: "🏴‍☠️", name: "Blooded",             desc: "Complete your first raid.",                                 test: S => (S.pirate && S.pirate.raids) >= 1 },
+  { id: "dreadlord",    ico: "💀", name: "Dread Lord",           desc: "Build your Dread to 75.",                                   test: S => (S.pirate && S.pirate.dread) >= 75 },
+  { id: "bountyhunter", ico: "🎯", name: "Bounty Hunter",        desc: "Earn your first lawful bounty.",                            test: S => (S.pirate && S.pirate.bountyKills) >= 1 },
+  { id: "senator",      ico: "🏛️", name: "Senator",              desc: "Win a seat in the Senate.",                                 test: S => !!(S.perks && S.perks.senator) },
+  { id: "orgfounder",   ico: "🤝", name: "Kingmaker",            desc: "Found your first political organization.",                 test: S => Object.keys(S.orgs || {}).length >= 1 },
+  { id: "allied",       ico: "⭐", name: "Best Friends Forever", desc: "Reach Allied standing with a faction.",                     test: S => Object.values(S.rep || {}).some(v => v >= 60) },
+  { id: "bustcaught",   ico: "🚨", name: "Caught Red-Handed",    desc: "Get hit with a customs bust — and live to tell the tale.", test: S => (S.stats && S.stats.busts) >= 1 },
+  { id: "fortuneseeker",ico: "✨", name: "Lucky Star",           desc: "Experience your first Fortune.",                            test: S => Object.keys(S.fxSeen || {}).length >= 1 },
+];
+function checkMilestones(silent) {
+  if (!S.milestones) S.milestones = {};
+  MILESTONES.forEach(m => {
+    if (S.milestones[m.id] || !m.test(S)) return;
+    S.milestones[m.id] = S.turn;
+    if (!silent) {
+      toast(`🏅 Milestone: ${m.name}`, "good");
+      log(`🏅 Milestone reached — <span class="c">${m.name}</span>: ${m.desc}`, "good");
+      sfx("promote");
+    }
+  });
+}
+
 /* ============================================================
    RENDERING
    ============================================================ */
@@ -6140,8 +6186,14 @@ function renderShip() {
   const held = CARGO_IDS.filter(c => S.res[c] > 0)
     .map(c => `${COM[c].ico}${S.res[c]}`).join("  ") || '<span class="hint">empty</span>';
   const mods = UPGRADES.filter(u => S.upgrades[u.id] > 0).map(u => `${u.ico}${S.upgrades[u.id]}`).join(" ");
+  const modeBadges = [
+    S.ironman ? '<span class="pill bad" title="Loading a save is disabled for this run">☠️ Ironman</span>' : "",
+    S.lengthMult && S.lengthMult < 1 ? '<span class="pill" title="Shorter net-worth &amp; colony legacy goals">🏃 Sprint</span>' : "",
+    S.lengthMult && S.lengthMult > 1 ? '<span class="pill" title="Bigger net-worth &amp; colony legacy goals">🏔️ Marathon</span>' : "",
+  ].join(" ").trim();
   document.getElementById("shipStats").innerHTML =
-    `<div class="ship-stat"><span class="k">Cargo</span><span class="v">${cu}/${cc}</span></div>
+    `${modeBadges ? `<div class="ship-stat" style="margin-bottom:6px">${modeBadges}</div>` : ""}
+     <div class="ship-stat"><span class="k">Cargo</span><span class="v">${cu}/${cc}</span></div>
      <div class="bar"><span style="width:${Math.min(100, cu/cc*100)}%"></span></div>
      <div class="ship-stat" style="margin-top:6px"><span class="k">Fuel</span><span class="v">${S.res.fuel}/${fuelCap()}</span></div>
      <div class="bar"><span style="width:${Math.min(100, S.res.fuel/fuelCap()*100)}%"></span></div>
@@ -7006,6 +7058,16 @@ function renderMissions() {
     `<div class="card"><h4>🔓 ${tabLabel(g.id)}</h4><div class="hint">${g.blurb} — ${g.hint}</div></div>`).join("");
   const nextSteps = gateSteps + tabSteps;
   const nextStepsSection = nextSteps ? `<div class="section-title">🧭 Next Steps — unlock new features</div><div class="cards">${nextSteps}</div>` : "";
+
+  // Milestones: a broader completionist checklist, shown as earned/locked chips
+  const milestonesEarned = MILESTONES.filter(m => S.milestones && S.milestones[m.id]).length;
+  const milestoneChips = MILESTONES.map(m => {
+    const earnedTurn = S.milestones && S.milestones[m.id];
+    return earnedTurn
+      ? `<span class="pill good" title="${m.desc} — earned cycle ${earnedTurn}">${m.ico} ${m.name}</span>`
+      : `<span class="pill" style="opacity:.5" title="${m.desc}">🔒 ${m.name}</span>`;
+  }).join(" ");
+
   el.innerHTML = `<h2>🎯 Missions</h2>
     <div class="subtitle">Everything with an objective in one place: <b>time-bound contracts</b> race the clock, <b>career missions</b> unlock as you grow, and your <b>legacy goals</b> are the long game that wins it all.</div>
     ${nextStepsSection}
@@ -7014,7 +7076,9 @@ function renderMissions() {
     <div class="section-title">🧭 Career Missions (long-term)</div>
     <div class="cards">${missionCards}</div>
     <div class="section-title">🏆 Your Legacy (win conditions)</div>
-    <div class="cards"><div class="card">${goals}<div class="hint">Net worth: ${fmt(netWorth())} cr</div></div></div>`;
+    <div class="cards"><div class="card">${goals}<div class="hint">Net worth: ${fmt(netWorth())} cr</div></div></div>
+    <div class="section-title">🏅 Milestones <span class="hint">${milestonesEarned}/${MILESTONES.length}</span></div>
+    <div class="card"><div style="display:flex;flex-wrap:wrap;gap:4px">${milestoneChips}</div></div>`;
 }
 
 /* ----- Ship ----- */
@@ -8993,8 +9057,25 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.50.0";
+const APP_VERSION = "2.51.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
+/* ---- Changelog: what a returning player sees in the "What's New" panel.
+   Newest first. Add one line per release — this is separate from the single
+   current-version blurb in version.json (which drives the live update banner). ---- */
+const CHANGELOG = [
+  { version: "2.51.0", notes: "Mobile-friendly tables (they scroll in place instead of breaking the page), a 🆕 What's New panel, a 🏅 Milestones checklist in the Missions tab, and a 🎮 Custom Start with Sprint/Standard/Marathon length and an optional ☠️ Ironman challenge." },
+  { version: "2.50.0", notes: "Quality-of-life pass: press 1-9 to jump tabs and Enter/Space to end the cycle, a confirmation before scrapping a ship or attempting a coup, a quiet \"Saved\" flash by the cycle counter, and screen-reader-friendly log & toast notifications." },
+  { version: "2.49.0", notes: "Core variance: a Sector Code now jitters each charted world's deposits, industry, tech and law level a little, so the same map never plays out quite the same way twice." },
+  { version: "2.48.0", notes: "The Starmap: a clickable galaxy map atop the Galaxy tab charting every known world and the hyperlanes between them." },
+  { version: "2.47.0", notes: "Probe the Frontier: push straight at the frontier ring for richer signals — burns fuel whether it pays off or not, and a lawless target can draw an ambush." },
+  { version: "2.46.0", notes: "The Sector Code: a shareable code that reproduces your exact frontier ring and lane graph — send it to a friend, or replay your own sector." },
+  { version: "2.45.0", notes: "The lane graph: seeded hyperlanes give every game its own hazard-stretched routes and cheap shortcuts between worlds." },
+  { version: "2.44.0", notes: "The frontier ring: a further ring of procedurally-generated worlds beyond the charted 20 — a different set every game, hidden until surveyed." },
+  { version: "2.43.0", notes: "Territory contest: a world whose owner is at open war can change hands if its control meter maxes out." },
+  { version: "2.42.0", notes: "Rising pirate powers: an exceptional pirate band can carve a haven out of a lawless world and grow in strength the longer it holds." },
+  { version: "2.41.0", notes: "Wider visibility: expanded intel on faction relations and contested worlds surfaced across the Galaxy and Politics tabs." },
+  { version: "2.40.0", notes: "Persistent faction relations: the five great powers now track Alliance / Peace / Cold War / War with each other, independent of your own reputation." },
+];
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
   if (!server || !server.version) return { update: false };
@@ -9072,7 +9153,7 @@ function helpHTML() {
     </ul>
 
     <h4>Header buttons</h4>
-    <p style="margin:0 0 6px 0">⟲ <b>New</b> / 🌍 <b>Colonize</b> start fresh runs · 🔑 <b>Seed</b> shows this sector's shareable code and can start a new game from any code (yours or a friend's) — the exact same frontier ring and lane graph, every time · 📖 <b>Log</b> downloads your captain's log (a dossier you can hand to an AI to write your biography or a novel).</p>
+    <p style="margin:0 0 6px 0">⟲ <b>New</b> / 🌍 <b>Colonize</b> start fresh runs · 🎮 <b>Custom Start</b> picks your opening, a Sprint/Standard/Marathon campaign length, and an optional ☠️ <b>Ironman</b> challenge (disables 📂 Load for that run) · 🔑 <b>Seed</b> shows this sector's shareable code and can start a new game from any code (yours or a friend's) — the exact same frontier ring and lane graph, every time · 📖 <b>Log</b> downloads your captain's log (a dossier you can hand to an AI to write your biography or a novel).</p>
 
     <h4>Links</h4>
     <p style="margin:0">
@@ -9092,28 +9173,47 @@ function helpHTML() {
     <p style="opacity:.6;font-size:12px;margin-top:10px">Stellar Frontier v${typeof APP_VERSION!=="undefined"?APP_VERSION:""} · made with Claude. Tip: press <b>1-9</b> to jump to a tab, <b>Enter/Space</b> to end the cycle, <b>Esc</b> to close this help.</p>
   `;
 }
-function toggleHelp() {
+/* ---- Generic centered modal overlay, shared by Help and What's New.
+   Clicking the backdrop, or calling show again with the same id, closes it. ---- */
+function showModal(id, html) {
   if (typeof document === "undefined" || !document.body) return;
-  const existing = document.getElementById("help-overlay");
+  const existing = document.getElementById(id);
   if (existing) { existing.remove(); return; }
   const el = document.createElement("div");
-  el.id = "help-overlay";
+  el.id = id;
+  el.className = "modal-overlay";
   el.style.cssText = "position:fixed;inset:0;z-index:10000;background:rgba(2,6,23,.80);display:flex;"
     + "align-items:center;justify-content:center;padding:20px";
   el.innerHTML = `<div style="max-width:680px;max-height:85vh;overflow:auto;background:#0f172a;`
     + `border:1px solid var(--accent,#38bdf8);border-radius:12px;padding:22px 24px;color:#e2e8f0;`
-    + `box-shadow:0 20px 60px rgba(0,0,0,.6)" onclick="event.stopPropagation()">${helpHTML()}</div>`;
+    + `box-shadow:0 20px 60px rgba(0,0,0,.6)" onclick="event.stopPropagation()">${html}</div>`;
   el.addEventListener("click", () => el.remove());            // click backdrop to dismiss
   document.body.appendChild(el);
 }
+function toggleHelp() { showModal("help-overlay", helpHTML()); }
+function changelogHTML() {
+  const rows = CHANGELOG.map(c => `<li style="margin-bottom:8px"><b class="c" style="color:var(--gold,#ffd166)">v${c.version}</b> — ${c.notes}</li>`).join("");
+  return `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <h2 style="margin:0">🆕 What's New</h2>
+      <button class="btn btn-sm" style="margin-left:auto" onclick="toggleChangelog()">✕ Close</button>
+    </div>
+    <p style="opacity:.85">Recent updates to Stellar Frontier, newest first.</p>
+    <ul style="line-height:1.5;margin:10px 0 0 18px;padding:0">${rows}</ul>
+    <p style="opacity:.6;font-size:12px;margin-top:14px">
+      <a href="${REPO_URL}/commits/main" target="_blank" rel="noopener" style="color:var(--accent,#38bdf8)">Full commit history</a>
+    </p>
+  `;
+}
+function toggleChangelog() { showModal("changelog-overlay", changelogHTML()); }
 /* ---- Keyboard shortcuts: 1-9 jump to that tab, Enter/Space ends the cycle,
-   Esc closes the help overlay. Ignored while typing in a field or while some
-   other control already has keyboard focus, so we never steal Enter/Space
+   Esc closes any open modal overlay. Ignored while typing in a field or while
+   some other control already has keyboard focus, so we never steal Enter/Space
    from a focused button or hijack digits out of a quantity box. ---- */
 function handleShortcutKey(e) {
   if (typeof document === "undefined") return;
-  if (e.key === "Escape") { const h = document.getElementById("help-overlay"); if (h) h.remove(); return; }
-  if (e.ctrlKey || e.metaKey || e.altKey || document.getElementById("help-overlay")) return;
+  if (e.key === "Escape") { const m = document.querySelector(".modal-overlay"); if (m) m.remove(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey || document.querySelector(".modal-overlay")) return;
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON"
       || (document.activeElement && document.activeElement.isContentEditable)) return;
@@ -9352,16 +9452,21 @@ function promptSeedNewGame() {
   if (input === null) return;   // cancelled — no game started, nothing changed
   newGame(undefined, input.trim() || undefined);
 }
-function newGame(mode, seedCode) {
+function newGame(mode, seedCode, opts = {}) {
   const colony = mode === "colony", politics = mode === "politics";
-  const msg = colony
+  let msg = colony
     ? "Start in Colonization mode? You'll skip the trading phase and begin on a frontier world with the Colonial Charter, the capital and the materials to found your first colony right away. Current progress will be lost."
     : politics
     ? "Start in Politics mode? You'll skip the trading grind and begin as a fledgling politician — with the Galactic Charter, a campaign chest, some influence and your own party. Current progress will be lost."
     : "Start a new game? Current progress will be lost.";
+  const extras = [];
+  if (opts.ironman) extras.push("☠️ Ironman");
+  if (opts.lengthMult && opts.lengthMult < 1) extras.push("🏃 Sprint length");
+  if (opts.lengthMult && opts.lengthMult > 1) extras.push("🏔️ Marathon length");
+  if (extras.length) msg += ` — ${extras.join(", ")}.`;
   if (typeof confirm === "function" && !confirm(msg)) return;
   for (let i = PLANETS.length - 1; i >= 0; i--) { if (PLANETS[i].frontier) PLANETS.splice(i, 1); }   // drop the previous run's frontier ring — PLANETS survives a mid-session New Game, unlike a page reload
-  S = freshState({ colonyStart: colony, politicsStart: politics, seed: seedFromCode(seedCode) });
+  S = freshState({ colonyStart: colony, politicsStart: politics, seed: seedFromCode(seedCode), ironman: opts.ironman, lengthMult: opts.lengthMult });
   generateFrontierRing();   // regenerate against the (possibly custom) seed just rolled/entered above
   rollPrices();
   if (colony) {
@@ -9371,10 +9476,64 @@ function newGame(mode, seedCode) {
   } else {
     log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`);
   }
+  if (S.ironman) log("☠️ Ironman run — 📂 Load is disabled for this game. Live with your choices.", "event");
   jotOpening(colony ? "colony" : politics ? "politics" : "trade");
   if (colony) unlock("colonies", false); if (politics) unlock("politics", false);
   checkUnlocks(true);
+  applyIronmanUI();
   saveGame(); renderAll(); setTab(colony ? "colonies" : politics ? "politics" : "galaxy");
+}
+/* ---- Custom Start: pick opening + campaign length + optional Ironman
+   challenge, all in one modal, without touching the existing one-click
+   ⟲ New / 🌍 Colonize buttons other players already rely on. ---- */
+function customStartHTML() {
+  return `
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <h2 style="margin:0">🎮 Custom Start</h2>
+      <button class="btn btn-sm" style="margin-left:auto" onclick="toggleCustomStart()">✕ Close</button>
+    </div>
+    <p style="opacity:.85">Pick how this run begins. Starting will replace your current game.</p>
+    <h4>Opening</h4>
+    <div style="display:flex;flex-direction:column;gap:6px;margin:8px 0 16px">
+      <label><input type="radio" name="cs-mode" value="trade" checked> 💱 Trading — the default start</label>
+      <label><input type="radio" name="cs-mode" value="colony"> 🌍 Colonization — skip to founding a colony</label>
+      <label><input type="radio" name="cs-mode" value="politics"> 🏛️ Politics — start with a party and a war chest</label>
+    </div>
+    <h4>Campaign length</h4>
+    <div style="display:flex;flex-direction:column;gap:6px;margin:8px 0 16px">
+      <label><input type="radio" name="cs-length" value="0.6"> 🏃 Sprint — shorter net-worth &amp; colony goals</label>
+      <label><input type="radio" name="cs-length" value="1" checked> ⚖️ Standard</label>
+      <label><input type="radio" name="cs-length" value="1.6"> 🏔️ Marathon — bigger net-worth &amp; colony goals</label>
+    </div>
+    <h4>Challenge</h4>
+    <div style="margin:8px 0 16px">
+      <label><input type="checkbox" id="cs-ironman"> ☠️ Ironman — disables 📂 Load for this run. Live with your choices.</label>
+    </div>
+    <button class="btn btn-primary" onclick="beginCustomStart()">🚀 Begin</button>
+  `;
+}
+function toggleCustomStart() { showModal("customstart-overlay", customStartHTML()); }
+function beginCustomStart() {
+  const modeEl = document.querySelector('input[name="cs-mode"]:checked');
+  const lengthEl = document.querySelector('input[name="cs-length"]:checked');
+  const ironmanEl = document.getElementById("cs-ironman");
+  const mode = modeEl ? modeEl.value : "trade";
+  const lengthMult = lengthEl ? parseFloat(lengthEl.value) : 1;
+  const ironman = !!(ironmanEl && ironmanEl.checked);
+  const overlay = document.getElementById("customstart-overlay");
+  if (overlay) overlay.remove();
+  newGame(mode, undefined, { lengthMult, ironman });
+}
+/* ---- Ironman disables 📂 Load for the current run — refresh the button
+   whenever a game starts (page load or a mid-session Custom Start). ---- */
+function applyIronmanUI() {
+  if (typeof document === "undefined") return;
+  const btn = document.getElementById("loadSaveBtn");
+  if (!btn) return;
+  btn.disabled = !!S.ironman;
+  btn.title = S.ironman
+    ? "Ironman run — loading a save is disabled. Live with your choices."
+    : "Load a game from a save file on your disk (replaces the current game)";
 }
 function jotOpening(mode) {
   const p = currentPlanet();
@@ -9459,7 +9618,10 @@ function init() {
   if (!S.pirateBands) S.pirateBands = {};
   if (S.commission === undefined) S.commission = null;
   UPGRADES.forEach(u => { if (S.upgrades[u.id] == null) S.upgrades[u.id] = 0; });  // backfill new upgrades (cannons)
+  if (S.ironman == null) S.ironman = false;          // backfill for saves from before Custom Start
+  if (S.lengthMult == null) S.lengthMult = 1;
   syncObjectives();
+  checkMilestones(true);   // veteran saves silently claim whatever they've already earned
   if (!S.disc) S.disc = {}; if (!S.made) S.made = {}; if (S.stats && S.stats.sales == null) S.stats.sales = 0; checkUnlocks(true); checkDisclosure(true); applyTabVisibility();
   applyEink();
   document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => setTab(t.dataset.tab)));
@@ -9470,12 +9632,14 @@ function init() {
   [
     { label: "⟲ New",      title: "New game (trading start)",                                                                            fn: () => newGame() },
     { label: "🌍 Colonize", title: "New game — skip trading, start ready to colonize",                                                    fn: () => newGame("colony") },
+    { label: "🎮 Custom Start", title: "Pick your opening, campaign length, and an optional Ironman challenge",                            fn: () => toggleCustomStart() },
     { label: "🔑 Seed",     title: "View this sector's code, or start a new game from a specific one",                                     fn: () => promptSeedNewGame() },
     { label: "📖 Log",      title: "Download your captain's log — a narrative dossier you can hand to an AI to write your biography or a novel", fn: () => downloadJournal() },
     { label: "💾 Save",     title: "Save this game to a file on your disk (backup, or move between browsers/machines)",                     fn: () => exportSave() },
-    { label: "📂 Load",     title: "Load a game from a save file on your disk (replaces the current game)",                                fn: () => importSave() },
+    { label: "📂 Load",     title: "Load a game from a save file on your disk (replaces the current game)",                                fn: () => importSave(), id: "loadSaveBtn" },
     { label: soundLabel(), title: "Toggle sound effects", fn: () => toggleSound(), id: "soundToggleBtn" },
     { label: einkLabel(), title: "High-contrast black-on-white mode for e-ink readers (Kindle Scribe etc.)", fn: () => toggleEink(), id: "einkToggleBtn" },
+    { label: "🆕 What's New", title: "Recent updates to Stellar Frontier",                                                                  fn: () => toggleChangelog() },
     { label: "❓ Help",     title: "How to play, and links to the project",                                                                fn: () => toggleHelp() },
   ].forEach(b => {
     const el = document.createElement("button");
@@ -9485,7 +9649,13 @@ function init() {
   });
   // (No console button for a politics start — careers switch freely in-game; the
   //  Politics tab offers an "Enter Public Life" kickstart instead.)
+  applyIronmanUI();
   renderAll(); setTab("galaxy");
+  // greet a returning player with what changed since they last played; a brand-new
+  // game has nothing to compare against, so it just silently records the version
+  if (!isNewGame && S.lastSeenVersion !== APP_VERSION) toggleChangelog();
+  S.lastSeenVersion = APP_VERSION;
+  saveGame();
   startVersionWatch();
 }
 window.addEventListener("DOMContentLoaded", init);

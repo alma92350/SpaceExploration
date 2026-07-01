@@ -300,6 +300,22 @@ tr:hover td { background: rgba(255,255,255,0.03); }
   .tab { flex: 1; text-align: center; }
 }
 
+/* ===== Small screens (phones) ===== */
+@media (max-width: 520px) {
+  #app { padding: 6px; gap: 8px; }
+  .panel { padding: 12px; min-height: 0; }
+  #topbar { padding: 8px 10px; gap: 8px; }
+  .title { font-size: 15px; letter-spacing: 1.5px; }
+  .resources { gap: 8px; justify-content: flex-start; }
+  .res { padding: 4px 7px; font-size: 12px; }
+  .game-menu-buttons .btn { flex: 1 1 100%; }
+  /* wide data tables (market, industry, fleet, colonies) scroll horizontally
+     inside their own box instead of blowing out the whole page layout */
+  table { display: block; overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; }
+  thead, tbody, tr { width: max-content; min-width: 100%; }
+  .trade-controls { justify-content: flex-start; }
+}
+
 /* =====================================================================
    E-INK / HIGH-CONTRAST MODE  (toggle: 📖 E-ink mode in Captain's Console)
    Black-on-white, strong borders, no gradients/glows/shadows/animations —
