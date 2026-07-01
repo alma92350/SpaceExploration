@@ -5558,8 +5558,43 @@ function renderShip() {
      <div class="bar"><span style="width:${S.pirate.hull}%;background:${S.pirate.hull>=60?'var(--good)':S.pirate.hull>=30?'var(--warn)':'var(--bad)'}"></span></div>` : ""}
      <div class="ship-stat" style="margin-top:8px"><span class="k">Hold</span></div>
      <div style="font-size:12px;line-height:1.7">${held}</div>
-     ${mods ? `<div class="ship-stat" style="margin-top:8px"><span class="k">Mods</span></div><div style="font-size:13px">${mods}</div>` : ""}
-     ${renderFortunes()}${renderSignals()}`;
+     ${mods ? `<div class="ship-stat" style="margin-top:8px"><span class="k">Mods</span></div><div style="font-size:13px">${mods}</div>` : ""}`;
+}
+// ---- Operations board: one live digest of every timed/background activity ----
+function renderOps() {
+  const el = (typeof document !== "undefined") && document.getElementById("opsPanel"); if (!el) return;
+  const rows = [];
+  const row = (ico, txt, cyc, tab, col) => rows.push(`<div class="ship-stat" style="align-items:center${tab ? ";cursor:pointer" : ""}"${tab ? ` onclick="setTab('${tab}')" title="Open the ${tab} tab"` : ""}>
+    <span class="k">${ico} <span class="hint">${txt}</span></span>${cyc != null ? `<span class="v"${col ? ` style="color:${col}"` : ""}>${cyc}</span>` : ""}</div>`);
+  // combat first (most urgent)
+  if (S.interdiction) row("🚨", "Navy interdiction", null, "raid", "var(--bad)");
+  if (S.encounter) row("🏴", `Ambush: ${S.encounter.name}`, null, "raid", "var(--bad)");
+  if (S.prey) row("🎯", `Engaging ${S.prey.name}`, null, "raid", "var(--warn)");
+  if (S.jail > 0) row("⛓️", "In detention", S.jail + "c", null, "var(--bad)");
+  // your fleet
+  fleetList().forEach(s => { const def = FLEET_SHIPS[s.key]; if (!def) return;
+    if (s.status === "building") row("🏗️", `${def.ico} ${s.name} building`, s.buildLeft + "c", "fleet", "var(--warn)");
+    else if (s.status === "mission" && s.mission) row(MANDATE_TASKS[s.mission.task].ico, `${def.ico} ${s.name} · ${MANDATE_TASKS[s.mission.task].name} @ ${mdPlanetName(s.mission.planet)} <span style="color:var(--gold)">+${fmt(s.mission.accrued)}</span>`, s.mission.cyclesLeft + "c", "fleet", "var(--accent)");
+    else if (s.status === "logistics") row(def.role === "freighter" ? "🚚" : "🛡️", `${def.ico} ${s.name} · ${def.role === "freighter" ? "hauling for" : "guarding"} ${mdPlanetName(s.station)}`, null, "fleet", "var(--accent)");
+    else if (s.status === "escort") row("🛡️", `${def.ico} ${s.name} · escorting`, null, "escort", "var(--accent)");
+  });
+  // pirate mandates
+  (S.mandates || []).forEach(m => { const b = bandById(m.bandId), t = MANDATE_TASKS[m.task]; if (!t) return;
+    row(t.ico, `${b ? b.ico + " " + b.name : "crew"} · ${t.name} @ ${mdPlanetName(m.planet)} <span style="color:var(--gold)">+${fmt(m.accrued)}</span>`, m.cyclesLeft + "c", "contacts", "var(--accent)"); });
+  // active escort run
+  if (S.escort && S.escort.active && S.escort.mission) { const m = S.escort.mission, left = m.deadline != null ? Math.max(0, m.deadline - S.turn) : null;
+    row(m.pirate ? "🏴" : "🛡️", `${m.pirate ? "Smuggling run" : "Escort"} → ${mdPlanetName(m.to)} · leg ${m.legs - m.legsLeft}/${m.legs}`, left != null ? left + "c" : null, "escort", left != null && left <= 2 ? "var(--bad)" : "var(--warn)"); }
+  // letter of marque
+  if (S.commission) { const c = S.commission; row("📜", `Marque vs ${FACTIONS[c.target].name} · ${c.done}/${c.quota} raids`, Math.max(0, c.expires - S.turn) + "c", "raid", "var(--good)"); }
+  // brotherhood: following / standing by / inbound
+  bandList().forEach(b => {
+    if (bandFollowing(b)) row("🛰️", `${b.ico} ${b.name} following`, (b.followUntil - S.turn) + "c", "contacts", "var(--good)");
+    else if (bandOnCall(b)) row("📣", `${b.ico} ${b.name} standing by`, (b.onCallUntil - S.turn) + "c", "contacts", "var(--good)");
+    else if (bandInbound(b)) row("📣", `${b.ico} ${b.name} inbound`, (b.inboundTurn - S.turn) + "c", "contacts", "var(--warn)");
+  });
+  const opsHtml = rows.join("");
+  const fxHtml = renderFortunes(), sigHtml = renderSignals();   // active Fortunes (clearable) + signals (investigate)
+  el.innerHTML = (opsHtml || fxHtml || sigHtml) ? `<h3>📋 Operations</h3>${opsHtml}${fxHtml}${sigHtml}` : "";
 }
 function renderSignals() {
   const sig = Array.isArray(S.signals) ? S.signals : [];
@@ -8025,7 +8060,7 @@ function renderAll() {
   if (typeof document === "undefined") return;
   checkUnlocks(); checkDisclosure(); applyTabVisibility();
   renderResources(); renderShip(); renderGalaxy(); renderMarket();
-  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderEscort(); renderContacts(); renderShipPanel(); renderFortunesPanel(); renderFleet(); renderLog();
+  renderIndustry(); renderResearch(); renderMissions(); renderPolitics(); renderBases(); renderColonies(); renderRaid(); renderEscort(); renderContacts(); renderShipPanel(); renderFortunesPanel(); renderFleet(); renderOps(); renderLog();
   const tn = document.getElementById("turn"); if (tn) tn.textContent = S.turn;
 }
 
@@ -8154,7 +8189,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.35.0";
+const APP_VERSION = "2.36.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8228,7 +8263,8 @@ function helpHTML() {
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Set each vessel's <b>combat stance</b> — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to <b>3 levels of fit</b> for it, paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
       <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Some crews hold <b>blood feuds</b> and won't serve alongside their rival — you can settle it: a cheap <b>🕊️ Truce</b> sets the feud aside for a few cycles so they'll serve together for now, or a full <b>🤝 Broker peace</b> ends it for good (the fee scales with the feud's depth and eases with your standing &amp; Dread). Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
-      <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules. A compact readout of your active <b>✨ Fortunes</b> and <b>📡 signals</b> also shows in the sidebar; manage them in full on the ✨ Fortunes tab.</li>
+      <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
+      <li>📋 <b>Operations</b> (sidebar) — a live board of everything running in the background: fleet missions, convoys &amp; construction, pirate mandates, your active escort/smuggling run, a letter of marque, crews standing by / inbound / following, plus your active ✨ Fortunes (with clear buttons) and 📡 signals. Each row shows a cycle countdown and clicks through to the relevant tab, so nothing you set in motion gets forgotten.</li>
     </ul>
 
     <h4>Header buttons</h4>

@@ -1,5 +1,5 @@
 {
-  "version": "2.35.0",
+  "version": "2.36.0",
   "saveVersion": "v2",
-  "notes": "Freight convoys (slice 4) — completes the player fleet. Station your freighters at a colony on logistics duty to haul its goods: it lowers that colony's market import fee and its base↔colony freight (bigger freighters save more). But a convoy in a pirate-active system risks ambush each cycle — your freighter takes damage and loses goods, and a fragile hauler can be sunk. Station a warship at the same colony to guard the convoys, cutting the ambush chance and the damage. Convoy losses are itemized in the Cycle accounts log. Build → mission → ally → haul: your navy and merchant marine are complete."
+  "notes": "New 📋 Operations board in the sidebar — one live digest of everything running in the background so nothing you set in motion gets forgotten. It lists your fleet's missions, convoys and ships under construction, pirate mandates, your active escort or smuggling run, a letter of marque, and crews standing by / inbound / following — each with a cycle countdown that clicks through to the right tab. Your active ✨ Fortunes (with clear buttons) and 📡 signals now live here too, consolidated from the Ship panel. Combat and detention show at the top when urgent."
 }
