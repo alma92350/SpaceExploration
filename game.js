@@ -2157,7 +2157,7 @@ function newBand(level) {
   const b = { id, name, ico: (PIRATE_RANKS[lvl] || PIRATE_RANKS[1]).ico, level: lvl, rep: 0, pers: pick(BAND_PERS_KEYS),
     encounters: 0, fought: 0, allied: 0, gifted: 0, lastSeen: S.turn || 0, status: "active", feudWith: null,
     tag: null, loc: (PLANETS.filter(isActive)[Math.floor(Math.random() * Math.max(1, PLANETS.filter(isActive).length))] || PLANETS[0]).id,
-    inboundTurn: null, onCallUntil: 0, busyUntil: 0, follow: false, followUntil: 0 };
+    inboundTurn: null, onCallUntil: 0, busyUntil: 0, follow: false, followUntil: 0, haven: null };
   S.pirateBands[id] = b;
   // some crews are blood rivals with an existing band — they won't serve together
   const others = Object.values(S.pirateBands).filter(o => o.id !== id && !o.feudWith && o.status !== "dead");
@@ -2876,6 +2876,66 @@ function processHaven() {
   if (!S.haven || !S.pirate) return;
   const tribute = havenTributeRate();
   if (tribute > 0) { S.res.credits += tribute; cycleLedger("haven tribute", tribute); }
+}
+/* ------------------------------------------------------------
+   RISING PIRATE POWERS — mirrors the player's own Haven: every so often, an
+   exceptional band claims a lawless world as its own lair and becomes a
+   named, escalating threat. It's still just a band underneath — you can
+   ally, feud, hire or mandate with it exactly as any other — but its haven
+   grows (raising local pirate activity, its own rank) while the world stays
+   lawless, and withers if you keep it pacified long enough. Pure background
+   sim + existing-tool counterplay: no new player action required.
+   ------------------------------------------------------------ */
+const PIRATE_HAVEN_MAX_TIER = 3, PIRATE_HAVEN_MAX_ACTIVE = 2, PIRATE_HAVEN_CALM_TO_COLLAPSE = 3;
+function bandsWithHaven() { return bandList().filter(b => b.haven); }
+function pirateHavenWorlds() { return new Set(bandsWithHaven().map(b => b.haven.planet)); }
+function eligiblePirateHavenWorlds() {
+  const claimed = pirateHavenWorlds();
+  return PLANETS.filter(p => isActive(p) && canHaven(p) && !claimed.has(p.id) && !(S.haven && S.haven.planet === p.id));
+}
+function processPirateHavens() {
+  if (S.turn % 5 !== 0) return;   // matches processPirates' own cadence — they rise and fall on the same rhythm
+  // ---- existing havens: grow while their world stays lawless, decay and collapse once it's pacified ----
+  const justCollapsed = new Set();   // a band that just lost its haven this pass can't found a new one in the same breath
+  bandsWithHaven().forEach(b => {
+    const h = b.haven, plv = pirateLevel(h.planet), name = mdPlanetName(h.planet);
+    if (plv <= 0) {
+      h.calm = (h.calm || 0) + 1;
+      if (h.calm >= PIRATE_HAVEN_CALM_TO_COLLAPSE) {
+        log(`🏳️ The ${b.ico} ${b.name} abandon their haven at ${name} — the lanes there have gone quiet for good.`, "good");
+        digestNote("threats", `${b.name}'s haven at ${name} collapsed`);
+        b.haven = null; justCollapsed.add(b.id);
+      }
+      return;
+    }
+    h.calm = 0;
+    if (h.tier < PIRATE_HAVEN_MAX_TIER && Math.random() < 0.15 + plv * 0.05) {
+      h.tier++;
+      if (b.level < 5 && Math.random() < 0.5) b.level++;
+      S.pirates[h.planet] = Math.min(5, pirateLevel(h.planet) + 1);
+      log(`👑 The ${b.ico} ${b.name}'s haven at ${name} grows to tier ${h.tier} — a rising power in the rim.`, "bad");
+      digestNote("threats", `${b.name}'s haven at ${name} grows (tier ${h.tier})`);
+    }
+  });
+  // ---- a new haven rising: prefers an established band, weighted toward already-lawless worlds ----
+  if (bandsWithHaven().length < PIRATE_HAVEN_MAX_ACTIVE && Math.random() < 0.25) {
+    const worlds = eligiblePirateHavenWorlds();
+    if (worlds.length) {
+      const w = worlds.map(p => 1 + pirateLevel(p.id) * 2);
+      const tot = w.reduce((s, x) => s + x, 0);
+      let r = Math.random() * tot, idx = 0;
+      for (; idx < worlds.length; idx++) { r -= w[idx]; if (r <= 0) break; }
+      const p = worlds[Math.min(idx, worlds.length - 1)];
+      const candidates = bandList().filter(x => !x.haven && x.level >= 3 && !justCollapsed.has(x.id));
+      const band = candidates.length ? pick(candidates) : newBand(rint(3, 4));
+      band.haven = { planet: p.id, tier: 1, calm: 0 };
+      band.loc = p.id;
+      S.pirates[p.id] = Math.min(5, Math.max(pirateLevel(p.id), 3));
+      log(`👑 A new pirate power rises: the ${band.ico} ${band.name} carve a hidden haven out of <span class="c">${p.name}</span>!`, "bad");
+      digestNote("threats", `${band.name} founded a haven at ${p.name}`);
+      if (typeof toast === "function") toast(`${band.name} claims ${p.name}`, "bad");
+    }
+  }
 }
 
 /* ------------------------------------------------------------
@@ -5644,7 +5704,7 @@ function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0; _cledger = {}; _cdigest = { production: {}, arrivals: [], threats: [], sector: [] };
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
   processFx(); processSignals();
-  processCrises(); processPirates(); processFactionRelations(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
+  processCrises(); processPirates(); processPirateHavens(); processFactionRelations(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
   if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (typeof decayBands === "function") decayBands();
   if (typeof processBandSupport === "function") processBandSupport();
@@ -5791,6 +5851,8 @@ function renderOps() {
     else if (bandOnCall(b)) row("📣", `${b.ico} ${b.name} standing by`, (b.onCallUntil - S.turn) + "c", "contacts", "var(--good)");
     else if (bandInbound(b)) row("📣", `${b.ico} ${b.name} inbound`, (b.inboundTurn - S.turn) + "c", "contacts", "var(--warn)");
   });
+  // rising pirate powers: any band that's carved out its own haven
+  bandsWithHaven().forEach(b => row("👑", `${b.ico} ${b.name}'s haven @ ${mdPlanetName(b.haven.planet)} · tier ${b.haven.tier}`, null, "contacts", "var(--bad)"));
   const opsHtml = rows.join("");
   const fxHtml = renderFortunes(), sigHtml = renderSignals();   // active Fortunes (clearable) + signals (investigate)
   el.innerHTML = (opsHtml || fxHtml || sigHtml) ? `<h3>📋 Operations</h3>${opsHtml}${fxHtml}${sigHtml}` : "";
@@ -5891,6 +5953,8 @@ function renderGalaxy() {
     const _sig = (S.signals || []).find(s => s.planet === p.id);
     const signalPill = _sig ? `<span class="pill good" title="${SIGNAL_KINDS[_sig.kind].blurb} — ${_sig.ttl} cyc to investigate">${SIGNAL_KINDS[_sig.kind].ico} ${["", "faint", "strong", "rare"][_sig.tier]} signal</span>` : '';
     const sectorPill = (!p.colonizable && p.faction) ? factionWarFrontPill(p.faction) : '';
+    const _pirHaven = bandsWithHaven().find(hb => hb.haven.planet === p.id);
+    const pirateHavenPill = _pirHaven ? `<span class="pill bad" title="The ${_pirHaven.name} command a pirate haven here (tier ${_pirHaven.haven.tier}) — see 🏴‍☠️ Contacts">👑 ${_pirHaven.name}'s haven T${_pirHaven.haven.tier}</span>` : '';
     const sigFuel = _sig ? (SIGNAL_FUEL[_sig.tier] || 6) : 0;
     const sigBtn = (_sig && here) ? `<button class="btn btn-sm ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "btn-good" : ""}" ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "" : "disabled"} title="${SIGNAL_KINDS[_sig.kind].blurb}" onclick="investigateSignal('${_sig.id}')">🔍 Investigate signal (${sigFuel}⛽)</button>` : '';
     return `<div class="planet-card ${here ? "current" : ""}">
@@ -5901,7 +5965,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${mandatePill}${signalPill}${sectorPill}
+        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${sigBtn ? `<div class="row" style="margin-bottom:8px">${sigBtn}</div>` : ""}
@@ -6974,6 +7038,7 @@ function contactCard(b) {
   return `<div class="card">
       <h4>${mark ? mark + " " : ""}${b.ico} ${b.name}</h4>
       <div class="hint">${pr.ico} ${pr.name} · L${b.level} · ${t.label} (${b.rep})${rival ? ` · <span style="color:var(--bad)">⚔️ feud: ${rival.name} (depth ${bandFeudDepth(b)})</span>` : ""}</div>
+      ${b.haven ? `<div class="hint" style="color:var(--bad)">👑 Commands a haven at ${mdPlanetName(b.haven.planet)} — tier ${b.haven.tier}, a rising power in the rim</div>` : ""}
       <div class="bar"><span style="width:${pct}%;background:${(b.rep||0) >= 41 ? "var(--good)" : (b.rep||0) < -10 ? "var(--bad)" : "var(--warn)"}"></span></div>
       <div class="ship-stat"><span class="k">Based at</span><span class="v">${bandLocName(b)} <span class="hint">${dist === 0 ? "(here)" : dist + " ly"}</span></span></div>
       <div class="ship-stat"><span class="k">History</span><span class="v">🤝 ${b.allied || 0} allied · ⚔️ ${b.fought || 0} fought · 🎁 ${fmt(b.gifted || 0)} cr</span></div>
@@ -8507,7 +8572,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.41.0";
+const APP_VERSION = "2.42.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8580,7 +8645,7 @@ function helpHTML() {
       <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. <b>Dispatch a warship on a mission</b> (🎯 cull / 🛡️ guard / 🏴 raid a system) and — unlike hired pirates — <b>you keep 100%</b> of the bounty/loot, paying no fee; the risk is combat wear (a fragile hull in an infested system can be lost) and ongoing upkeep. You can also <b>call idle warships into your own raids</b> (loyal allies that take <b>no loot cut</b>) and <b>assign them to escort your convoys</b> for free — they never desert, and any damage they take comes back to your fleet. <b>Station freighters at a colony</b> on logistics duty to haul its goods — cutting its market import fee and base↔colony freight — and <b>station a warship there to guard them</b>, since unguarded convoys in pirate-active systems get ambushed (damage &amp; lost goods, and a fragile hauler can be sunk). Loyal and fully yours. In a raid, you can also <b>✦ Deploy Battle Fleet</b> — your <b>whole idle warship fleet at once</b> (not the 2-ally cap) fights as a formation with an escort-style posture (screen/balanced/press). Positioning matters: assign ships to <b>🛡️ Vanguard</b> (tanks — soaks nearly all incoming fire while it holds), <b>⚔️ Line</b> (your best damage dealers, protected behind the Vanguard), or <b>🌌 Reserve</b> (safest, weakest). Lose the Vanguard and the Line is exposed next — the formation collapses tier by tier — and keeping a Vanguard alive screens you personally too. Real stakes: ships take real damage and can be lost in a hard fight. Recall the fleet any time.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Set each vessel's <b>combat stance</b> — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to <b>3 levels of fit</b> for it, paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
-      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Some crews hold <b>blood feuds</b> and won't serve alongside their rival — you can settle it: a cheap <b>🕊️ Truce</b> sets the feud aside for a few cycles so they'll serve together for now, or a full <b>🤝 Broker peace</b> ends it for good (the fee scales with the feud's depth and eases with your standing &amp; Dread). Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
+      <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Some crews hold <b>blood feuds</b> and won't serve alongside their rival — you can settle it: a cheap <b>🕊️ Truce</b> sets the feud aside for a few cycles so they'll serve together for now, or a full <b>🤝 Broker peace</b> ends it for good (the fee scales with the feud's depth and eases with your standing &amp; Dread). Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Every so often an exceptional band <b>rises</b> — carving a <b>👑 haven</b> out of a lawless world it commands, growing tier by tier (and in rank) the longer that world stays lawless, and quietly withering if you keep it pacified. It's still a normal band underneath — ally, feud, hire, mandate with it exactly as any other — but a haven-bearing crew is a named, escalating threat: shown on its Contacts card, on its world's 🪐 Galaxy pill, and on the sidebar's Operations board. Appears once you've crossed a pirate band.</li>
       <li>🚀 <b>Ship</b> — outfit your ship with upgrade modules.</li>
       <li>📋 <b>Operations</b> (sidebar) — a live board of everything running in the background: fleet missions, convoys &amp; construction, pirate mandates, your active escort/smuggling run, a letter of marque, crews standing by / inbound / following, plus your active ✨ Fortunes (with clear buttons) and 📡 signals. Each row shows a cycle countdown and clicks through to the relevant tab, so nothing you set in motion gets forgotten.</li>
     </ul>

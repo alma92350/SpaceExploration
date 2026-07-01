@@ -55,10 +55,39 @@ everywhere the player already looks.
 
 Tests: `sectorvis.js` (14 checks).
 
+## Slice 3 (shipped) — rising pirate powers
+Mirrors the player's own Haven mechanic. Still additive: a haven-bearing band
+is a normal `S.pirateBands` entry with one extra field (`b.haven = {planet,
+tier, calm}`) — every existing band system (ally, feud, hire, mandate, tag,
+recruit) works on it unchanged.
+- **Founding** (`processPirateHavens`, same `S.turn % 5` cadence as
+  `processPirates`): a throttled ~25% chance, capped at
+  `PIRATE_HAVEN_MAX_ACTIVE` (2) simultaneous havens, weighted toward the
+  most already-lawless eligible world (`eligiblePirateHavenWorlds`: `canHaven`,
+  not already claimed, not the player's own haven). Prefers an existing band
+  (level ≥3, no haven yet) for narrative continuity; falls back to spawning a
+  fresh one. Founding immediately sets local `pirateLevel` to at least 3.
+- **Growth**: each qualifying cycle, a chance (scaling with local
+  `pirateLevel`) to raise the haven's tier (cap `PIRATE_HAVEN_MAX_TIER`=3) and
+  sometimes the band's own rank — projecting more menace onto its world.
+- **Collapse — the player's built-in counter, no new action needed**: if the
+  haven's world is pacified (`pirateLevel` 0) for `PIRATE_HAVEN_CALM_TO_COLLAPSE`
+  (3) consecutive qualifying cycles, it's abandoned. Since mandates, fleet
+  missions, and ordinary raiding already suppress `pirateLevel`, keeping a
+  haven world clean with existing tools starves it out — no new player-facing
+  mechanic required.
+- **Edge case found & fixed during testing**: a band whose haven collapses
+  could be immediately re-picked as a founding candidate in the very same
+  cycle (undoing the collapse in the same breath). Fixed by excluding
+  same-pass collapses from the founding candidate pool
+  (`justCollapsed`) — caught by a 300-trial stress test, not the first pass.
+- **Visibility**: Galaxy-card pill (`👑 {band}'s haven T{tier}`), an
+  Operations-board row, and a line on the band's Contacts card.
+
+Tests: `pirhavens.js` (25 checks, including a dedicated 200-trial regression
+for the same-cycle collapse/founding edge case).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-3. **Rising pirate powers** — an exceptional band claims a lawless world as
-   its own Haven and becomes a named, escalating threat (mirrors the
-   player's Haven mechanic). Additive, no core-assumption risk.
 4. **Territory contest** — the risky slice: a world caught between two
    warring factions gets a shifting control meter that can actually flip
    `p.faction`. Requires auditing the ~90 existing reads of that field

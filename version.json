@@ -1,5 +1,5 @@
 {
-  "version": "2.41.0",
+  "version": "2.42.0",
   "saveVersion": "v2",
-  "notes": "Sector relations become visible everywhere. A world's owning faction now shows its single most newsworthy relationship right on its Galaxy card — a red ⚔️ 'at war w/' pill, or a green 🤝 'allied w/' pill (peace/cold war, the common baseline, stays quiet to keep the map clean). Any faction pair currently at war or allied also gets its own line on the sidebar's Operations board, linking straight to the Politics tab. And the cycle recap's sector notes now spell out the full transition (e.g. Cold War → War) instead of just the end state. Still entirely read-only — the sector's drama is now visible wherever you're already looking."
+  "notes": "Rising pirate powers. Every so often, an exceptional band claims a lawless world as its own 👑 haven — mirroring your own Haven mechanic — and becomes a named, escalating threat: its haven grows tier by tier (and its rank climbs) the longer that world stays lawless, raising local pirate activity as it goes. Keep the world pacified with your existing tools (mandates, fleet missions, ordinary raiding) and the haven withers and collapses on its own — no new button required. It's still a completely normal pirate band underneath: ally with it, feud with it, hire it, commission it, exactly as any other. Shown on the band's Contacts card, as a pill on its world's Galaxy card, and as a row on the sidebar's Operations board."
 }
