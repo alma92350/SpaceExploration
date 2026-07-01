@@ -566,6 +566,7 @@ function startCrisis(p, forceType) {
   S.crises[p.id] = { type, cyclesLeft: rint(CRISIS_DUR[0], CRISIS_DUR[1]) };
   const goods = Object.keys(def.spike).map(c => COM[c].ico).join("");
   log(`${def.ico} <span class="c">${def.name}</span> strikes ${p.name}! ${goods} prices spike as the world reels.`, "bad");
+  digestNote("threats", `${def.name} at ${p.name}`);
   toast(`${def.ico} ${def.name} on ${p.name}!`, "bad");
   jot(`${def.name} struck ${p.name}.`, "crisis");
   // the stricken world posts a relief appeal — a contract with heart
@@ -1987,11 +1988,15 @@ function encounterFight(wkey) {
 function processPirates() {
   if (!S.pirates) S.pirates = {};
   if (S.turn % 5 !== 0) return;                                  // pirates regroup slowly
+  const risen = [];
   PLANETS.forEach(p => {
     const base = basePirateLevel(p), cur = pirateLevel(p.id);
-    if (cur < base || (base > 0 && cur < 5 && Math.random() < 0.35))
+    if (cur < base || (base > 0 && cur < 5 && Math.random() < 0.35)) {
       S.pirates[p.id] = Math.min(5, cur + 1);                    // lawless space breeds raiders
+      if (S.pirates[p.id] > cur) risen.push(p.name);
+    }
   });
+  if (risen.length) digestNote("threats", `pirate activity rising at ${risen.slice(0, 3).join(", ")}${risen.length > 3 ? ` +${risen.length - 3} more` : ""}`);
 }
 function genPrey() {
   const p = currentPlanet(), law = p.enforce;       // lawful space → richer, better-escorted prey
@@ -2341,6 +2346,7 @@ function processBandSupport() {                          // arrivals + travellin
       b.inboundTurn = null; b.onCallUntil = S.turn + BAND_ONCALL_DURATION; b.loc = S.location || b.loc;
       log(`🛬 The ${b.ico} ${b.name} arrived and are standing by your position.`, "event");
       if (typeof toast === "function") toast(`${b.name} has arrived`, "good");
+      digestNote("arrivals", `${b.name} arrived`);
     }
     if (bandFollowing(b)) {
       b.loc = S.location || b.loc;                       // a following crew jumps where you jump — callable anywhere
@@ -4083,6 +4089,7 @@ function processBases() {
       if (add > 0) {
         b.storage[mod.produces] = (b.storage[mod.produces] || 0) + add;
         summary[mod.produces] = (summary[mod.produces] || 0) + add;
+        digestProd(mod.produces, add);
       }
     });
     // Fuel Refinery: crack stored ice into fuel, limited by ice on hand and free space
@@ -4094,6 +4101,7 @@ function processBases() {
         b.storage.ice -= Math.ceil(made * REFINERY_ICE_PER_FUEL);
         b.storage.fuel = (b.storage.fuel || 0) + made;
         summary.fuel = (summary.fuel || 0) + made;
+        digestProd("fuel", made);
       }
     }
   });
@@ -4334,6 +4342,7 @@ function colonyEventRoll(pid, col, planet) {
     S.res.credits -= credLoss;
     col.happiness = Math.max(0, col.happiness - 12);
     log(`🏴‍☠️ Pirates raided <span class="c">${name}</span>! Lost ${lootLog.join(" ") || "no goods"} and ${fmt(credLoss)} credits.`, "bad");
+    digestNote("threats", `${name} raided`);
     toast(`${name} raided!`, "bad");
     announce(`🏴‍☠️ ${name} Raided`, `Pirates struck your colony. Build a 🛡️ Garrison to defend it.`, true);
     return false;
@@ -4672,8 +4681,8 @@ function processConvoys() {       // pirate ambushes on your stationed freighter
     const loss = Math.min(S.res.credits || 0, Math.round(plv * 40 * (0.5 + Math.random()) / (1 + guards)));
     f.hull = Math.max(0, f.hull - dmg);
     if (loss > 0) { S.res.credits -= loss; if (typeof cycleLedger === "function") cycleLedger("convoy losses", -loss); }
-    if (f.hull <= 0) { f._dead = true; log(`💥 Pirates destroyed your ${(FLEET_SHIPS[f.key] || {}).ico || ""} ${f.name} hauling for ${name}.`, "bad"); if (typeof toast === "function") toast(`${f.name} lost to pirates!`, "bad"); }
-    else log(`🏴‍☠️ Pirates ambushed your convoy at ${name} — ${f.name} took ${dmg} damage${loss ? ` and lost ${fmt(loss)} cr of goods` : ""}${guards ? " (your guards drove them off)" : " — assign a warship to guard it"}.`, "bad");
+    if (f.hull <= 0) { f._dead = true; log(`💥 Pirates destroyed your ${(FLEET_SHIPS[f.key] || {}).ico || ""} ${f.name} hauling for ${name}.`, "bad"); if (typeof toast === "function") toast(`${f.name} lost to pirates!`, "bad"); digestNote("threats", `${f.name} lost at ${name}`); }
+    else { log(`🏴‍☠️ Pirates ambushed your convoy at ${name} — ${f.name} took ${dmg} damage${loss ? ` and lost ${fmt(loss)} cr of goods` : ""}${guards ? " (your guards drove them off)" : " — assign a warship to guard it"}.`, "bad"); digestNote("threats", `convoy ambushed at ${name}`); }
   });
   if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
 }
@@ -4708,7 +4717,7 @@ function recallFleetMission(shipId) {
 }
 function processFleet() {
   const f = fleetList(); if (!f.length) return;
-  f.forEach(s => { if (s.status === "building" && --s.buildLeft <= 0) { s.status = "idle"; s.buildLeft = 0; const def = FLEET_SHIPS[s.key]; log(`✅ The ${def ? def.ico + " " + s.name : s.name} launched from ${(PLANETS.find(p => p.id === s.home) || {}).name || "the yard"} — ready for orders.`, "good"); } });
+  f.forEach(s => { if (s.status === "building" && --s.buildLeft <= 0) { s.status = "idle"; s.buildLeft = 0; const def = FLEET_SHIPS[s.key]; log(`✅ The ${def ? def.ico + " " + s.name : s.name} launched from ${(PLANETS.find(p => p.id === s.home) || {}).name || "the yard"} — ready for orders.`, "good"); digestNote("arrivals", `${s.name} launched`); } });
   // missions
   f.forEach(s => {
     if (s.status !== "mission" || !s.mission) return;
@@ -4728,6 +4737,7 @@ function processFleet() {
         S.res.credits += m.accrued;
         log(`💥 Your ${def.ico} ${s.name} was lost on its ${t.name.toLowerCase()} at ${mdPlanetName(m.planet)} — banked ${fmt(m.accrued)} cr before it went down.`, "bad");
         if (typeof toast === "function") toast(`${s.name} lost!`, "bad");
+        digestNote("threats", `${s.name} lost at ${mdPlanetName(m.planet)}`);
         s._dead = true; return;
       }
     }
@@ -4735,6 +4745,7 @@ function processFleet() {
       S.res.credits += m.accrued; s.status = "idle";
       log(`🎯 Your ${def.ico} ${s.name} finished its ${t.name.toLowerCase()} at ${mdPlanetName(m.planet)} — banked <b>${fmt(m.accrued)} cr</b> (100% yours).`, "good");
       if (typeof toast === "function") toast(`${s.name}: +${fmt(m.accrued)} cr`, "good");
+      digestNote("arrivals", `${s.name} completed its mission (+${fmt(m.accrued)} cr)`);
       s.mission = null;
     }
   });
@@ -4883,7 +4894,7 @@ function processColonies() {
   Object.entries(S.colonies).forEach(([pid, col]) => {
     const planet = PLANETS.find(p => p.id === pid);
     const cap = colonyStorageCap(col, planet);
-    const store = (c, q) => { const add = Math.min(q, cap - colonyStorageUsed(col)); if (add > 0) col.storage[c] = (col.storage[c] || 0) + add; };
+    const store = (c, q) => { const add = Math.min(q, cap - colonyStorageUsed(col)); if (add > 0) { col.storage[c] = (col.storage[c] || 0) + add; digestProd(c, add); } };
     let foodMade = 0;   // net food (biomass) produced this cycle — sets the colony's carrying capacity
 
     // 1a) raw producers (farm, extractors) + passive research run first
@@ -5538,9 +5549,25 @@ function reportCycleLedger() {
   const parts = ent.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).map(([k, v]) => `${v > 0 ? "+" : "−"}${fmt(Math.abs(v))} ${k}`);
   log(`💰 Cycle accounts: ${parts.join(" · ")} → net ${net >= 0 ? "+" : "−"}${fmt(Math.abs(net))} cr.`, net >= 0 ? "good" : "bad");
 }
+// ---- per-cycle digest: a second, separate line rolling up non-financial noise
+// (production totals, arrivals/completions, rising threats) into one recap, so
+// a busy empire's log doesn't bury the headline in a dozen scattered lines.
+let _cdigest = null;
+function digestProd(key, qty) { if (_cdigest && qty) _cdigest.production[key] = (_cdigest.production[key] || 0) + qty; }
+function digestNote(cat, text) { if (_cdigest && _cdigest[cat]) _cdigest[cat].push(text); }
+function reportCycleDigest() {
+  const D = _cdigest; _cdigest = null; if (!D) return;
+  const parts = [];
+  const prodKeys = Object.keys(D.production);
+  if (prodKeys.length) parts.push(`🏭 produced ${prodKeys.map(c => `${fmt(D.production[c])}${COM[c] ? COM[c].ico : ""}`).join(" ")}`);
+  if (D.arrivals.length) parts.push(`✅ ${D.arrivals.join(", ")}`);
+  if (D.threats.length) parts.push(`⚠️ ${D.threats.join(", ")}`);
+  if (!parts.length) return;
+  log(`📋 Cycle ${S.turn} recap: ${parts.join(" · ")}.`, "");
+}
 function endTurn(fromTravel = false) {
   if (!fromTravel && combatLocked()) return;
-  S.turn++; S.actionsUsed = 0; _cledger = {};
+  S.turn++; S.actionsUsed = 0; _cledger = {}; _cdigest = { production: {}, arrivals: [], threats: [] };
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
   processFx(); processSignals();
   processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
@@ -5551,6 +5578,7 @@ function endTurn(fromTravel = false) {
   if (typeof processTruces === "function") processTruces();
   if (typeof processFleet === "function") processFleet();
   reportCycleLedger();
+  reportCycleDigest();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); saveGame(); renderAll();
 }
@@ -5813,27 +5841,80 @@ function renderGalaxy() {
 }
 
 /* ----- Market ----- */
+// ---- quick-trade state (session-only UI, not saved — same convention as subViews) ----
+let marketQty = {};      // remembers the last quantity typed per commodity, so re-renders don't reset it to 10
+let marketSort = "default";
+function setMarketSort(mode) { marketSort = mode; renderMarket(); }
+// the best KNOWN world to sell a commodity bought here, ranked by profit per light-year of travel
+function bestFlipFor(c) {
+  const here = currentPlanet();
+  let best = null;
+  PLANETS.filter(galaxyKnown).forEach(p => {
+    if (p.id === here.id) return;
+    const dist = (here.distances && here.distances[p.id]) || 0;
+    if (!dist) return;
+    const there = sellPrice(p.id, c);
+    const profitPerLy = (there - buyPrice(here.id, c)) / dist;
+    if (!best || profitPerLy > best.profitPerLy) best = { p, there, dist, profitPerLy };
+  });
+  return best;
+}
+// everything sellable (legal) in your hold at this market, for the one-click "Sell hold" action
+function sellableHoldPreview() {
+  const p = currentPlanet();
+  const parts = [];
+  CARGO_IDS.forEach(c => {
+    const qty = S.res[c] || 0;
+    if (qty <= 0 || isIllegalAt(c, p.id)) return;
+    const slip = tradeSlippage(p, c, qty);
+    const rev = Math.round(sellPrice(p.id, c) * (1 - slip / 2) * qty);
+    parts.push({ c, qty, slip, rev });
+  });
+  const illegalHeld = CARGO_IDS.filter(c => (S.res[c] || 0) > 0 && isIllegalAt(c, p.id));
+  return { total: parts.reduce((s, x) => s + x.rev, 0), parts, illegalHeld };
+}
+function sellEntireHold() {
+  const { parts, illegalHeld, total } = sellableHoldPreview();
+  if (!parts.length) return toast(illegalHeld.length ? "Only illegal goods in hold here — sell those individually (risks a customs check)." : "Your hold is empty.", "bad");
+  const p = currentPlanet();
+  const summary = [];
+  parts.forEach(({ c, qty, slip, rev }) => {
+    S.res[c] -= qty; S.res.credits += rev;
+    summary.push(`${qty}${COM[c].ico}`);
+    applyMarketMove(p.id, c, slip, true);
+  });
+  S.stats.trades++; S.stats.profit += total; S.stats.sales = (S.stats.sales || 0) + total; addRep(p.faction, 1);
+  log(`Sold your hold — ${summary.join(" ")} for <span class="c">${fmt(total)}</span> cr${illegalHeld.length ? ` (${illegalHeld.length} illegal good(s) held back)` : ""}.`, "good");
+  toast(`Sold hold (+${fmt(total)} cr)`, "good"); sfx("sell");
+  afterAction();
+}
 function renderMarket() {
   const el = document.getElementById("panel-market");
   const p = currentPlanet();
   const showTrend = S.techs.markets;
+  const flipCache = {};
+  const flipFor = c => (c in flipCache) ? flipCache[c] : (flipCache[c] = bestFlipFor(c));
   let rows = "";
   TIERS.forEach(tier => {
-    const ids = COM_IDS.filter(c => COM[c].tier === tier);
+    let ids = COM_IDS.filter(c => COM[c].tier === tier);
     if (!ids.length) return;
     if (!tierRevealed(tier) && !ids.some(c => (S.res[c] || 0) > 0)) return;   // hidden until disclosed (unless you carry some)
+    if (marketSort === "margin") ids = ids.slice().sort((a, b) => (flipFor(b) ? flipFor(b).profitPerLy : -Infinity) - (flipFor(a) ? flipFor(a).profitPerLy : -Infinity));
     rows += `<tr><td colspan="6" class="section-title" style="padding-top:14px">${tier}</td></tr>`;
     ids.forEach(c => {
       const bp = buyPrice(p.id, c), sp = sellPrice(p.id, c), base = COM[c].base;
       const trend = bp > base * 1.12 ? '<span class="price-up">▲</span>' : bp < base * 0.88 ? '<span class="price-down">▼</span>' : '<span class="hint">—</span>';
       const illegal = isIllegalAt(c, p.id) ? ' <span class="pill bad" title="Contraband here">illegal</span>' : '';
+      const flip = flipFor(c);
+      const flipHint = (flip && flip.profitPerLy > 0 && flip.there > sp * 1.15)
+        ? ` <span class="hint" title="Best flip: buy here, sell at ${flip.p.name} for ${fmt(flip.there)} cr (${flip.dist} ly) — ~${fmt(Math.round(flip.profitPerLy))} cr/ly profit">💡${flip.p.name}</span>` : "";
       rows += `<tr>
         <td>${COM[c].ico} ${COM[c].name}${illegal}</td>
-        <td class="num">${fmt(bp)}</td><td class="num">${fmt(sp)}</td>
+        <td class="num">${fmt(bp)}</td><td class="num">${fmt(sp)}${flipHint}</td>
         <td class="num">${fmt(S.res[c] || 0)}</td>
         <td>${showTrend ? trend : '<span class="hint">?</span>'}</td>
         <td><div class="trade-controls">
-          <input class="qty" id="qty-${c}" type="number" min="1" value="10" />
+          <input class="qty" id="qty-${c}" type="number" min="1" value="${marketQty[c] || 10}" />
           <button class="btn btn-sm btn-good" onclick="buyQty('${c}')">Buy</button>
           <button class="btn btn-sm btn-good" title="Buy until cargo/tank is full" onclick="buyMax('${c}')">Fill</button>
           <button class="btn btn-sm btn-bad" onclick="sellQty('${c}')">Sell</button>
@@ -5882,15 +5963,21 @@ function renderMarket() {
       <button class="btn btn-bad btn-sm" style="margin-top:8px" ${actionsLeft() > 0 ? "" : "disabled"} title="Scavenge valuables from the disorder — credits and goods, at the cost of standing and heat" onclick="lootCrisis()">🦅 Loot the chaos (1 action)</button>
     </div>`;
   }
+  const sortBtns = `<span class="hint">Sort:</span> <button class="btn btn-sm ${marketSort === "default" ? "btn-primary" : ""}" onclick="setMarketSort('default')">Default</button> <button class="btn btn-sm ${marketSort === "margin" ? "btn-primary" : ""}" title="Rank each tier by its best known cross-world profit per light-year" onclick="setMarketSort('margin')">💡 Best margin</button>`;
+  const holdPreview = sellableHoldPreview();
+  const sellHoldBtn = holdPreview.parts.length
+    ? `<button class="btn btn-bad" style="margin-top:10px" title="Sell every legal good in your hold at today's prices${holdPreview.illegalHeld.length ? ` (${holdPreview.illegalHeld.length} illegal good(s) here will be held back)` : ""}" onclick="sellEntireHold()">💰 Sell entire hold (+${fmt(holdPreview.total)} cr)</button>` : "";
   el.innerHTML = `<h2>${p.name} Market ${_mcr ? `<span class="pill bad">${CRISES[_mcr.type].ico} crisis</span>` : ""}</h2>
-    <div class="subtitle">${p.tag}. ${showTrend ? "Galactic Exchange reveals trends &amp; deepens liquidity." : "Research the Galactic Exchange to reveal price trends."} Large trades move the price — dumping a lot crashes it, bulk buying spikes it; markets recover over cycles. Items marked <span class="pill bad">illegal</span> risk a customs bust here.${hasBlackMarket(p) ? ' A <span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)">black market</span> operates here.' : ''}</div>
+    <div class="subtitle">${p.tag}. ${showTrend ? "Galactic Exchange reveals trends &amp; deepens liquidity." : "Research the Galactic Exchange to reveal price trends."} Large trades move the price — dumping a lot crashes it, bulk buying spikes it; markets recover over cycles. Items marked <span class="pill bad">illegal</span> risk a customs bust here.${hasBlackMarket(p) ? ' A <span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)">black market</span> operates here.' : ''} 💡 hints show the best known world to flip a good you buy here.</div>
     ${crisisBanner}
+    <div class="row" style="margin:8px 0;flex-wrap:wrap;gap:6px;align-items:center">${sortBtns}</div>
     <table><thead><tr><th>Commodity</th><th class="num">Buy</th><th class="num">Sell</th><th class="num">Hold</th><th>Trend</th><th></th></tr></thead><tbody>${rows}</tbody></table>
     ${blackMarket}
-    <div class="row" style="margin-top:14px"><span class="hint">Cargo ${cargoUsed()}/${cargoCap()} · Fuel ${S.res.fuel}/${fuelCap()} · Credits ${fmt(S.res.credits)}</span></div>`;
+    <div class="row" style="margin-top:14px"><span class="hint">Cargo ${cargoUsed()}/${cargoCap()} · Fuel ${S.res.fuel}/${fuelCap()} · Credits ${fmt(S.res.credits)}</span></div>
+    ${sellHoldBtn}`;
 }
-function buyQty(c) { buy(c, +document.getElementById("qty-" + c).value); }
-function sellQty(c) { sell(c, +document.getElementById("qty-" + c).value); }
+function buyQty(c) { const v = +document.getElementById("qty-" + c).value; marketQty[c] = v; buy(c, v); }
+function sellQty(c) { const v = +document.getElementById("qty-" + c).value; marketQty[c] = v; sell(c, v); }
 function sellAll(c) {
   if ((S.res[c] || 0) <= 0) return toast(`No ${COM[c].name} to sell.`, "bad");
   sell(c, S.res[c]); // sell() handles slippage & contraband checks
@@ -5907,6 +5994,7 @@ function buyMax(c) {
     qty--;
   }
   if (qty <= 0) return toast("Not enough credits to buy any.", "bad");
+  marketQty[c] = qty;
   buy(c, qty);
 }
 
@@ -6740,6 +6828,7 @@ function processMandates() {
       S.res.credits += md.accrued; bandRepAdd(b, 6); b.mandate = null; b.loc = md.planet;
       log(`📜 The ${b.ico} ${b.name} finished their ${t.name.toLowerCase()} at ${mdPlanetName(md.planet)} — your cut: <b>${fmt(md.accrued)} cr</b>.`, "good");
       if (typeof toast === "function") toast(`${b.name} mandate done: +${fmt(md.accrued)} cr`, "good");
+      digestNote("arrivals", `${b.name}'s mandate complete (+${fmt(md.accrued)} cr)`);
       if (typeof sfx === "function") sfx("good");
       S.mandates.splice(i, 1);
     }
@@ -8317,7 +8406,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.38.0";
+const APP_VERSION = "2.39.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8379,7 +8468,7 @@ function helpHTML() {
     <h4>The tabs</h4>
     <ul style="line-height:1.55;margin:0 0 6px 18px;padding:0">
       <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises.</li>
-      <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises.</li>
+      <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises. Quantity boxes remember what you last typed for each good; a 💡 hint flags the best <b>known</b> world to flip a commodity you buy here (profit per light-year), and <b>Sort: Best margin</b> ranks each tier by that same opportunity. <b>💰 Sell entire hold</b> unloads every legal good you're carrying at today's prices in one click (contraband here is held back — sell that individually if you'll risk the customs check).</li>
       <li>🏭 <b>Industry</b> — refine raw materials into finished goods.</li>
       <li>🔬 <b>Research</b> — unlock technologies.</li>
       <li>✨ <b>Fortunes</b> — temporary <b>boons &amp; banes</b> you pick up by exploring new worlds, sweeping the lanes and plain luck — extra actions, weapon surges, trade winds, research sparks, and rarer grand effects… balanced by reactor leaks, customs crackdowns and the like. This tab tracks your active effects (with time left and 🧹 clear buttons for banes), the <b>📡 signals</b> on your scope, and an <b>almanac</b> of every effect you've discovered. Chase a signal and <b>🔍 Investigate</b> it for a roll — stronger effects are briefer, and the rare, powerful ones are the prize of a hunted signal. Short on leads? The <b>🛰️ Sensor Office</b> sells scans that flush fresh signals onto your scope. Catalogue <b>every</b> effect in a domain to earn a 🏅 <b>Mastery</b> — a permanent passive edge. Unlocks once a Fortune or signal turns up.</li>
@@ -8761,7 +8850,7 @@ function init() {
 window.addEventListener("DOMContentLoaded", init);
 
 Object.assign(window, {
-  travel, buyQty, sellQty, buyMax, sellAll, extract, salvage, produce,
+  travel, buyQty, sellQty, buyMax, sellAll, setMarketSort, sellEntireHold, extract, salvage, produce,
   research, researchTech, doPolitics, doMission, buyUpgrade, setDecree,
   buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract,
   colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, explore, newGame,
