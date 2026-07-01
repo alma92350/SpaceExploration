@@ -1,5 +1,5 @@
 {
-  "version": "2.59.0",
+  "version": "2.60.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the piracy/combat engine (subsystem damage, typed weapons vs defenses, adversary matchmaking, ambushes, pirate hunting) out into its own file, combat.js — slice 8 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the pirate band roster (named crews, standing, feuds/truces, tags, call-for-support) out into its own file, pirateBands.js — slice 9 of the game.js split. No gameplay changes."
 }
