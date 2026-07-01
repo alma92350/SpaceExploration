@@ -4050,8 +4050,11 @@ function stageCoup() {
   if (pmcTier < needPmc) return toast(`Need Private Security tier ${needPmc} to seize power.`, "bad");
   if ((S.res.influence || 0) < costInf) return toast(`Need ${costInf} influence.`, "bad");
   if (S.pol.slush < costSlush) return toast(`Need ${fmt(costSlush)} slush to fund the plot.`, "bad");
-  S.res.influence -= costInf; S.pol.slush -= costSlush; useAction();
   const chance = Math.min(0.9, 0.35 + pmcTier * 0.12 - lvl * 0.05);
+  if (typeof confirm === "function"
+      && !confirm(`Attempt to seize the office of ${off.name} by force? Costs ${fmt(costInf)} influence and ${fmt(costSlush)} slush, `
+        + `roughly a ${Math.round(chance * 100)}% chance of success, and craters your legitimacy and faction standing either way. This cannot be undone.`)) return;
+  S.res.influence -= costInf; S.pol.slush -= costSlush; useAction();
   if (Math.random() < chance) {
     takeOffice(lvl, "seized");
     applyPolDelta({ legitimacy: -25, popularity: -15, heat: 30 });
@@ -4930,6 +4933,8 @@ function scrapShip(id) {
   const s = fleetList()[i], def = FLEET_SHIPS[s.key];
   if (s.status === "mission" || s.status === "escort" || s.status === "logistics") return toast("That ship is on duty — recall it first.", "bad");
   const refund = def ? Math.round((def.cost.metals || 0) * 0.4) : 0;
+  if (typeof confirm === "function"
+      && !confirm(`Scrap the ${s.name}? This cannot be undone${refund ? ` (salvages ${refund} metals)` : ""}.`)) return;
   if (refund) S.res.metals = (S.res.metals || 0) + refund;
   fleetList().splice(i, 1);
   log(`♻️ Scrapped the ${def ? def.ico + " " + s.name : s.name}${refund ? ` — salvaged ${refund} ⛓️ metals` : ""}.`, "");
@@ -8988,7 +8993,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.49.0";
+const APP_VERSION = "2.50.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -9084,7 +9089,7 @@ function helpHTML() {
     <h4>Progression &amp; Guided Mode</h4>
     <p style="margin:0 0 6px">To avoid overload, features reveal as you grow: the market starts with raw &amp; refined goods (the rest opens when you first manufacture <b>Medicine</b>); the galaxy shows worlds within sensor range and widens as you travel; tabs like <b>Raider</b> and <b>Politics</b> arrive as your trade empire matures; and colony build options stage in by tier. The <b>🧭 Next Steps</b> panel in 🎯 Missions always shows what unlocks next and how. Veteran saves keep everything they've already earned.</p>
     <p style="margin:0"><button class="btn btn-sm" onclick="toggleShowAllTabs();toggleHelp();toggleHelp()">${typeof S!=="undefined"&&S.showAllTabs?"↩️ Switch to Guided mode (hide features until earned)":"👁️ Show everything now (reveal all features)"}</button></p>
-    <p style="opacity:.6;font-size:12px;margin-top:10px">Stellar Frontier v${typeof APP_VERSION!=="undefined"?APP_VERSION:""} · made with Claude. Tip: press <b>Esc</b> to close.</p>
+    <p style="opacity:.6;font-size:12px;margin-top:10px">Stellar Frontier v${typeof APP_VERSION!=="undefined"?APP_VERSION:""} · made with Claude. Tip: press <b>1-9</b> to jump to a tab, <b>Enter/Space</b> to end the cycle, <b>Esc</b> to close this help.</p>
   `;
 }
 function toggleHelp() {
@@ -9101,12 +9106,32 @@ function toggleHelp() {
   el.addEventListener("click", () => el.remove());            // click backdrop to dismiss
   document.body.appendChild(el);
 }
+/* ---- Keyboard shortcuts: 1-9 jump to that tab, Enter/Space ends the cycle,
+   Esc closes the help overlay. Ignored while typing in a field or while some
+   other control already has keyboard focus, so we never steal Enter/Space
+   from a focused button or hijack digits out of a quantity box. ---- */
+function handleShortcutKey(e) {
+  if (typeof document === "undefined") return;
+  if (e.key === "Escape") { const h = document.getElementById("help-overlay"); if (h) h.remove(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey || document.getElementById("help-overlay")) return;
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON"
+      || (document.activeElement && document.activeElement.isContentEditable)) return;
+  if (e.key >= "1" && e.key <= "9") {
+    const tabs = Array.from(document.querySelectorAll(".tab")).filter(t => t.style.display !== "none");
+    const btn = tabs[+e.key - 1];
+    if (btn) { e.preventDefault(); setTab(btn.dataset.tab); }
+  } else if (e.key === "Enter" || e.key === " ") {
+    const btn = document.getElementById("endTurnBtn");
+    if (btn) { e.preventDefault(); btn.click(); }
+  }
+}
 function startVersionWatch() {
   if (typeof window === "undefined") return;
   checkVersion();                                          // once on load
   setInterval(checkVersion, 5 * 60 * 1000);                // every 5 minutes
   window.addEventListener("focus", checkVersion);          // and whenever the player returns
-  window.addEventListener("keydown", e => { if (e.key === "Escape") { const h = document.getElementById("help-overlay"); if (h) h.remove(); } });
+  window.addEventListener("keydown", handleShortcutKey);
 }
 const SAVE_KEY = "stellar-frontier-save-v2";
 /* ---- Captain's Log: export a narrative dossier for an LLM ---- */
@@ -9304,7 +9329,18 @@ function importSave() {
   if (document.body) document.body.appendChild(input);
   input.click();
 }
-function saveGame() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (e) {} }
+let _saveIndicatorTimer = null;
+function flashSaveIndicator() {
+  if (typeof document === "undefined") return;
+  const el = document.getElementById("saveIndicator");
+  if (!el) return;
+  el.classList.add("show");
+  clearTimeout(_saveIndicatorTimer);
+  _saveIndicatorTimer = setTimeout(() => el.classList.remove("show"), 1500);
+}
+function saveGame() {
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); flashSaveIndicator(); } catch (e) {}
+}
 function loadGame() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { S = JSON.parse(raw); return true; } } catch (e) {}
   return false;

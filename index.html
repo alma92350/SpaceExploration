@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Stellar Frontier — Space Exploration</title>
-<link rel="stylesheet" href="style.css?v=2.49.0" />
+<link rel="stylesheet" href="style.css?v=2.50.0" />
 </head>
 <body>
   <div id="app">
@@ -19,6 +19,7 @@
         <div class="turn-label">CYCLE</div>
         <div id="turn" class="turn-value">1</div>
         <button id="endTurnBtn" class="btn btn-turn" title="Advance one cycle">End Cycle ▸</button>
+        <div id="saveIndicator" class="save-indicator" aria-hidden="true">💾 Saved</div>
       </div>
     </header>
 
@@ -83,7 +84,7 @@
     <!-- ===== Event log ===== -->
     <footer id="logbar">
       <div class="log-header">📡 Ship Log</div>
-      <div id="log" class="log"></div>
+      <div id="log" class="log" role="log" aria-live="polite"></div>
     </footer>
   </div>
 
@@ -92,8 +93,8 @@
   <div id="announce" class="announce hidden"></div>
 
   <!-- Toast notifications -->
-  <div id="toast-container"></div>
+  <div id="toast-container" role="status" aria-live="polite"></div>
 
-  <script src="game.js?v=2.49.0"></script>
+  <script src="game.js?v=2.50.0"></script>
 </body>
 </html>
