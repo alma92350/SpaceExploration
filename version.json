@@ -1,5 +1,5 @@
 {
-  "version": "2.58.0",
+  "version": "2.59.0",
   "saveVersion": "v2",
-  "notes": "Internal: split resource extraction, deposit reserves/depletion, and pollution/climate out into their own file, resources.js — slice 7 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the piracy/combat engine (subsystem damage, typed weapons vs defenses, adversary matchmaking, ambushes, pirate hunting) out into its own file, combat.js — slice 8 of the game.js split. No gameplay changes."
 }

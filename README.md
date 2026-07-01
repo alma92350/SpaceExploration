@@ -377,13 +377,15 @@ state.js     — the game state singleton (S) and freshState()
 pricing.js   — market pricing: per-planet prices, buy/sell spreads, depth & slippage
 feedback.js  — ship log, captain's journal, sound effects, toasts, fireworks/announcements
 resources.js — extraction, deposit reserves/depletion, pollution/climate
+combat.js    — piracy/combat: subsystems, typed weapons, matchmaking, ambushes
 game.js      — game logic (economy, factions, production, rendering, save)
 test/        — automated tests (Node's built-in test runner, no dependencies)
 ```
 
 `data.js`, `galaxygen.js`, `crises.js`, `state.js`, `pricing.js`,
-`feedback.js`, `resources.js` and `game.js` are all plain classic `<script>`
-tags (no `type="module"`, no bundler) sharing one global scope, in that load
+`feedback.js`, `resources.js`, `combat.js` and `game.js` are all plain
+classic `<script>` tags (no `type="module"`, no bundler) sharing one global
+scope, in that load
 order — still just plain HTML/CSS/JS you can open directly in a browser. Tweak the
 tables in `data.js` (commodities, planets, recipes) or the ones further into
 `game.js` (upgrades, techs, missions, factions) to make the sector your own.
