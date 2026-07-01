@@ -87,12 +87,41 @@ recruit) works on it unchanged.
 Tests: `pirhavens.js` (25 checks, including a dedicated 200-trial regression
 for the same-cycle collapse/founding edge case).
 
+## Slice 4 (shipped) — territory contest
+The risky slice: a world's owning faction can actually change. De-risked by
+a full audit first — every one of the ~90 existing `.faction` reads
+(pricing, enforcement, rep, contracts, crises, Senate seats) turned out to
+be dynamic (re-fetched at read time, never cached/snapshotted), so a live
+mutation to `PLANETS[i].faction` propagates correctly everywhere with
+**zero changes** to those call sites.
+- **Eligibility** (`territoryContestFor`): only non-colonizable, owned
+  worlds whose owner has a `factionMostTenseRelation` at the War tier are
+  contestable; the challenger is that rival.
+- **Meter** (`S.territoryControl[pid] = {owner, challenger, meter}`, same
+  `S.turn % 5` cadence as `processPirates`): grows each qualifying cycle by
+  a rate that scales with how deep the war score is and the world's local
+  `pirateLevel` — an unchecked pirate haven (slice 3) directly accelerates
+  a contest against its owner. If the war cools or ends, the meter instead
+  decays and the contest is cleared once it hits zero.
+- **Flip** (`applyTerritoryFlip`): at max meter the world's `faction`
+  actually changes to the challenger, logged prominently, announced, and
+  digested (`digestNote("sector", ...)`).
+- **Persistence quirk**: `PLANETS` is static source, re-declared fresh on
+  every page load — it isn't part of `S`. A flip is recorded twice: live on
+  the `PLANETS` object (so all ~90 existing reads see it immediately) and
+  into `S.territoryFlips[pid] = newFaction`, replayed onto the fresh array
+  by `replayTerritoryFlips()` from `init()` after every load.
+- **Safety floor** (`TERRITORY_MIN_WORLDS = 1`): a faction is never
+  conquered down to zero worlds — its last one is held just short of the
+  max meter instead of flipping, verified with a dedicated scenario and a
+  400-cycle universal-total-war stress test.
+- **UI**: a Galaxy-card pill (`🚩 contested by {challenger} {pct}%`), an
+  Operations-board row, and a Politics-tab "Contested Worlds" card with a
+  meter bar per active contest.
+
+Tests: `territory.js` (30 checks, including the 400-cycle stress test).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-4. **Territory contest** — the risky slice: a world caught between two
-   warring factions gets a shifting control meter that can actually flip
-   `p.faction`. Requires auditing the ~90 existing reads of that field
-   first (pricing, enforcement, rep, contracts, crises all assume it's
-   static today).
 5. **Player leverage** — tie letters of marque to a *live* war (fulfilling
    quota measurably swings a contested world), amplify fleet mission effect
    in contested systems, new legacy capstones ("ended a war", "united the

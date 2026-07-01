@@ -939,6 +939,8 @@ function freshState(opts = {}) {
     fleet: [],                  // your own ships built at colony shipyards: [{ id, key, home, status, hull, ... }]
     battleGroupPosture: "balanced",   // posture for a deployed fleet Battle Group in raids
     factionRel: {},              // sector relations: pairwise faction score, lazily seeded by ensureFactionRel
+    territoryControl: {},        // active territory contests: pid -> { owner, challenger, meter }
+    territoryFlips: {},          // permanent record of world seizures: pid -> new faction id (replayed onto PLANETS on load)
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
@@ -2936,6 +2938,73 @@ function processPirateHavens() {
       if (typeof toast === "function") toast(`${band.name} claims ${p.name}`, "bad");
     }
   }
+}
+/* ------------------------------------------------------------
+   TERRITORY CONTEST — the risky slice: a world's owning faction can actually
+   change. Only worlds whose owner is at WAR (slice 1) with someone are
+   contestable; the meter erodes faster the deeper the war and the more
+   pirate-plagued the world (slice 3 ties in directly — an unchecked haven
+   can tip the balance). A faction can never be conquered down to zero
+   worlds — its last is always safe, an unconquerable capital.
+
+   `PLANETS` is static source, re-declared fresh on every load, so a flip
+   is recorded twice: mutated live on the PLANETS object (so every one of
+   the ~90 existing `.faction` reads sees it immediately, no call site
+   needs to change) AND into `S.territoryFlips` for init() to replay onto
+   the freshly-loaded array after a reload.
+   ------------------------------------------------------------ */
+const TERRITORY_MAX_METER = 100, TERRITORY_MIN_WORLDS = 1;
+function activeFactionPlanetCount(f) { return activePlanets().filter(p => p.faction === f).length; }
+function ensureTerritoryControl() { if (!S.territoryControl) S.territoryControl = {}; return S.territoryControl; }
+function ensureTerritoryFlips() { if (!S.territoryFlips) S.territoryFlips = {}; return S.territoryFlips; }
+// PLANETS is static source, re-declared fresh on every load — this reapplies every recorded
+// seizure onto the live array. Called from init() after a load; also directly testable.
+function replayTerritoryFlips() {
+  Object.entries(ensureTerritoryFlips()).forEach(([pid, fac]) => { const p = PLANETS.find(x => x.id === pid); if (p && FACTIONS[fac]) p.faction = fac; });
+}
+// which faction is currently contesting this world, if any — only possible while its owner is at War with someone
+function territoryContestFor(p) {
+  if (!p || !p.faction || p.colonizable) return null;
+  const worst = factionMostTenseRelation(p.faction);
+  if (!worst || worst.rel.tier !== "war") return null;
+  return { owner: p.faction, challenger: worst.other };
+}
+function applyTerritoryFlip(pid, newFaction) {
+  const p = PLANETS.find(x => x.id === pid); if (!p) return;
+  p.faction = newFaction;
+  ensureTerritoryFlips()[pid] = newFaction;
+}
+function territoryControlPct(pid) { const c = ensureTerritoryControl()[pid]; return c ? Math.round(c.meter) : 0; }
+function processTerritoryContest() {
+  if (S.turn % 5 !== 0) return;
+  const ctrl = ensureTerritoryControl();
+  PLANETS.filter(p => isActive(p) && !p.colonizable).forEach(p => {
+    const contest = territoryContestFor(p), key = p.id, existing = ctrl[key];
+    if (!contest) {
+      if (existing) { existing.meter = Math.max(0, existing.meter - 15); if (existing.meter <= 0) { delete ctrl[key]; log(`🕊️ The contest for <span class="c">${p.name}</span> has cooled off — its hold is secure again.`, ""); } }
+      return;
+    }
+    // a fresh contest, or the war shifted to a different (worse) rival — restart, carrying over half the buildup
+    const c = (existing && existing.owner === contest.owner && existing.challenger === contest.challenger)
+      ? existing : (ctrl[key] = { owner: contest.owner, challenger: contest.challenger, meter: existing ? existing.meter * 0.5 : 0 });
+    const warScore = factionRelScore(contest.owner, contest.challenger);   // more negative = deeper war = faster erosion
+    const plv = pirateLevel(p.id);
+    const rate = 3 + Math.max(0, -30 - warScore) * 0.1 + plv * 1.5 + rint(0, 3);
+    c.meter = Math.min(TERRITORY_MAX_METER, c.meter + rate);
+    if (c.meter >= TERRITORY_MAX_METER) {
+      if (activeFactionPlanetCount(contest.owner) > TERRITORY_MIN_WORLDS) {
+        const ownerName = FACTIONS[contest.owner].name, chName = FACTIONS[contest.challenger].name;
+        applyTerritoryFlip(p.id, contest.challenger);
+        log(`🚩 <b>${p.name}</b> falls! The ${chName} seize it from the ${ownerName}.`, "bad");
+        digestNote("sector", `${p.name}: ${FACTIONS[contest.owner].ico}→${FACTIONS[contest.challenger].ico} seized`);
+        if (typeof announce === "function") announce("🚩 World Seized", `${p.name} has fallen to the ${chName}.`, false);
+        if (typeof toast === "function") toast(`${p.name} seized by ${chName}!`, "bad");
+        delete ctrl[key];
+      } else {
+        c.meter = TERRITORY_MAX_METER - 1;   // a faction's last world is always held at the brink — it can't fall
+      }
+    }
+  });
 }
 
 /* ------------------------------------------------------------
@@ -5704,7 +5773,7 @@ function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0; _cledger = {}; _cdigest = { production: {}, arrivals: [], threats: [], sector: [] };
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
   processFx(); processSignals();
-  processCrises(); processPirates(); processPirateHavens(); processFactionRelations(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
+  processCrises(); processPirates(); processPirateHavens(); processFactionRelations(); processTerritoryContest(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
   if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (typeof decayBands === "function") decayBands();
   if (typeof processBandSupport === "function") processBandSupport();
@@ -5853,6 +5922,8 @@ function renderOps() {
   });
   // rising pirate powers: any band that's carved out its own haven
   bandsWithHaven().forEach(b => row("👑", `${b.ico} ${b.name}'s haven @ ${mdPlanetName(b.haven.planet)} · tier ${b.haven.tier}`, null, "contacts", "var(--bad)"));
+  // territory under active contest
+  Object.entries(S.territoryControl || {}).forEach(([pid, c]) => row("🚩", `${mdPlanetName(pid)} contested by ${FACTIONS[c.challenger].name}`, Math.round(c.meter) + "%", "galaxy", "var(--bad)"));
   const opsHtml = rows.join("");
   const fxHtml = renderFortunes(), sigHtml = renderSignals();   // active Fortunes (clearable) + signals (investigate)
   el.innerHTML = (opsHtml || fxHtml || sigHtml) ? `<h3>📋 Operations</h3>${opsHtml}${fxHtml}${sigHtml}` : "";
@@ -5906,6 +5977,21 @@ function renderSectorRelations() {
     <div class="hint">How the great powers stand with each other — independent of your own standing with them. Drifts each cycle; rivals trend toward war unless something intervenes, and an active letter of marque stokes the rivalry it's fighting for.</div>
     ${rows}</div>`;
 }
+function renderTerritoryContests() {
+  const entries = Object.entries(S.territoryControl || {});
+  if (!entries.length) return "";
+  const rows = entries.map(([pid, c]) => {
+    const p = PLANETS.find(x => x.id === pid); if (!p) return "";
+    const pct = Math.round(c.meter);
+    const col = pct >= 75 ? "var(--bad)" : pct >= 40 ? "var(--warn)" : "var(--good)";
+    return `<div class="ship-stat"><span class="k">${p.name} <span class="hint">${FACTIONS[c.owner].ico} ${FACTIONS[c.owner].name} held</span></span>
+      <span class="v">${FACTIONS[c.challenger].ico} ${FACTIONS[c.challenger].name} <span style="color:${col}">${pct}%</span></span></div>
+      <div class="bar"><span style="width:${pct}%;background:${col}"></span></div>`;
+  }).join("");
+  return `<div class="card"><h4>🚩 Contested Worlds</h4>
+    <div class="hint">Worlds whose owner is at open War can actually change hands — the meter shows how close the challenger is to seizing it. A faction is never conquered down to its last world.</div>
+    ${rows}</div>`;
+}
 function repBar(f) {
   const r = S.rep[f] || 0;
   const pct = (r + 100) / 2;
@@ -5955,6 +6041,8 @@ function renderGalaxy() {
     const sectorPill = (!p.colonizable && p.faction) ? factionWarFrontPill(p.faction) : '';
     const _pirHaven = bandsWithHaven().find(hb => hb.haven.planet === p.id);
     const pirateHavenPill = _pirHaven ? `<span class="pill bad" title="The ${_pirHaven.name} command a pirate haven here (tier ${_pirHaven.haven.tier}) — see 🏴‍☠️ Contacts">👑 ${_pirHaven.name}'s haven T${_pirHaven.haven.tier}</span>` : '';
+    const _contest = (S.territoryControl || {})[p.id];
+    const territoryPill = _contest ? `<span class="pill bad" title="The ${FACTIONS[_contest.challenger].name} are contesting this world, ${territoryControlPct(p.id)}% of the way to seizing it">🚩 contested by ${FACTIONS[_contest.challenger].ico} ${Math.round(_contest.meter)}%</span>` : '';
     const sigFuel = _sig ? (SIGNAL_FUEL[_sig.tier] || 6) : 0;
     const sigBtn = (_sig && here) ? `<button class="btn btn-sm ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "btn-good" : ""}" ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "" : "disabled"} title="${SIGNAL_KINDS[_sig.kind].blurb}" onclick="investigateSignal('${_sig.id}')">🔍 Investigate signal (${sigFuel}⛽)</button>` : '';
     return `<div class="planet-card ${here ? "current" : ""}">
@@ -5965,7 +6053,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}
+        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}${territoryPill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${sigBtn ? `<div class="row" style="margin-bottom:8px">${sigBtn}</div>` : ""}
@@ -6520,6 +6608,7 @@ function renderPolitics() {
       </div>
       <div class="card"><h4>🤝 Faction Standing</h4>${reps}</div>
       ${renderSectorRelations()}
+      ${renderTerritoryContests()}
       ${(!S.office && !S.orgs.party) ? `<div class="card" style="border-color:var(--accent-2)">
         <h4>🚀 Enter Public Life</h4>
         <div class="desc">Launch a political career without leaving the cockpit: found your own <b>📣 People's Movement</b>, seed a war chest of clout (+15 🏛️, +10 popularity), and start the climb — rally, then run for Councillor.</div>
@@ -8572,7 +8661,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.42.0";
+const APP_VERSION = "2.43.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8639,7 +8728,7 @@ function helpHTML() {
       <li>🔬 <b>Research</b> — unlock technologies.</li>
       <li>✨ <b>Fortunes</b> — temporary <b>boons &amp; banes</b> you pick up by exploring new worlds, sweeping the lanes and plain luck — extra actions, weapon surges, trade winds, research sparks, and rarer grand effects… balanced by reactor leaks, customs crackdowns and the like. This tab tracks your active effects (with time left and 🧹 clear buttons for banes), the <b>📡 signals</b> on your scope, and an <b>almanac</b> of every effect you've discovered. Chase a signal and <b>🔍 Investigate</b> it for a roll — stronger effects are briefer, and the rare, powerful ones are the prize of a hunted signal. Short on leads? The <b>🛰️ Sensor Office</b> sells scans that flush fresh signals onto your scope. Catalogue <b>every</b> effect in a domain to earn a 🏅 <b>Mastery</b> — a permanent passive edge. Unlocks once a Fortune or signal turns up.</li>
       <li>🎯 <b>Missions</b> — time-bound contracts, long-term career missions, and your legacy goals.</li>
-      <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law. A <b>🌐 Sector Relations</b> card tracks how the five great powers stand with <i>each other</i> — Alliance/Peace/Cold War/War — independent of your own reputation. It drifts on its own each cycle (rivals trend toward war, others settle toward peace) and occasional named incidents can tip a pair into a new state; your own active letters of marque stoke the rivalry you're fighting for. Notable shifts appear in the log and the 📋 cycle recap. A world's most newsworthy relationship (⚔️ at war / 🤝 allied) also shows as a pill on its 🪐 Galaxy card, and active wars &amp; alliances get their own line on the sidebar's Operations board.</li>
+      <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law. A <b>🌐 Sector Relations</b> card tracks how the five great powers stand with <i>each other</i> — Alliance/Peace/Cold War/War — independent of your own reputation. It drifts on its own each cycle (rivals trend toward war, others settle toward peace) and occasional named incidents can tip a pair into a new state; your own active letters of marque stoke the rivalry you're fighting for. Notable shifts appear in the log and the 📋 cycle recap. A world's most newsworthy relationship (⚔️ at war / 🤝 allied) also shows as a pill on its 🪐 Galaxy card, and active wars &amp; alliances get their own line on the sidebar's Operations board. War isn't just flavor: a world whose owner is at open war can be <b>🚩 contested</b> — a control meter (shown on its Galaxy pill, an Operations row, and the Politics tab's <b>Contested Worlds</b> card) builds faster the deeper the war and the more pirate-plagued the world, and if it maxes out the world <b>changes hands</b> to the challenger. Cooling the war back to peace lets a contest fade on its own; no faction can ever be conquered down to its last world.</li>
       <li>🏗️ <b>Bases</b> — automated off-world production. Build a <b>⛽ Fuel Refinery</b> (any base, 5 tiers) to crack stored 🧊 ice into fuel each cycle, and route fuel through the base↔colony trade network (import/export it like any good).</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains, including a <b>⛽ Fuel Refinery</b> (ice + energy → fuel) and a <b>🏗️ Shipyard</b> (needs Metallurgy) that lets you build your own ships. Order in ice, export the fuel — fuel is now a tradeable part of the economy: buy/sell it at ports, stock it in bases &amp; colonies, and ship it across your network.</li>
       <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. <b>Dispatch a warship on a mission</b> (🎯 cull / 🛡️ guard / 🏴 raid a system) and — unlike hired pirates — <b>you keep 100%</b> of the bounty/loot, paying no fee; the risk is combat wear (a fragile hull in an infested system can be lost) and ongoing upkeep. You can also <b>call idle warships into your own raids</b> (loyal allies that take <b>no loot cut</b>) and <b>assign them to escort your convoys</b> for free — they never desert, and any damage they take comes back to your fleet. <b>Station freighters at a colony</b> on logistics duty to haul its goods — cutting its market import fee and base↔colony freight — and <b>station a warship there to guard them</b>, since unguarded convoys in pirate-active systems get ambushed (damage &amp; lost goods, and a fragile hauler can be sunk). Loyal and fully yours. In a raid, you can also <b>✦ Deploy Battle Fleet</b> — your <b>whole idle warship fleet at once</b> (not the 2-ally cap) fights as a formation with an escort-style posture (screen/balanced/press). Positioning matters: assign ships to <b>🛡️ Vanguard</b> (tanks — soaks nearly all incoming fire while it holds), <b>⚔️ Line</b> (your best damage dealers, protected behind the Vanguard), or <b>🌌 Reserve</b> (safest, weakest). Lose the Vanguard and the Line is exposed next — the formation collapses tier by tier — and keeping a Vanguard alive screens you personally too. Real stakes: ships take real damage and can be lost in a hard fight. Recall the fleet any time.</li>
@@ -8940,6 +9029,9 @@ function init() {
   if (!S.battleGroupPosture) S.battleGroupPosture = "balanced";
   if (!S.factionRel) S.factionRel = {};
   ensureFactionRel();   // backfill any pairs missing from an older save
+  if (!S.territoryControl) S.territoryControl = {};
+  if (!S.territoryFlips) S.territoryFlips = {};
+  replayTerritoryFlips();   // PLANETS is static source, re-declared fresh on every load — reapply any recorded seizures
   if (S.escort && Array.isArray(S.escort.fleet)) S.escort.fleet.forEach(sh => { if (!sh.fit) sh.fit = { aggressive: 0, balanced: 0, defensive: 0 }; if (!sh.stance) sh.stance = "balanced"; });   // migrate old outfit fleets to stance/fit
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
