@@ -1,5 +1,5 @@
 {
-  "version": "2.51.0",
+  "version": "2.52.0",
   "saveVersion": "v2",
-  "notes": "Tier-2 pass: mobile-friendly tables that scroll in place instead of breaking the page, a 🆕 What's New panel that greets returning players with recent changes, a 🏅 Milestones checklist in the Missions tab, and a 🎮 Custom Start with Sprint/Standard/Marathon length and an optional ☠️ Ironman challenge."
+  "notes": "Internal: split the static data tables out into their own file, data.js, loaded before game.js — the first step toward a more maintainable codebase. No gameplay changes."
 }

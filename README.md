@@ -370,20 +370,23 @@ triggers a grand golden **finale**. 🎆
 ```
 index.html   — layout & markup
 style.css    — neon-space UI theme
-game.js      — all game logic (economy, factions, production, rendering, save)
+data.js      — static tables: commodities, planets, factions, recipes (loaded first)
+game.js      — game logic (economy, factions, production, rendering, save)
 test/        — automated tests (Node's built-in test runner, no dependencies)
 ```
 
-Everything is plain HTML/CSS/JS — tweak the data tables at the top of
-`game.js` (commodities, planets, recipes, upgrades, techs, missions, factions)
-to make the sector your own.
+`data.js` and `game.js` are both plain classic `<script>` tags (no
+`type="module"`, no bundler) sharing one global scope, in that load order —
+still just plain HTML/CSS/JS you can open directly in a browser. Tweak the
+tables in `data.js` (commodities, planets, recipes) or the ones further into
+`game.js` (upgrades, techs, missions, factions) to make the sector your own.
 
 ## ✅ Tests
 
-`game.js` is loaded exactly as a browser would load it (via Node's `vm`
-module, with minimal `window`/`document`/`localStorage` stubs) so the tests
-exercise the real game code, not a rewritten copy. No dependencies to
-install — just:
+`data.js` and `game.js` are loaded together exactly as a browser would load
+them (via Node's `vm` module, with minimal `window`/`document`/`localStorage`
+stubs) so the tests exercise the real game code, not a rewritten copy. No
+dependencies to install — just:
 
 ```bash
 npm test

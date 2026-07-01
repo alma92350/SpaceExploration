@@ -3,15 +3,18 @@ const vm = require("node:vm");
 const fs = require("node:fs");
 const path = require("node:path");
 
+const DATA_JS_PATH = path.join(__dirname, "..", "..", "data.js");
 const GAME_JS_PATH = path.join(__dirname, "..", "..", "game.js");
-const SOURCE = fs.readFileSync(GAME_JS_PATH, "utf8");
+const DATA_SOURCE = fs.readFileSync(DATA_JS_PATH, "utf8");
+const GAME_SOURCE = fs.readFileSync(GAME_JS_PATH, "utf8");
 
-// game.js is a classic (non-module) browser script, loaded here the same way
-// a <script> tag would. Its top-level `let`/`const` bindings (S, MILESTONES,
-// winProgress, ...) live in the vm context's shared lexical scope, not as
-// properties of the sandbox object — same reason `window.S` doesn't exist in
-// a real browser. `run()` below executes a snippet in that same shared
-// scope, which is how tests reach in to set up state and call functions.
+// data.js + game.js are classic (non-module) browser scripts, loaded here in
+// the same order and the same shared realm index.html loads them in. Their
+// top-level `let`/`const` bindings (S, MILESTONES, winProgress, PLANETS, ...)
+// live in the vm context's shared lexical scope, not as properties of the
+// sandbox object — same reason `window.S` doesn't exist in a real browser.
+// `run()` below executes a snippet in that same shared scope, which is how
+// tests reach in to set up state and call functions.
 function makeElement(id) {
   return {
     id: typeof id === "string" ? id : "",
@@ -74,7 +77,8 @@ function createSandbox() {
   };
 
   const context = vm.createContext(sandbox);
-  new vm.Script(SOURCE, { filename: "game.js" }).runInContext(context);
+  new vm.Script(DATA_SOURCE, { filename: "data.js" }).runInContext(context);
+  new vm.Script(GAME_SOURCE, { filename: "game.js" }).runInContext(context);
 
   function run(code) {
     return new vm.Script(code, { filename: "test-snippet.js" }).runInContext(context);
