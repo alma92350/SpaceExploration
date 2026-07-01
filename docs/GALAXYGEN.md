@@ -117,10 +117,46 @@ shortcut-cheapened pair and a hazard-penalized pair exist across a sweep of
 seeds, hyperlane reciprocity, and smoke tests of every existing distance
 consumer).
 
+## Slice 3 (shipped) — the Sector Code
+Surfaces the seeds that have quietly driven slices 1 and 2 all along, so a
+galaxy is something a player can read out, share, and recreate — not just
+roll blind.
+- **One code, not two**: `S.laneSeed` is no longer rolled independently —
+  it's now derived from `S.frontierSeed` (`deriveLaneSeed`, a fixed XOR
+  mix), so a single short base-36 "Sector Code" (`seedCodeFor`/
+  `seedFromCode`) reproduces an entire galaxy: same frontier ring, same
+  lane graph, hazards and hyperlanes included. Already-shipped saves that
+  independently persisted both seeds are left untouched — the derivation
+  only applies to brand-new games and to backfilling a `laneSeed` that's
+  missing entirely (a save from the narrow window between slices 1 and 2).
+- **A real bug found in the process**: `newGame()` (the "⟲ New" button)
+  reset `S` but never touched the live `PLANETS` array or called
+  `generateFrontierRing()` — harmless on a page *reload* (where `PLANETS`
+  is rebuilt from source) but broken on a **mid-session** New Game: the
+  previous run's frontier worlds stayed in `PLANETS`, unmarked in the new
+  `S.active`, permanently dangling and unreachable, while the freshly
+  rolled `frontierSeed`/`laneSeed` described a galaxy that never actually
+  got built. None of the slice 1/2 tests caught it because they all
+  simulated a fresh reload directly rather than exercising the real
+  `newGame()` path. Fixed by having `newGame()` strip any `p.frontier`
+  worlds from `PLANETS` before re-rolling `S`, then calling
+  `generateFrontierRing()` and `rollPrices()` itself, exactly mirroring
+  what `init()` already does after a real reload.
+- **UI**: a new "🔑 Seed" console button opens a prompt pre-filled with the
+  current Sector Code — copy it as-is to share, clear it for a random
+  sector, or paste a different one to start a new game from it (`confirm`
+  still gates the progress-loss warning). The Galaxy tab subtitle also
+  prints the current code plainly, so it's discoverable without hunting
+  for the button.
+
+Tests: `seedcode.js` (24 checks: code round-tripping incl. case/whitespace
+tolerance, laneSeed derivation, explicit-seed determinism across two
+independently generated galaxies, the `newGame()` bug fix — both "no stale
+frontier worlds left behind" and "regenerated worlds are active with valid
+distances" — repeated-code reproducibility, garbage/blank input fallback,
+colony-mode compatibility, backfill derivation, and the subtitle display).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-3. **Per-run seed UX** — surface `S.frontierSeed`/`S.laneSeed` (or a
-   friendlier derived code) at "New Game" so a seed can be entered or
-   shared, not just rolled blind.
 4. **Exploration-as-gameplay** — a lightweight probe/scout action with
    its own risk/reward, richer signals tied to the Fortunes system on
    frontier worlds specifically.
@@ -131,7 +167,7 @@ consumer).
    — the data's already there.
 6. **Full proceduralization** — generate the charted core itself from a
    seed. Would need the same full audit territory contest, the frontier
-   ring, and this slice all did, extended to every place that assumes a
+   ring, and slice 2 all did, extended to every place that assumes a
    stable, permanent planet `id` (colonies, bases, contracts) — likely its
    own multi-slice project, and maybe not worth it given how much
    hand-tuning lives in the curated 20.

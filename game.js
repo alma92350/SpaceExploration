@@ -254,6 +254,21 @@ function mulberry32(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+/* ---------- Sector Code — slice 3 of procedural galaxy generation ----------
+   S.frontierSeed and S.laneSeed together determine the whole generated
+   galaxy, but two raw 31-bit integers aren't something a player can read
+   out loud or type in. laneSeed is derived from frontierSeed (a cheap,
+   fixed mix — not rolled independently) so ONE short base-36 code is
+   enough to reproduce an entire sector: same frontier ring, same lane
+   graph, same hazards and hyperlanes.
+*/
+function deriveLaneSeed(frontierSeed) { return (frontierSeed ^ 0x9E3779B9) >>> 0; }
+function seedCodeFor(seed) { return Math.abs(seed | 0).toString(36).toUpperCase(); }
+function seedFromCode(code) {
+  if (!code) return null;
+  const n = parseInt(String(code).trim(), 36);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) % (2 ** 31) : null;
+}
 const FRONTIER_NAME_POOL = [
   "Kestrel Drift", "Solace", "Vaultbreak", "Ashwind", "Thornfield", "Meridian Reach",
   "Coldharbor", "Rustmoor", "Driftwake", "Halcyon Deep", "Ember Hollow", "Voidmarch",
@@ -1031,6 +1046,7 @@ function freshState(opts = {}) {
   const res = { credits: 3000, fuel: 100, tech: 0, influence: 0 };
   CARGO_IDS.forEach(id => res[id] = 0);
   const active = chooseActivePlanets();
+  const freshFrontierSeed = opts.seed || Math.floor(Math.random() * 2**31);   // a specific Sector Code, or a fresh random roll
   const techs = {};
   const pol = { popularity: 10, legitimacy: 0, heat: 0, slush: 0 };
   const orgs = {};
@@ -1057,8 +1073,8 @@ function freshState(opts = {}) {
   return {
     turn: 1,
     active,              // which planets feature in this playthrough
-    frontierSeed: Math.floor(Math.random() * 2**31),   // seeds the procedural frontier ring — different every new game
-    laneSeed: Math.floor(Math.random() * 2**31),       // seeds the lane graph's hazards/hyperlanes — different every new game
+    frontierSeed: freshFrontierSeed,                   // seeds the procedural frontier ring — different every new game
+    laneSeed: deriveLaneSeed(freshFrontierSeed),        // derived, not rolled independently — one Sector Code reproduces both
     location: start,
     res,
     pol,                // political meters: popularity / legitimacy / heat / slush
@@ -6248,7 +6264,7 @@ function renderGalaxy() {
     intelBadge = `<span class="pill ${hot ? "bad" : "good"}" title="Active pirate chart — ${left} cycle(s) left. Activity updates live on the map.">🏴 ${hot ? hot + " pirate hotspot" + (hot > 1 ? "s" : "") : "lanes charted"} · ${left}cyc</span>`;
   }
   el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}${intelBadge}</h2>
-    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with the 🛰️ Deep-Space Survey below. Travelling costs fuel and advances a cycle.</div>
+    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with the 🛰️ Deep-Space Survey below. Travelling costs fuel and advances a cycle. <span class="hint">Sector code: <b>${seedCodeFor(S.frontierSeed)}</b> — share it, or start a new game from one, with the 🔑 Seed button.</span></div>
     <div class="planet-grid">${cards}</div>
     ${(() => { const beyond = PLANETS.filter(p => isActive(p) && !p.hidden && !p.colonizable && !galaxyKnown(p)).length; return beyond ? `<div class="hint" style="margin-top:8px">🛰️ ${beyond} more world(s) lie beyond your sensor range (~${GALAXY_FUEL_HORIZON} fuel) — travel toward the frontier to chart them.</div>` : ""; })()}
     <div class="section-title">🔭 Exploration</div>
@@ -8825,7 +8841,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.45.0";
+const APP_VERSION = "2.46.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8904,7 +8920,7 @@ function helpHTML() {
     </ul>
 
     <h4>Header buttons</h4>
-    <p style="margin:0 0 6px 0">⟲ <b>New</b> / 🌍 <b>Colonize</b> start fresh runs · 📖 <b>Log</b> downloads your captain's log (a dossier you can hand to an AI to write your biography or a novel).</p>
+    <p style="margin:0 0 6px 0">⟲ <b>New</b> / 🌍 <b>Colonize</b> start fresh runs · 🔑 <b>Seed</b> shows this sector's shareable code and can start a new game from any code (yours or a friend's) — the exact same frontier ring and lane graph, every time · 📖 <b>Log</b> downloads your captain's log (a dossier you can hand to an AI to write your biography or a novel).</p>
 
     <h4>Links</h4>
     <p style="margin:0">
@@ -9146,7 +9162,14 @@ function loadGame() {
   try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { S = JSON.parse(raw); return true; } } catch (e) {}
   return false;
 }
-function newGame(mode) {
+function promptSeedNewGame() {
+  if (typeof prompt !== "function") return;
+  const current = seedCodeFor(S.frontierSeed);
+  const input = prompt(`This sector's code is ${current} — share it so someone else can generate the exact same frontier ring and lane graph.\n\nStart a NEW game with this code (replays the same sector), enter a different code, or clear the field for a random sector. Current progress will be lost either way:`, current);
+  if (input === null) return;   // cancelled — no game started, nothing changed
+  newGame(undefined, input.trim() || undefined);
+}
+function newGame(mode, seedCode) {
   const colony = mode === "colony", politics = mode === "politics";
   const msg = colony
     ? "Start in Colonization mode? You'll skip the trading phase and begin on a frontier world with the Colonial Charter, the capital and the materials to found your first colony right away. Current progress will be lost."
@@ -9154,7 +9177,10 @@ function newGame(mode) {
     ? "Start in Politics mode? You'll skip the trading grind and begin as a fledgling politician — with the Galactic Charter, a campaign chest, some influence and your own party. Current progress will be lost."
     : "Start a new game? Current progress will be lost.";
   if (typeof confirm === "function" && !confirm(msg)) return;
-  S = freshState({ colonyStart: colony, politicsStart: politics }); rollPrices();
+  for (let i = PLANETS.length - 1; i >= 0; i--) { if (PLANETS[i].frontier) PLANETS.splice(i, 1); }   // drop the previous run's frontier ring — PLANETS survives a mid-session New Game, unlike a page reload
+  S = freshState({ colonyStart: colony, politicsStart: politics, seed: seedFromCode(seedCode) });
+  generateFrontierRing();   // regenerate against the (possibly custom) seed just rolled/entered above
+  rollPrices();
   if (colony) {
     log(`🌍 Colonization charter granted. You arrive at <span class="c">${currentPlanet().name}</span> with capital and supplies — found your first colony.`, "event");
   } else if (politics) {
@@ -9179,7 +9205,7 @@ function init() {
   const isNewGame = !loadGame();
   if (isNewGame) S = freshState();
   if (!S.frontierSeed) S.frontierSeed = Math.floor(Math.random() * 2**31);   // backfill for saves from before the frontier ring
-  if (!S.laneSeed) S.laneSeed = Math.floor(Math.random() * 2**31);           // backfill for saves from before the lane graph
+  if (!S.laneSeed) S.laneSeed = deriveLaneSeed(S.frontierSeed);              // backfill for saves from before the lane graph — derived, so its Sector Code is already correct
   generateFrontierRing();   // procedural worlds beyond the charted 20 — deterministic from the seed, safe to call every load
   if (isNewGame) { rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); jotOpening("trade"); }
   if (!S.prices || !S.prices[S.location]) rollPrices();
@@ -9259,6 +9285,7 @@ function init() {
   [
     { label: "⟲ New",      title: "New game (trading start)",                                                                            fn: () => newGame() },
     { label: "🌍 Colonize", title: "New game — skip trading, start ready to colonize",                                                    fn: () => newGame("colony") },
+    { label: "🔑 Seed",     title: "View this sector's code, or start a new game from a specific one",                                     fn: () => promptSeedNewGame() },
     { label: "📖 Log",      title: "Download your captain's log — a narrative dossier you can hand to an AI to write your biography or a novel", fn: () => downloadJournal() },
     { label: "💾 Save",     title: "Save this game to a file on your disk (backup, or move between browsers/machines)",                     fn: () => exportSave() },
     { label: "📂 Load",     title: "Load a game from a save file on your disk (replaces the current game)",                                fn: () => importSave() },

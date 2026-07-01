@@ -1,5 +1,5 @@
 {
-  "version": "2.45.0",
+  "version": "2.46.0",
   "saveVersion": "v2",
-  "notes": "Lane graph. Travel distance is no longer a straight line: a seeded map of hazard-stretched routes and cheap hyperlane shortcuts now underlies every world's fuel cost, different every game. Travel itself is unchanged - still a direct jump - but some far worlds are now surprisingly cheap to reach via a hyperlane (marked with a 🛰️ pill), and some nearby ones cost more than the map suggests thanks to a rough stretch along the way."
+  "notes": "Sector Code. Every galaxy now has a short, shareable code - one code recreates the exact same frontier ring and lane graph, hazards and hyperlanes included. Find it on the Galaxy tab or via the new 🔑 Seed button, which can also start a new game from any code (yours or a friend's). Also fixes a bug where starting a New Game mid-session (rather than reloading the page) could leave the previous run's frontier worlds stranded and unreachable."
 }
