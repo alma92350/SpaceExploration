@@ -371,8 +371,23 @@ triggers a grand golden **finale**. 🎆
 index.html   — layout & markup
 style.css    — neon-space UI theme
 game.js      — all game logic (economy, factions, production, rendering, save)
+test/        — automated tests (Node's built-in test runner, no dependencies)
 ```
 
 Everything is plain HTML/CSS/JS — tweak the data tables at the top of
 `game.js` (commodities, planets, recipes, upgrades, techs, missions, factions)
 to make the sector your own.
+
+## ✅ Tests
+
+`game.js` is loaded exactly as a browser would load it (via Node's `vm`
+module, with minimal `window`/`document`/`localStorage` stubs) so the tests
+exercise the real game code, not a rewritten copy. No dependencies to
+install — just:
+
+```bash
+npm test
+```
+
+CI (`.github/workflows/test.yml`) runs the same command on every push and
+pull request against `main`.
