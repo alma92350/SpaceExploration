@@ -205,6 +205,11 @@ const PLANETS = [
     desc: "A legendary garden world said to lie past the dark. The finest colony site in the galaxy.",
     deposits: { biomass: 2.0, spice: 1.2, crystals: 1.0 } },
 ];
+// pristine snapshot of the charted 20's stats, captured once at parse time — every
+// applyCoreVariance() call recomputes FROM this baseline, never from whatever the
+// previous seed/playthrough left behind, so re-applying it (a mid-session New Game
+// reuses these same 20 objects, unlike the frontier ring) can never compound drift.
+const CORE_BASELINE = PLANETS.map(p => ({ id: p.id, industry: p.industry, tech: p.tech, enforce: p.enforce, deposits: { ...p.deposits } }));
 recomputeDistances();   // function declared below with the frontier-ring generator; hoisted, so this call is safe here
 
 /* ---------- Rotating roster ----------
@@ -263,6 +268,32 @@ function mulberry32(seed) {
    graph, same hazards and hyperlanes.
 */
 function deriveLaneSeed(frontierSeed) { return (frontierSeed ^ 0x9E3779B9) >>> 0; }
+/* ---------- Core variance — slice 6 of procedural galaxy generation ----------
+   The charted 20's names, descriptions, factions and positions stay exactly
+   as hand-written — that's deliberate, not left for later; the writing is
+   the point. What varies per Sector Code is what each world PRODUCES:
+   deposit yields jitter ±30%, industry/tech jitter ±1, enforce jitters
+   ±15% — enough that Ferros Prime's ore doesn't always sit at exactly 2.0,
+   without ever turning a mineral-poor capital into a mining hub or a
+   lawless rim world into a fortress. Always recomputed FROM CORE_BASELINE,
+   never from whatever a previous seed left on the same 20 objects, so
+   calling it again (a mid-session New Game reuses these same objects,
+   unlike the frontier ring, which gets spliced out and rebuilt) can never
+   compound drift — same seed in, same stats out, no matter how many times.
+*/
+function deriveCoreSeed(frontierSeed) { return (frontierSeed ^ 0x2545F491) >>> 0; }
+function applyCoreVariance(seed) {
+  const rand = mulberry32(seed);
+  CORE_BASELINE.forEach(base => {
+    const p = PLANETS.find(x => x.id === base.id); if (!p) return;
+    const deposits = {};
+    Object.entries(base.deposits).forEach(([res, val]) => { deposits[res] = Math.max(0.3, Math.round(val * (0.7 + rand() * 0.7) * 10) / 10); });
+    p.deposits = deposits;
+    p.industry = Math.max(1, Math.min(10, Math.round(base.industry + (rand() * 2 - 1))));
+    p.tech = Math.max(1, Math.min(10, Math.round(base.tech + (rand() * 2 - 1))));
+    p.enforce = Math.max(0.02, Math.min(0.98, Math.round(base.enforce * (0.85 + rand() * 0.3) * 100) / 100));
+  });
+}
 function seedCodeFor(seed) { return Math.abs(seed | 0).toString(36).toUpperCase(); }
 function seedFromCode(code) {
   if (!code) return null;
@@ -1047,6 +1078,8 @@ function freshState(opts = {}) {
   CARGO_IDS.forEach(id => res[id] = 0);
   const active = chooseActivePlanets();
   const freshFrontierSeed = opts.seed || Math.floor(Math.random() * 2**31);   // a specific Sector Code, or a fresh random roll
+  const freshCoreSeed = deriveCoreSeed(freshFrontierSeed);
+  applyCoreVariance(freshCoreSeed);   // vary the charted 20's deposits/industry/tech/enforce before pickStart reads them
   const techs = {};
   const pol = { popularity: 10, legitimacy: 0, heat: 0, slush: 0 };
   const orgs = {};
@@ -1075,6 +1108,7 @@ function freshState(opts = {}) {
     active,              // which planets feature in this playthrough
     frontierSeed: freshFrontierSeed,                   // seeds the procedural frontier ring — different every new game
     laneSeed: deriveLaneSeed(freshFrontierSeed),        // derived, not rolled independently — one Sector Code reproduces both
+    coreSeed: freshCoreSeed,                            // derived too — varies the charted 20's stats, same Sector Code reproduces it
     location: start,
     res,
     pol,                // political meters: popularity / legitimacy / heat / slush
@@ -6376,7 +6410,7 @@ function renderGalaxy() {
     intelBadge = `<span class="pill ${hot ? "bad" : "good"}" title="Active pirate chart — ${left} cycle(s) left. Activity updates live on the map.">🏴 ${hot ? hot + " pirate hotspot" + (hot > 1 ? "s" : "") : "lanes charted"} · ${left}cyc</span>`;
   }
   el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}${intelBadge}</h2>
-    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with the 🛰️ Deep-Space Survey below. Travelling costs fuel and advances a cycle. <span class="hint">Sector code: <b>${seedCodeFor(S.frontierSeed)}</b> — share it, or start a new game from one, with the 🔑 Seed button.</span></div>
+    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. This sector's own Sector Code also jitters every core world's deposits, industry, tech and law level a little, so exact yields vary game to game even though names and history never do. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with the 🛰️ Deep-Space Survey below. Travelling costs fuel and advances a cycle. <span class="hint">Sector code: <b>${seedCodeFor(S.frontierSeed)}</b> — share it, or start a new game from one, with the 🔑 Seed button.</span></div>
     ${renderStarmap(known)}
     <div class="planet-grid">${cards}</div>
     ${(() => { const beyond = PLANETS.filter(p => isActive(p) && !p.hidden && !p.colonizable && !galaxyKnown(p)).length; return beyond ? `<div class="hint" style="margin-top:8px">🛰️ ${beyond} more world(s) lie beyond your sensor range (~${GALAXY_FUEL_HORIZON} fuel) — travel toward the frontier to chart them.</div>` : ""; })()}
@@ -8954,7 +8988,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.48.0";
+const APP_VERSION = "2.49.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -9015,7 +9049,7 @@ function helpHTML() {
 
     <h4>The tabs</h4>
     <ul style="line-height:1.55;margin:0 0 6px 18px;padding:0">
-      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. A <b>🗺️ Starmap</b> at the top charts every world you know about and the hyperlanes between them — click a node to travel there directly, or read the card grid below for full detail. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until your <b>🛰️ Deep-Space Survey</b> charts them, same as any other uncharted world. Travel distance isn't a straight line either: a seeded lane graph gives every game its own hazard-stretched routes and cheap hyperlane shortcuts, marked with a <b>🛰️ hyperlane</b> pill (and a bright line on the Starmap) wherever one bypasses the usual path from your ship. Impatient? <b>🔭 Probe the Frontier</b> pushes straight at the frontier ring instead of a routine survey — burns fuel whether it pays off or not, and a lawless target can draw an ambush, but a world charted this way turns up richer <b>📡 signals</b>.</li>
+      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. A <b>🗺️ Starmap</b> at the top charts every world you know about and the hyperlanes between them — click a node to travel there directly, or read the card grid below for full detail. The charted 20's names, factions and history never change — but a Sector Code now jitters each one's deposits, industry, tech and law level too, so Ferros Prime's ore or Terra Nova's law level isn't always exactly what it was last game. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until your <b>🛰️ Deep-Space Survey</b> charts them, same as any other uncharted world. Travel distance isn't a straight line either: a seeded lane graph gives every game its own hazard-stretched routes and cheap hyperlane shortcuts, marked with a <b>🛰️ hyperlane</b> pill (and a bright line on the Starmap) wherever one bypasses the usual path from your ship. Impatient? <b>🔭 Probe the Frontier</b> pushes straight at the frontier ring instead of a routine survey — burns fuel whether it pays off or not, and a lawless target can draw an ambush, but a world charted this way turns up richer <b>📡 signals</b>.</li>
       <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises. Quantity boxes remember what you last typed for each good; a 💡 hint flags the best <b>known</b> world to flip a commodity you buy here (profit per light-year), and <b>Sort: Best margin</b> ranks each tier by that same opportunity. <b>💰 Sell entire hold</b> unloads every legal good you're carrying at today's prices in one click (contraband here is held back — sell that individually if you'll risk the customs check).</li>
       <li>🏭 <b>Industry</b> — refine raw materials into finished goods.</li>
       <li>🔬 <b>Research</b> — unlock technologies.</li>
@@ -9319,6 +9353,8 @@ function init() {
   if (isNewGame) S = freshState();
   if (!S.frontierSeed) S.frontierSeed = Math.floor(Math.random() * 2**31);   // backfill for saves from before the frontier ring
   if (!S.laneSeed) S.laneSeed = deriveLaneSeed(S.frontierSeed);              // backfill for saves from before the lane graph — derived, so its Sector Code is already correct
+  if (!S.coreSeed) S.coreSeed = deriveCoreSeed(S.frontierSeed);              // backfill for saves from before core variance — derived, so its Sector Code is already correct
+  applyCoreVariance(S.coreSeed);   // PLANETS is static source, re-declared fresh on every load — reapply this save's variance every time, same as the lane graph
   generateFrontierRing();   // procedural worlds beyond the charted 20 — deterministic from the seed, safe to call every load
   if (isNewGame) { rollPrices(); log(`Welcome, Captain. Your journey begins on ${currentPlanet().name}.`); jotOpening("trade"); }
   if (!S.prices || !S.prices[S.location]) rollPrices();
