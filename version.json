@@ -1,5 +1,5 @@
 {
-  "version": "2.42.0",
+  "version": "2.43.0",
   "saveVersion": "v2",
-  "notes": "Rising pirate powers. Every so often, an exceptional band claims a lawless world as its own 👑 haven — mirroring your own Haven mechanic — and becomes a named, escalating threat: its haven grows tier by tier (and its rank climbs) the longer that world stays lawless, raising local pirate activity as it goes. Keep the world pacified with your existing tools (mandates, fleet missions, ordinary raiding) and the haven withers and collapses on its own — no new button required. It's still a completely normal pirate band underneath: ally with it, feud with it, hire it, commission it, exactly as any other. Shown on the band's Contacts card, as a pill on its world's Galaxy card, and as a row on the sidebar's Operations board."
+  "notes": "Territory contest. A world's owning faction is no longer permanent — if its owner falls into open War with a rival, a 🚩 control meter starts building (faster the deeper the war, and faster still if the world is pirate-plagued) and, left unchecked, the world actually changes hands. Cool the war back to peace and a contest fades on its own; no faction can ever be conquered down to its last world. Tracked on the world's Galaxy pill, an Operations board row, and a new Politics-tab 'Contested Worlds' card."
 }
