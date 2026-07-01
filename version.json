@@ -1,5 +1,5 @@
 {
-  "version": "2.39.0",
+  "version": "2.40.0",
   "saveVersion": "v2",
-  "notes": "Market quick-trade polish + end-of-cycle digest. The Market now remembers the last quantity you typed per commodity, flags the best known world to flip a good you buy here (profit per light-year) with a 💡 hint, lets you sort each tier by that same margin, and adds a one-click 💰 Sell entire hold (legal goods only — contraband is held back). Separately, a new 📋 Cycle recap line rolls up each cycle's production, arrivals (ships launched, missions and mandates completing, crews arriving), and rising threats (new crises, pirate activity, raids, convoy losses) into one compact summary, alongside the existing 💰 Cycle accounts money ledger — so a busy empire's log doesn't bury the headline in scattered lines."
+  "notes": "The sector now has a pulse. New 🌐 Sector Relations (Politics tab): the five great powers track a persistent Alliance/Peace/Cold War/War relationship with EACH OTHER, independent of your own reputation with them. It evolves on its own — rivals drift toward war, everyone else settles toward peace — and occasional named incidents (a border skirmish, a trade accord) can tip a pair into a new state, reported in the log and a new cycle recap. Your own active letters of marque stoke the specific rivalry you're fighting for. This is the foundation of a broader living-sector layer to come."
 }

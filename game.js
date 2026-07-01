@@ -938,6 +938,7 @@ function freshState(opts = {}) {
     mandates: [],               // active pirate mandates: [{ id, bandId, planet, task, cyclesLeft, ... }]
     fleet: [],                  // your own ships built at colony shipyards: [{ id, key, home, status, hull, ... }]
     battleGroupPosture: "balanced",   // posture for a deployed fleet Battle Group in raids
+    factionRel: {},              // sector relations: pairwise faction score, lazily seeded by ensureFactionRel
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
@@ -2881,6 +2882,67 @@ function processHaven() {
    PRIVATEER COMMISSIONS — letters of marque: raid a faction's rivals, legally
    ------------------------------------------------------------ */
 const FACTION_RIVAL = { core: "frontier", frontier: "core", syndicate: "core", miners: "agri", agri: "miners" };
+/* ------------------------------------------------------------
+   SECTOR RELATIONS — a persistent, evolving state between every pair of
+   factions (not just the static FACTION_RIVAL lookup). Drifts each cycle
+   toward tension (rivals) or peace (everyone else), nudged by your own
+   letters of marque and the occasional random incident. Slice 1 of the
+   sector 4X layer: pure new state — nothing existing reads it yet, so it
+   can't destabilize anything already built.
+   ------------------------------------------------------------ */
+const FACTION_KEYS = Object.keys(FACTIONS);
+const FACTION_REL_META = {
+  alliance: { ico: "🤝", label: "Alliance" },
+  peace:    { ico: "🕊️", label: "Peace" },
+  cold:     { ico: "❄️", label: "Cold War" },
+  war:      { ico: "⚔️", label: "War" },
+};
+const FACTION_INCIDENTS_GOOD = ["a trade accord eases tensions", "a diplomatic exchange builds goodwill", "a joint relief effort earns trust", "a border dispute is settled quietly"];
+const FACTION_INCIDENTS_BAD = ["a border skirmish flares up", "a smuggling bust sparks accusations", "a tariff dispute turns bitter", "a stolen convoy inflames old grudges"];
+function factionPairKey(a, b) { return [a, b].sort().join("_"); }
+function factionsAreRivals(a, b) { return FACTION_RIVAL[a] === b || FACTION_RIVAL[b] === a; }   // the table has one one-way entry (syndicate->core)
+function ensureFactionRel() {
+  if (!S.factionRel) S.factionRel = {};
+  FACTION_KEYS.forEach((a, i) => FACTION_KEYS.slice(i + 1).forEach(b => {
+    const key = factionPairKey(a, b);
+    if (S.factionRel[key] == null) S.factionRel[key] = factionsAreRivals(a, b) ? -20 : 25;   // rivals start tense, others start at peace
+  }));
+  return S.factionRel;
+}
+function factionRelScore(a, b) { if (a === b) return 100; ensureFactionRel(); return S.factionRel[factionPairKey(a, b)] ?? 25; }
+function factionRelTier(score) {
+  if (score >= 60) return "alliance";
+  if (score >= 15) return "peace";
+  if (score >= -30) return "cold";
+  return "war";
+}
+function factionRelation(a, b) { const score = factionRelScore(a, b); const tier = factionRelTier(score); return { score: Math.round(score), tier, ...FACTION_REL_META[tier] }; }
+function processFactionRelations() {
+  const rel = ensureFactionRel();
+  const keys = Object.keys(rel);
+  keys.forEach(key => {
+    const [a, b] = key.split("_"), rival = factionsAreRivals(a, b);
+    const target = rival ? -60 : 25;                          // rivals drift toward war; everyone else settles toward peace
+    rel[key] += (target - rel[key]) * 0.015;
+    if (S.commission && ((S.commission.patron === a && S.commission.target === b) || (S.commission.patron === b && S.commission.target === a)))
+      rel[key] -= 1.2;                                        // your active letter of marque stokes exactly this rivalry
+    rel[key] = Math.max(-100, Math.min(100, rel[key]));
+  });
+  if (S.turn % 4 === 0 && Math.random() < 0.5) {               // an occasional named incident nudges one pair harder
+    const key = pick(keys), [a, b] = key.split("_");
+    const beforeTier = factionRelTier(rel[key]);
+    const good = Math.random() < 0.5;
+    rel[key] = Math.max(-100, Math.min(100, rel[key] + (good ? 1 : -1) * rint(8, 16)));
+    const afterTier = factionRelTier(rel[key]);
+    log(`🌐 ${FACTIONS[a].name} &amp; ${FACTIONS[b].name}: ${good ? pick(FACTION_INCIDENTS_GOOD) : pick(FACTION_INCIDENTS_BAD)}.`, good ? "good" : "bad");
+    if (afterTier !== beforeTier) {
+      const meta = FACTION_REL_META[afterTier];
+      const tone = afterTier === "war" ? "bad" : afterTier === "alliance" ? "good" : "";
+      log(`${meta.ico} <b>${FACTIONS[a].name}</b> and <b>${FACTIONS[b].name}</b> now stand at <b>${meta.label}</b>.`, tone);
+      if (typeof digestNote === "function") digestNote("sector", `${FACTIONS[a].name}–${FACTIONS[b].name}: ${meta.ico} ${meta.label}`);
+    }
+  }
+}
 const COMM_DURATION = 12, COMM_QUOTA = 5, COMM_BOUNTY = 800, COMM_REWARD = 4000, COMM_REP_REQ = 5;
 function commissionCovers(faction) { return !!(S.commission && S.commission.target === faction); }
 function acceptCommission() {
@@ -5562,15 +5624,16 @@ function reportCycleDigest() {
   if (prodKeys.length) parts.push(`🏭 produced ${prodKeys.map(c => `${fmt(D.production[c])}${COM[c] ? COM[c].ico : ""}`).join(" ")}`);
   if (D.arrivals.length) parts.push(`✅ ${D.arrivals.join(", ")}`);
   if (D.threats.length) parts.push(`⚠️ ${D.threats.join(", ")}`);
+  if (D.sector && D.sector.length) parts.push(`🌐 ${D.sector.join(", ")}`);
   if (!parts.length) return;
   log(`📋 Cycle ${S.turn} recap: ${parts.join(" · ")}.`, "");
 }
 function endTurn(fromTravel = false) {
   if (!fromTravel && combatLocked()) return;
-  S.turn++; S.actionsUsed = 0; _cledger = {}; _cdigest = { production: {}, arrivals: [], threats: [] };
+  S.turn++; S.actionsUsed = 0; _cledger = {}; _cdigest = { production: {}, arrivals: [], threats: [], sector: [] };
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
   processFx(); processSignals();
-  processCrises(); processPirates(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
+  processCrises(); processPirates(); processFactionRelations(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
   if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (typeof decayBands === "function") decayBands();
   if (typeof processBandSupport === "function") processBandSupport();
@@ -5745,6 +5808,24 @@ function renderLog() {
   el.innerHTML = S.log.map(e => `<div class="log-entry ${e.type}"><span style="opacity:.5">[${e.turn}]</span> ${e.msg}</div>`).join("");
 }
 
+function renderSectorRelations() {
+  ensureFactionRel();
+  const pairs = [];
+  FACTION_KEYS.forEach((a, i) => FACTION_KEYS.slice(i + 1).forEach(b => pairs.push([a, b])));
+  const rows = pairs
+    .map(([a, b]) => ({ a, b, rel: factionRelation(a, b) }))
+    .sort((x, y) => x.rel.score - y.rel.score)   // most tense (war) first
+    .map(({ a, b, rel }) => {
+      const pct = Math.round((rel.score + 100) / 2);
+      const col = rel.tier === "war" ? "var(--bad)" : rel.tier === "cold" ? "var(--warn)" : "var(--good)";
+      return `<div class="ship-stat"><span class="k">${FACTIONS[a].ico} ${FACTIONS[a].name} ↔ ${FACTIONS[b].ico} ${FACTIONS[b].name}</span>
+        <span class="v"><span class="pill" style="border-color:${col};color:${col}">${rel.ico} ${rel.label}</span></span></div>
+        <div class="bar"><span style="width:${pct}%;background:${col}"></span></div>`;
+    }).join("");
+  return `<div class="card"><h4>🌐 Sector Relations</h4>
+    <div class="hint">How the great powers stand with each other — independent of your own standing with them. Drifts each cycle; rivals trend toward war unless something intervenes, and an active letter of marque stokes the rivalry it's fighting for.</div>
+    ${rows}</div>`;
+}
 function repBar(f) {
   const r = S.rep[f] || 0;
   const pct = (r + 100) / 2;
@@ -6355,6 +6436,7 @@ function renderPolitics() {
         <button class="btn btn-primary" ${al > 0 ? "" : "disabled"} onclick="doPolitics()">Lobby (1 action)</button>
       </div>
       <div class="card"><h4>🤝 Faction Standing</h4>${reps}</div>
+      ${renderSectorRelations()}
       ${(!S.office && !S.orgs.party) ? `<div class="card" style="border-color:var(--accent-2)">
         <h4>🚀 Enter Public Life</h4>
         <div class="desc">Launch a political career without leaving the cockpit: found your own <b>📣 People's Movement</b>, seed a war chest of clout (+15 🏛️, +10 popularity), and start the climb — rally, then run for Councillor.</div>
@@ -8406,7 +8488,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.39.0";
+const APP_VERSION = "2.40.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8473,7 +8555,7 @@ function helpHTML() {
       <li>🔬 <b>Research</b> — unlock technologies.</li>
       <li>✨ <b>Fortunes</b> — temporary <b>boons &amp; banes</b> you pick up by exploring new worlds, sweeping the lanes and plain luck — extra actions, weapon surges, trade winds, research sparks, and rarer grand effects… balanced by reactor leaks, customs crackdowns and the like. This tab tracks your active effects (with time left and 🧹 clear buttons for banes), the <b>📡 signals</b> on your scope, and an <b>almanac</b> of every effect you've discovered. Chase a signal and <b>🔍 Investigate</b> it for a roll — stronger effects are briefer, and the rare, powerful ones are the prize of a hunted signal. Short on leads? The <b>🛰️ Sensor Office</b> sells scans that flush fresh signals onto your scope. Catalogue <b>every</b> effect in a domain to earn a 🏅 <b>Mastery</b> — a permanent passive edge. Unlocks once a Fortune or signal turns up.</li>
       <li>🎯 <b>Missions</b> — time-bound contracts, long-term career missions, and your legacy goals.</li>
-      <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law.</li>
+      <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law. A <b>🌐 Sector Relations</b> card tracks how the five great powers stand with <i>each other</i> — Alliance/Peace/Cold War/War — independent of your own reputation. It drifts on its own each cycle (rivals trend toward war, others settle toward peace) and occasional named incidents can tip a pair into a new state; your own active letters of marque stoke the rivalry you're fighting for. Notable shifts appear in the log and the 📋 cycle recap.</li>
       <li>🏗️ <b>Bases</b> — automated off-world production. Build a <b>⛽ Fuel Refinery</b> (any base, 5 tiers) to crack stored 🧊 ice into fuel each cycle, and route fuel through the base↔colony trade network (import/export it like any good).</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains, including a <b>⛽ Fuel Refinery</b> (ice + energy → fuel) and a <b>🏗️ Shipyard</b> (needs Metallurgy) that lets you build your own ships. Order in ice, export the fuel — fuel is now a tradeable part of the economy: buy/sell it at ports, stock it in bases &amp; colonies, and ship it across your network.</li>
       <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. <b>Dispatch a warship on a mission</b> (🎯 cull / 🛡️ guard / 🏴 raid a system) and — unlike hired pirates — <b>you keep 100%</b> of the bounty/loot, paying no fee; the risk is combat wear (a fragile hull in an infested system can be lost) and ongoing upkeep. You can also <b>call idle warships into your own raids</b> (loyal allies that take <b>no loot cut</b>) and <b>assign them to escort your convoys</b> for free — they never desert, and any damage they take comes back to your fleet. <b>Station freighters at a colony</b> on logistics duty to haul its goods — cutting its market import fee and base↔colony freight — and <b>station a warship there to guard them</b>, since unguarded convoys in pirate-active systems get ambushed (damage &amp; lost goods, and a fragile hauler can be sunk). Loyal and fully yours. In a raid, you can also <b>✦ Deploy Battle Fleet</b> — your <b>whole idle warship fleet at once</b> (not the 2-ally cap) fights as a formation with an escort-style posture (screen/balanced/press). Positioning matters: assign ships to <b>🛡️ Vanguard</b> (tanks — soaks nearly all incoming fire while it holds), <b>⚔️ Line</b> (your best damage dealers, protected behind the Vanguard), or <b>🌌 Reserve</b> (safest, weakest). Lose the Vanguard and the Line is exposed next — the formation collapses tier by tier — and keeping a Vanguard alive screens you personally too. Real stakes: ships take real damage and can be lost in a hard fight. Recall the fleet any time.</li>
@@ -8772,6 +8854,8 @@ function init() {
   if (!Array.isArray(S.mandates)) S.mandates = [];   // backfill pirate mandates
   if (!Array.isArray(S.fleet)) S.fleet = [];         // backfill player fleet
   if (!S.battleGroupPosture) S.battleGroupPosture = "balanced";
+  if (!S.factionRel) S.factionRel = {};
+  ensureFactionRel();   // backfill any pairs missing from an older save
   if (S.escort && Array.isArray(S.escort.fleet)) S.escort.fleet.forEach(sh => { if (!sh.fit) sh.fit = { aggressive: 0, balanced: 0, defensive: 0 }; if (!sh.stance) sh.stance = "balanced"; });   // migrate old outfit fleets to stance/fit
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
