@@ -88,8 +88,8 @@ escort-style posture — reusing `ESCORT_POSTURES` (screen/balanced/press) direc
   player is scaled by posture `.def` (hooked into `foeStrikes`, same insertion
   point as the Fortunes `incomingMult` hook) — **screen** protects you, **press**
   exposes you more (mirrors escort semantics exactly).
-- `battleGroupTakeFire(prey)` — each round a random group member takes real
-  damage scaled by the prey's strength and posture `.def`; a ship at 0 hull is
+- `battleGroupTakeFire(prey)` — each round a group member takes real damage
+  scaled by the prey's strength and posture `.def`; a ship at 0 hull is
   **destroyed and removed from the fleet** (same `_dead` purge pattern as convoy
   ambush/fleet missions). Real stakes: fielding a fleet against a strong foe can
   cost you ships.
@@ -102,6 +102,35 @@ escort-style posture — reusing `ESCORT_POSTURES` (screen/balanced/press) direc
   Surfaced on the Operations board (`renderOps`, "✦ ship · battle fleet (hull)").
   `S.battleGroupPosture` in freshState + init migrate. Exports added.
   Tests: `battlegroup.js`.
+
+## Slice 6 (shipped) — tactical formation (positioning, not just pooled DPS)
+Battle Group damage used to land on a uniformly random member. It's now a real
+**positioning** decision across three tiers (`FORMATION_SLOTS`, per-ship
+`s.formation`, sticky across recall/redeploy):
+
+- **🛡️ Vanguard** (fpMult 0.85) — tanks: `battleGroupTakeFire` targets the
+  **frontmost non-empty tier** 85% of the time (`battleGroupFrontTier`); the
+  other 15% is stray fire that ignores tiering, so no formation is ever
+  perfectly safe. Lose the Vanguard and the Line becomes the front tier; lose
+  that too and Reserve is next — a formation **collapses tier by tier**.
+- **⚔️ Line** (fpMult 1.20) — your main damage dealers, protected while the
+  Vanguard holds.
+- **🌌 Reserve** (fpMult 0.70) — safest, weakest, held back.
+- `battleGroupFirepower()` applies each ship's tier `fpMult` before summing —
+  moving ships between tiers is a genuine offense/survivability trade, not
+  cosmetic.
+- `battleGroupScreenMult()` adds a bonus: a **standing Vanguard** (any ship
+  alive there) screens the player harder (×0.85 on top of posture `.def`); an
+  **empty Vanguard** exposes the player more (×1.1) — positioning has stakes
+  for the player's own hull, not just the fleet.
+- `deployBattleGroup()` auto-assigns first-time deploys by hull size (biggest
+  → Vanguard) via `autoAssignFormation`; manual picks (`setBattleGroupFormation`)
+  are sticky and survive recall/redeploy. Reassignment is only valid for ships
+  currently in the group.
+- UI: `preyCombatCard`'s battle fleet block now lists each tier (member ships,
+  pooled hull, a "◀ taking fire" flag on the front tier) with per-ship move
+  buttons; the Operations board and ops row show each ship's tier icon.
+  Tests: `tacticalbattle.js`.
 
 ## Galaxy map markers
 `renderGalaxy` now shows pills for fleet missions (🎯), stationed convoys (🚚),

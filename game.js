@@ -4561,10 +4561,39 @@ function releaseFleetEscorts(e) {     // sync convoy support ships back to the f
 function battleGroupShips() { return fleetList().filter(s => s.status === "battle"); }
 function battleGroupPostureObj() { return ESCORT_POSTURES[S.battleGroupPosture || "balanced"] || ESCORT_POSTURES.balanced; }
 function setBattleGroupPosture(p) { if (ESCORT_POSTURES[p]) { S.battleGroupPosture = p; saveGame(); renderAll(); } }
+/* ---- Tactical formation: three positional tiers, not just a pooled number.
+   🛡️ Vanguard tanks (soaks fire first, fires at a discount), ⚔️ Line does the
+   bulk of the damage, 🌌 Reserve is held back (safest, weakest). Damage each
+   round targets the FRONTMOST non-empty tier — lose your Vanguard and the
+   Line becomes exposed, lose that and Reserve is next. A stray 15% of hits
+   ignore tiering entirely, so no formation is ever perfectly safe. Keeping a
+   Vanguard alive also screens the player harder — positioning has stakes for
+   both the fleet and you. */
+const FORMATION_SLOTS = {
+  vanguard: { ico: "🛡️", name: "Vanguard", fpMult: 0.85, hint: "front line — soaks the worst of the incoming fire so the rest of the fleet can fight" },
+  line:     { ico: "⚔️", name: "Line",     fpMult: 1.20, hint: "main battle line — your best damage dealers, protected while the vanguard holds" },
+  reserve:  { ico: "🌌", name: "Reserve",  fpMult: 0.70, hint: "held back — safest position, but fights at reduced effect" },
+};
+const FORMATION_TIERS = ["vanguard", "line", "reserve"];
+function shipFormation(s) { return FORMATION_SLOTS[s.formation] ? s.formation : "line"; }
+function autoAssignFormation(ships) {   // biggest hulls forward — a battleship tanks better than a corvette
+  const sorted = ships.slice().sort((a, b) => fleetShipHullMax(FLEET_SHIPS[b.key]) - fleetShipHullMax(FLEET_SHIPS[a.key]));
+  const nV = Math.max(1, Math.ceil(sorted.length / 3)), nL = Math.max(0, Math.ceil((sorted.length - nV) / 2));
+  sorted.forEach((s, i) => { s.formation = i < nV ? "vanguard" : (i < nV + nL ? "line" : "reserve"); });
+}
+function setBattleGroupFormation(shipId, slot) {
+  const s = battleGroupShips().find(x => x.id === shipId); if (!s || !FORMATION_SLOTS[slot]) return;
+  s.formation = slot; saveGame(); renderAll();
+}
+function battleGroupFrontTier() {   // the tier currently taking the brunt of incoming fire
+  for (const t of FORMATION_TIERS) { const ships = battleGroupShips().filter(s => shipFormation(s) === t); if (ships.length) return ships; }
+  return [];
+}
 function deployBattleGroup() {
   if (!S.prey) return toast("No engagement.", "bad");
   const idle = fleetRaidable(); if (!idle.length) return toast("No idle warships to deploy.", "bad");
   idle.forEach(s => { s.status = "battle"; });
+  autoAssignFormation(idle.filter(s => !FORMATION_SLOTS[s.formation]));   // first-time deploys get a sensible default; prior manual picks stick
   log(`✦ Your battle fleet (${idle.length} ship${idle.length === 1 ? "" : "s"}) forms up around you — pooled firepower, no loot cut.`, "event");
   toast(`Battle fleet deployed (${idle.length})`, "event"); sfx("event"); afterAction();
 }
@@ -4578,22 +4607,29 @@ function releaseBattleGroup() {   // combat ended: stand the group down (survivo
   const grp = battleGroupShips(); if (!grp.length) return;
   grp.forEach(s => { s.status = "idle"; });
 }
-function battleGroupScreenMult() { return battleGroupShips().length ? battleGroupPostureObj().def : 1; }   // your formation screens (or exposes) you
+function battleGroupScreenMult() {   // your formation screens (or exposes) you — a standing Vanguard shields you further
+  const grp = battleGroupShips(); if (!grp.length) return 1;
+  const vanguardHolds = grp.some(s => shipFormation(s) === "vanguard");
+  return battleGroupPostureObj().def * (vanguardHolds ? 0.85 : 1.1);
+}
 function battleGroupFirepower() {
   const grp = battleGroupShips(); if (!grp.length) return 0;
   const off = battleGroupPostureObj().off;
-  return Math.round(grp.reduce((sum, s) => sum + fleetShipStr(FLEET_SHIPS[s.key]) * (0.5 + 0.5 * (s.hull / s.hullMax)), 0) * off);
+  return Math.round(grp.reduce((sum, s) => sum + fleetShipStr(FLEET_SHIPS[s.key]) * (0.5 + 0.5 * (s.hull / s.hullMax)) * FORMATION_SLOTS[shipFormation(s)].fpMult, 0) * off);
 }
-// each combat round, a random battle-group ship absorbs a hit scaled by the foe and posture; can be lost
+// each combat round, the frontmost non-empty tier absorbs the hit (85% of the time; 15% stray
+// fire ignores tiering) — a formation collapses tier by tier as its defenders are lost.
 function battleGroupTakeFire(prey) {
   const grp = battleGroupShips(); if (!grp.length) return 0;
+  const front = battleGroupFrontTier();
+  const pool = (front.length && Math.random() < 0.85) ? front : grp;
   const def = battleGroupPostureObj().def;
-  const target = pick(grp);
+  const target = pick(pool);
   const dmg = Math.max(1, Math.round((prey.strength || 20) * 0.16 * def * (0.6 + Math.random() * 0.8)));
   target.hull = Math.max(0, target.hull - dmg);
   if (target.hull <= 0) {
     target._dead = true;
-    log(`💥 Your ${(FLEET_SHIPS[target.key] || {}).ico || ""} ${target.name} was lost fighting alongside you.`, "bad");
+    log(`💥 Your ${(FLEET_SHIPS[target.key] || {}).ico || ""} ${target.name} (${FORMATION_SLOTS[shipFormation(target)].name}) was lost fighting alongside you.`, "bad");
     if (typeof toast === "function") toast(`${target.name} lost!`, "bad");
   }
   return dmg;
@@ -5630,7 +5666,7 @@ function renderOps() {
     else if (s.status === "mission" && s.mission) row(MANDATE_TASKS[s.mission.task].ico, `${def.ico} ${s.name} · ${MANDATE_TASKS[s.mission.task].name} @ ${mdPlanetName(s.mission.planet)} <span style="color:var(--gold)">+${fmt(s.mission.accrued)}</span>`, s.mission.cyclesLeft + "c", "fleet", "var(--accent)");
     else if (s.status === "logistics") row(def.role === "freighter" ? "🚚" : "🛡️", `${def.ico} ${s.name} · ${def.role === "freighter" ? "hauling for" : "guarding"} ${mdPlanetName(s.station)}`, null, "fleet", "var(--accent)");
     else if (s.status === "escort") row("🛡️", `${def.ico} ${s.name} · escorting`, null, "escort", "var(--accent)");
-    else if (s.status === "battle") row("✦", `${def.ico} ${s.name} · battle fleet (${Math.round(s.hull)}/${s.hullMax})`, null, "raid", "var(--bad)");
+    else if (s.status === "battle") row(FORMATION_SLOTS[shipFormation(s)].ico, `${def.ico} ${s.name} · ${FORMATION_SLOTS[shipFormation(s)].name} (${Math.round(s.hull)}/${s.hullMax})`, null, "raid", "var(--bad)");
   });
   // pirate mandates
   (S.mandates || []).forEach(m => { const b = bandById(m.bandId), t = MANDATE_TASKS[m.task]; if (!t) return;
@@ -6417,8 +6453,24 @@ function preyCombatCard(prey, al) {
     const posture = S.battleGroupPosture || "balanced";
     const postBtns = Object.entries(ESCORT_POSTURES).map(([k, p]) => `<button class="btn btn-sm ${posture === k ? "btn-primary" : ""}" title="${p.hint}" onclick="setBattleGroupPosture('${k}')">${p.label}</button>`).join(" ");
     const bgHull = bgShips.reduce((s, x) => s + x.hull, 0), bgHullMax = bgShips.reduce((s, x) => s + x.hullMax, 0);
+    const frontTier = shipFormation(battleGroupFrontTier()[0] || {});
+    const tierRows = FORMATION_TIERS.map(t => {
+      const def = FORMATION_SLOTS[t];
+      const members = bgShips.filter(s => shipFormation(s) === t);
+      const tHull = members.reduce((s, x) => s + x.hull, 0), tHullMax = members.reduce((s, x) => s + x.hullMax, 0);
+      const holding = t === frontTier;
+      const shipRows = members.map(s => {
+        const otherSlots = FORMATION_TIERS.filter(k => k !== t);
+        const moveBtns = otherSlots.map(k => `<button class="btn btn-sm" title="Move to ${FORMATION_SLOTS[k].name}" onclick="setBattleGroupFormation('${s.id}','${k}')">${FORMATION_SLOTS[k].ico}</button>`).join("");
+        return `<div class="ship-stat" style="align-items:center;font-size:12px"><span class="k">${FLEET_SHIPS[s.key].ico} ${s.name}</span><span class="v">${Math.round(s.hull)}/${s.hullMax} ${moveBtns}</span></div>`;
+      }).join("");
+      return `<div style="margin-top:4px${members.length ? "" : ";opacity:.5"}">
+        <div class="hint" title="${def.hint}"><b>${def.ico} ${def.name}</b>${members.length ? ` — ${members.length} ship(s), ${Math.round(tHull)}/${tHullMax} hull${holding ? ' <span style="color:var(--bad)">◀ taking fire</span>' : ""}` : " — empty"}</div>
+        ${shipRows}</div>`;
+    }).join("");
     bgBlock = `<div class="hint" style="margin-top:6px">✦ <b>Battle fleet</b> (${bgShips.length} ship${bgShips.length === 1 ? "" : "s"}): 🔥${battleGroupFirepower()} pooled firepower · 🛡️ ${Math.round(bgHull)}/${bgHullMax} hull</div>
-      <div class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px"><span class="hint">Posture:</span> ${postBtns} <button class="btn btn-sm" onclick="recallBattleGroup()">↩ Recall fleet</button></div>`;
+      <div class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px"><span class="hint">Posture:</span> ${postBtns} <button class="btn btn-sm" onclick="recallBattleGroup()">↩ Recall fleet</button></div>
+      ${tierRows}`;
   } else if (bgIdle.length) {
     bgBlock = `<div class="row" style="margin-top:6px"><button class="btn btn-sm btn-good" title="Deploy your whole idle warship fleet (${bgIdle.length}) as a pooled formation — no loot cut, escort-style posture, but they take real damage and can be lost" onclick="deployBattleGroup()">✦ Deploy Battle Fleet (${bgIdle.length})</button></div>`;
   }
@@ -8265,7 +8317,7 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.37.0";
+const APP_VERSION = "2.38.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 // pure + testable: compare the running build to the server manifest
 function versionStatus(local, server) {
@@ -8335,7 +8387,7 @@ function helpHTML() {
       <li>🏛️ <b>Politics</b> — factions, influence, elections, the Senate and trade law.</li>
       <li>🏗️ <b>Bases</b> — automated off-world production. Build a <b>⛽ Fuel Refinery</b> (any base, 5 tiers) to crack stored 🧊 ice into fuel each cycle, and route fuel through the base↔colony trade network (import/export it like any good).</li>
       <li>🌍 <b>Colonies</b> — found and grow worlds: population, power and full industry chains, including a <b>⛽ Fuel Refinery</b> (ice + energy → fuel) and a <b>🏗️ Shipyard</b> (needs Metallurgy) that lets you build your own ships. Order in ice, export the fuel — fuel is now a tradeable part of the economy: buy/sell it at ports, stock it in bases &amp; colonies, and ship it across your network.</li>
-      <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. <b>Dispatch a warship on a mission</b> (🎯 cull / 🛡️ guard / 🏴 raid a system) and — unlike hired pirates — <b>you keep 100%</b> of the bounty/loot, paying no fee; the risk is combat wear (a fragile hull in an infested system can be lost) and ongoing upkeep. You can also <b>call idle warships into your own raids</b> (loyal allies that take <b>no loot cut</b>) and <b>assign them to escort your convoys</b> for free — they never desert, and any damage they take comes back to your fleet. <b>Station freighters at a colony</b> on logistics duty to haul its goods — cutting its market import fee and base↔colony freight — and <b>station a warship there to guard them</b>, since unguarded convoys in pirate-active systems get ambushed (damage &amp; lost goods, and a fragile hauler can be sunk). Loyal and fully yours. In a raid, you can also <b>✦ Deploy Battle Fleet</b> — your <b>whole idle warship fleet at once</b> (not the 2-ally cap) fights as a pooled formation with an escort-style posture (screen/balanced/press): its firepower adds to your strikes and it screens you from incoming fire, but it takes real damage and a ship can be lost in a hard fight. Recall it any time.</li>
+      <li>✦ <b>Fleet</b> — build and run your own ships at colony <b>🏗️ Shipyards</b>: <b>freighters</b> (light → bulk hauler) to carry your goods and <b>warships</b> (corvette → battleship) to fight for you. A shipyard's tier sets the biggest hull it can lay down and how many slipways build at once; construction costs credits &amp; materials and takes several cycles, and ships draw upkeep each cycle (shown in the 💰 Cycle accounts log). Repair or scrap them at their home shipyard. <b>Dispatch a warship on a mission</b> (🎯 cull / 🛡️ guard / 🏴 raid a system) and — unlike hired pirates — <b>you keep 100%</b> of the bounty/loot, paying no fee; the risk is combat wear (a fragile hull in an infested system can be lost) and ongoing upkeep. You can also <b>call idle warships into your own raids</b> (loyal allies that take <b>no loot cut</b>) and <b>assign them to escort your convoys</b> for free — they never desert, and any damage they take comes back to your fleet. <b>Station freighters at a colony</b> on logistics duty to haul its goods — cutting its market import fee and base↔colony freight — and <b>station a warship there to guard them</b>, since unguarded convoys in pirate-active systems get ambushed (damage &amp; lost goods, and a fragile hauler can be sunk). Loyal and fully yours. In a raid, you can also <b>✦ Deploy Battle Fleet</b> — your <b>whole idle warship fleet at once</b> (not the 2-ally cap) fights as a formation with an escort-style posture (screen/balanced/press). Positioning matters: assign ships to <b>🛡️ Vanguard</b> (tanks — soaks nearly all incoming fire while it holds), <b>⚔️ Line</b> (your best damage dealers, protected behind the Vanguard), or <b>🌌 Reserve</b> (safest, weakest). Lose the Vanguard and the Line is exposed next — the formation collapses tier by tier — and keeping a Vanguard alive screens you personally too. Real stakes: ships take real damage and can be lost in a hard fight. Recall the fleet any time.</li>
       <li>⚔️ <b>Raider</b> — prey on shipping (Wanted/Dread, havens, marques) or hunt pirates for lawful bounties; resolve ambushes & interdictions. You build lasting history with named <b>pirate bands</b> (🏴‍☠️ Pirate Contacts): ally with them, spare them, pay tributes or gift valued cargo to raise their collaboration — friendlier crews take a smaller loot cut, rally readily, and hire on cheaper (and more loyally) for 🛡️ Escort runs. Your Dread earns their respect; killing them earns their hatred.</li>
       <li>🛡️ <b>Escort</b> (expert) — take a convoy contract and command a whole fleet: <b>pool every ship's firepower</b> and split it equally across the attackers you target. Each attacker telegraphs who it's <b>aiming at</b> (raiders hunt freighters, interceptors your biggest guns, gunships your flagship, and a ☠️ leader anchors tough waves) — kill the one about to hit cargo first, and use the <b>🛡️ Screen</b> stance to have escorts body-block the freighters. Each leg is a cycle on the clock and burns fuel, and the lanes grow more dangerous as you near port. Keep the freighters alive for the full fee; only your flagship can field-repair. Set each vessel's <b>combat stance</b> — ⚔️ Aggressive (more firepower), ⚖️ Balanced, or 🛡️ Defensive (soak hits) — and buy up to <b>3 levels of fit</b> for it, paid from your hold (🔫 weapons · 🛸 drones · 🧠 AI cores); bigger vessels cost more, freighters cap at Lv2, and switching stance is free. After accepting, you get a <b>prep window</b>: hunt pirates at the route's ends in the ⚔️ Raider tab to lower the convoy's threat (the fee stays the same) — but a contract <b>deadline</b> in cycles limits how long you can prepare. Completed runs raise your <b>Escort Guild</b> rank — better pay and a larger fleet. Friendly pirate bands may also post <b>🏴‍☠️ smuggling runs</b> here — carry their contraband for fat pay and deep crew standing, but you'll pick up Wanted heat, anger the destination's authorities, and earn no guild credit (bail and you'll burn the crew). Unlocks once you've proven yourself in combat.</li>
       <li>🏴‍☠️ <b>Contacts</b> — manage your loose <b>brotherhood</b> of pirate bands: see each crew's standing, personality, feuds, location and history; <b>tag</b> them (⭐ Brotherhood, 🟢 Ally, 👁️ Watch, 🔴 Rival) and the mark follows their name everywhere; pay tributes or gift cargo to win them over. <b>📣 Call for support</b> to summon a crew — those in your system fall in at once, distant ones travel in over a cycle and then stand by to join a raid (as an ally) or an escort (as a free volunteer). Tell a standing-by crew to <b>🛰️ Follow</b> and they'll jump where you jump for a stretch, or <b>✖ Stand down</b> to send them home early. The tab has three sub-views: <b>🤝 All contacts</b>, <b>📍 Around here</b> (crews based in this system and how lawless it is), and <b>📜 Mandates</b> — commission a crew to work a system for a set run: <b>🎯 cull pirates</b> or <b>🛡️ guard the lanes</b> (lawful — thins out pirate activity there) or <b>🏴 prey on shipping</b> (piracy in your name — fattest cut, but Wanted climbs and the locals seethe, <i>unless you hold a 📜 letter of marque against that faction, which makes it sanctioned — no Wanted</i>). You pay a fee up front and bank a cut of the take when the run ends. Some crews hold <b>blood feuds</b> and won't serve alongside their rival — you can settle it: a cheap <b>🕊️ Truce</b> sets the feud aside for a few cycles so they'll serve together for now, or a full <b>🤝 Broker peace</b> ends it for good (the fee scales with the feud's depth and eases with your standing &amp; Dread). Friendlier bands take a smaller loot cut, hire cheaper, and answer calls readily. Appears once you've crossed a pirate band.</li>
@@ -8724,7 +8776,7 @@ Object.assign(window, {
   commissionMandate, cancelMandate, setMandateField, reconcileBands, brokerTruce,
   orderShip, scrapShip, repairFleetShip, assignFleetMission, recallFleetMission, setFleetMissionField, raidSummonFleet, escortRallyFleet,
   assignLogistics, recallLogistics, setFleetLogiField,
-  deployBattleGroup, recallBattleGroup, setBattleGroupPosture,
+  deployBattleGroup, recallBattleGroup, setBattleGroupPosture, setBattleGroupFormation,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,

@@ -1,5 +1,5 @@
 {
-  "version": "2.37.0",
+  "version": "2.38.0",
   "saveVersion": "v2",
-  "notes": "Galaxy map markers + Fleet Battle Groups. The Galaxy tab now shows pills for fleet missions, stationed convoys, and pirate mandates at the planets they're running at. And in a raid you can now ✦ Deploy Battle Fleet — your whole idle warship fleet at once (not the usual 2-ally cap) fights as a pooled formation with an escort-style posture (screen/balanced/press): its firepower adds to your strikes and it screens you from incoming fire, but it takes real damage each round and a ship can be lost in a hard fight. Recall it any time; survivors keep their wear and can be repaired at a shipyard. Your navy finally fights together as a fleet, not one ship at a time."
+  "notes": "Tactical fleet formations. Battle Group combat (deploy your whole idle warship fleet into a raid) now has real positioning, not just pooled damage. Assign each ship to 🛡️ Vanguard (tanks — absorbs nearly all incoming fire while it holds, but fights at a discount), ⚔️ Line (your main damage dealers, protected behind the Vanguard), or 🌌 Reserve (safest, weakest). Lose the Vanguard and the Line becomes exposed next — the formation collapses tier by tier as defenders fall, and a standing Vanguard also screens you personally, not just the fleet. Move ships between tiers mid-fight from the raid card, which now shows each tier's ships, hull, and which one is currently taking fire. Formation choices are sticky across recall and redeploy."
 }
