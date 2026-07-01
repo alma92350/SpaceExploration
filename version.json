@@ -1,5 +1,5 @@
 {
-  "version": "2.47.0",
+  "version": "2.48.0",
   "saveVersion": "v2",
-  "notes": "Probe the Frontier. A new, riskier alternative to a routine Deep-Space Survey: push a probe straight at the frontier ring for 1 action + 30 fuel, spent whether it pays off or not - a lawless target can draw a pirate ambush, but a frontier world charted this way turns up richer 📡 signals. That richness isn't limited to probing either: any signal that lands on a frontier world now skews toward a stronger tier and a kind matching that world's character - salvage leads on lawless outposts, knowledge leads on relic/crystal-rich worlds."
+  "notes": "Starmap. The Galaxy tab now opens with a 🗺️ Starmap - an actual node-link chart of every world you know about and the hyperlanes between them, click a node to travel there directly. It's the same lane graph that's been quietly shaping fuel costs since the last update, finally drawn instead of just read off a pill. The full card grid below is unchanged - same detail, same buttons - this is a second, more legible view onto the same map."
 }

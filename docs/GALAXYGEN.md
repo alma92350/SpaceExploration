@@ -206,12 +206,41 @@ higher tier than core-world ones, kind-bias checks for both archetype
 flavors, confirmation that non-frontier `spawnSignal()` behavior is
 untouched, and the Galaxy tab card's visibility/state).
 
+## Slice 5 (shipped) — the starmap
+The lane graph has had genuine topology since slice 2 — hazard stretches,
+hyperlane shortcuts — but the Galaxy tab only ever surfaced it as text (a
+pill, an "ly" number on a card). Purely additive, no mechanical risk, as
+the roadmap predicted: `renderStarmap()` draws an SVG node-link view of
+every world the player already knows about, sitting above the existing
+card grid, which is completely untouched — same cards, same Travel
+buttons, same detail. A second, more legible view onto data slice 2
+already computed, not a replacement.
+- **Layout**: known worlds are sorted by `x` and placed by *rank*, not raw
+  coordinate — a handful of far-flung frontier worlds at high `x` would
+  otherwise squash the charted 20 into one corner of the map. Positions
+  follow a gentle sine curve rather than a flat line, so it reads as a
+  starlane, not the ruler slice 2 explicitly moved away from.
+- **Edges are `.hyperlanes`, node-for-node** — the exact per-planet list
+  slice 2 already built for the "🛰️ hyperlane" pill, drawn directly as
+  SVG lines instead of read one card at a time. Edges touching the
+  player's current location are drawn brighter, so "which worlds are a
+  direct hop from here" is visible at a glance across the whole sector,
+  not just checked card by card.
+- **Same spoiler discipline as everywhere else in this arc**: an edge only
+  draws when *both* ends are `galaxyKnown` — a hidden world's hyperlanes
+  never leak as a line pointing off into the dark toward something the
+  player hasn't charted yet.
+- **Interactive**: clicking any node but the player's own calls `travel(id)`
+  directly — the map is a second way to move, not just to look.
+
+Tests: `starmap.js` (15 checks: degenerate 0/1-node cases, node-count and
+current-location-highlight correctness, click-to-travel wiring, fuel-cost
+tooltip accuracy, an exact edge-count spoiler-safety check comparing
+against a hand-computed known-known bound, a 30-seed stress sweep
+alternating full and realistic (fog-of-war) visibility, and full `endTurn()`
+integration).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-5. **A real 2D map** — the lane graph now has genuine topology, but the
-   Galaxy tab still renders a flat card grid; a spatial layout (or a
-   canvas node-link view) would let players *see* the chokepoints and
-   hyperlanes instead of reading pills. Bigger UI lift, no mechanical risk
-   — the data's already there.
 6. **Full proceduralization** — generate the charted core itself from a
    seed. Would need the same full audit territory contest, the frontier
    ring, and slice 2 all did, extended to every place that assumes a
