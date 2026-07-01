@@ -1,5 +1,5 @@
 {
-  "version": "2.43.0",
+  "version": "2.44.0",
   "saveVersion": "v2",
-  "notes": "Territory contest. A world's owning faction is no longer permanent — if its owner falls into open War with a rival, a 🚩 control meter starts building (faster the deeper the war, and faster still if the world is pirate-plagued) and, left unchecked, the world actually changes hands. Cool the war back to peace and a contest fades on its own; no faction can ever be conquered down to its last world. Tracked on the world's Galaxy pill, an Operations board row, and a new Politics-tab 'Contested Worlds' card."
+  "notes": "Procedural frontier ring. The 20 charted worlds now have neighbors: 8-12 further worlds, procedurally generated and different every game, lie beyond the edge of the map. They're hidden like any other uncharted world — find them with your existing 🛰️ Deep-Space Survey — but reaching the frontier costs real fuel, and its factions, deposits and lawlessness are all rolled fresh each playthrough. Nothing about the charted 20 changes."
 }
