@@ -1,5 +1,5 @@
 {
-  "version": "2.55.0",
+  "version": "2.56.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the game state singleton and freshState() out into their own file, state.js — slice 4 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the market pricing engine (per-planet prices, buy/sell spreads, market depth & slippage) out into its own file, pricing.js — slice 5 of the game.js split. No gameplay changes."
 }
