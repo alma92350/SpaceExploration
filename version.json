@@ -1,5 +1,5 @@
 {
-  "version": "2.54.0",
+  "version": "2.55.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the planetary crisis system (disasters, relief/gouge/loot responses) out into its own file, crises.js — slice 3 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the game state singleton and freshState() out into their own file, state.js — slice 4 of the game.js split. No gameplay changes."
 }
