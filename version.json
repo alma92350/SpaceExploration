@@ -1,5 +1,5 @@
 {
-  "version": "2.50.0",
+  "version": "2.51.0",
   "saveVersion": "v2",
-  "notes": "Quality-of-life pass: press 1-9 to jump tabs and Enter/Space to end the cycle, a confirmation before scrapping a ship or attempting a coup, a quiet 'Saved' flash by the cycle counter, and screen-reader-friendly live regions on the ship log and toast notifications."
+  "notes": "Tier-2 pass: mobile-friendly tables that scroll in place instead of breaking the page, a 🆕 What's New panel that greets returning players with recent changes, a 🏅 Milestones checklist in the Missions tab, and a 🎮 Custom Start with Sprint/Standard/Marathon length and an optional ☠️ Ironman challenge."
 }
