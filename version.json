@@ -1,5 +1,5 @@
 {
-  "version": "2.65.0",
+  "version": "2.66.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the research & politics action layer (research, public life, political organizations, the Senate, per-planet trade-law lobbying, corruption investigations & trials, and the public Office ladder) out into its own file, politics.js — slice 14 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the core economy actions (Production, Trade, the Black Market/Fences, Contraband/Customs, Travel, buying Upgrades, researching Techs, Missions, and Governor Decrees) out into their own file, economy.js — slice 15 of the game.js split. No gameplay changes."
 }
