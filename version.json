@@ -1,5 +1,5 @@
 {
-  "version": "2.68.0",
+  "version": "2.69.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the player fleet (ordering/repairing/scrapping ships, raid allies, the Battle Group, logistics stationing, and fleet missions) out into its own file, fleet.js — slice 17 of the game.js split. No gameplay changes."
+  "notes": "Internal: split Fortunes (temporary boons & banes) and Signals (the hunt for faint contacts) out into their own file, fortunes.js — slice 18 of the game.js split. No gameplay changes."
 }
