@@ -69,6 +69,8 @@ const COM = {
                  illegalAt: ["terra", "verdani"] },
   antimatter:  { name: "Antimatter",     ico: "🌀", tier: "Strategic", base: 420,
                  illegalAt: ["terra", "verdani", "kybernet", "forge", "glacius"], hazard: true },
+  plasmatorp:  { name: "Plasma Torpedoes", ico: "💥", tier: "Strategic", base: 460,
+                 illegalAt: ["terra", "verdani", "kybernet", "forge", "glacius"], hazard: true },
 };
 const COM_IDS = Object.keys(COM);
 const CARGO_IDS = COM_IDS.filter(id => !COM[id].isFuel); // everything except fuel uses the ship's cargo hold
@@ -97,6 +99,7 @@ const RECIPES = [
   { id: "dronefab",out: "drones",      qty: 1, in: { alloys: 1, electronics: 1, energy: 1 }, req: "dronetech",  kind: "make" },
   { id: "aifab",   out: "ai",          qty: 1, in: { electronics: 2, crystals: 1, energy: 3 }, req: "aicores",   kind: "make" },
   { id: "antifab", out: "antimatter",  qty: 1, in: { relics: 2, electronics: 1, energy: 3 }, req: "antimatter", kind: "make" },
+  { id: "plasmafab", out: "plasmatorp", qty: 1, in: { antimatter: 1, alloys: 2, radioactives: 2 }, req: "antimatter", kind: "make" },
 ];
 
 /* ---------- Planets (10) ----------

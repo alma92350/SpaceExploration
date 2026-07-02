@@ -22,17 +22,26 @@
 "use strict";
 
 const FLEET_HULL_BASE = 52, FLEET_FP_BASE = 15;
+/* Material scope beyond metals/alloys/electronics, applied uniformly across
+   both roles: every hull needs radioactives for its propulsion/reactor core
+   (entry-level tier included — even a Light Freighter has an engine to fuel),
+   and everything past entry tier also needs AI Cores for its avionics/nav
+   compute (the T1 Light Freighter and Corvette fly without one — a hull that
+   basic doesn't need a machine mind). Warships additionally need Weapons and
+   Combat Drones to arm and crew their turrets/bays at every tier, and the
+   Battleship alone needs a handful of Plasma Torpedoes for its capital-grade
+   armament. */
 const FLEET_SHIPS = {
   // ---- civil freighters (cargo capacity; weak guns) ----
-  light_freighter: { role: "freighter", cls: "corvette",   name: "Light Freighter",  ico: "🚚", tier: 1, build: 2, cap: 120, cost: { credits: 2500,  metals: 30 } },
-  med_freighter:   { role: "freighter", cls: "frigate",    name: "Medium Freighter", ico: "🚛", tier: 2, build: 3, cap: 240, cost: { credits: 5000,  metals: 60,  electronics: 6 } },
-  heavy_freighter: { role: "freighter", cls: "cruiser",    name: "Heavy Freighter",  ico: "🚍", tier: 3, build: 5, cap: 420, cost: { credits: 9000,  metals: 110, electronics: 14 } },
-  bulk_freighter:  { role: "freighter", cls: "battleship", name: "Bulk Hauler",      ico: "🛳️", tier: 4, build: 7, cap: 700, cost: { credits: 16000, metals: 200, alloys: 20, electronics: 24 } },
+  light_freighter: { role: "freighter", cls: "corvette",   name: "Light Freighter",  ico: "🚚", tier: 1, build: 2, cap: 120, cost: { credits: 2500,  metals: 30,  radioactives: 6 } },
+  med_freighter:   { role: "freighter", cls: "frigate",    name: "Medium Freighter", ico: "🚛", tier: 2, build: 3, cap: 240, cost: { credits: 5000,  metals: 60,  electronics: 6,  radioactives: 12, ai: 2 } },
+  heavy_freighter: { role: "freighter", cls: "cruiser",    name: "Heavy Freighter",  ico: "🚍", tier: 3, build: 5, cap: 420, cost: { credits: 9000,  metals: 110, electronics: 14, radioactives: 20, ai: 4 } },
+  bulk_freighter:  { role: "freighter", cls: "battleship", name: "Bulk Hauler",      ico: "🛳️", tier: 4, build: 7, cap: 700, cost: { credits: 16000, metals: 200, alloys: 20, electronics: 24, radioactives: 32, ai: 7 } },
   // ---- warships (defense; combat stats from SHIP_CLASSES) ----
-  corvette:   { role: "warship", cls: "corvette",   name: "Corvette",   ico: "🚤", tier: 1, build: 2, cost: { credits: 3500,  metals: 40,  electronics: 6 } },
-  frigate:    { role: "warship", cls: "frigate",    name: "Frigate",    ico: "🚢", tier: 2, build: 3, cost: { credits: 7000,  metals: 80,  electronics: 14 } },
-  cruiser:    { role: "warship", cls: "cruiser",    name: "Cruiser",    ico: "🛡️", tier: 3, build: 5, cost: { credits: 13000, metals: 150, alloys: 18, electronics: 26 } },
-  battleship: { role: "warship", cls: "battleship", name: "Battleship", ico: "⚔️", tier: 4, build: 8, cost: { credits: 26000, metals: 280, alloys: 40, electronics: 50 } },
+  corvette:   { role: "warship", cls: "corvette",   name: "Corvette",   ico: "🚤", tier: 1, build: 2, cost: { credits: 3500,  metals: 40,  electronics: 6,  radioactives: 8,  weapons: 3,  drones: 2 } },
+  frigate:    { role: "warship", cls: "frigate",    name: "Frigate",    ico: "🚢", tier: 2, build: 3, cost: { credits: 7000,  metals: 80,  electronics: 14, radioactives: 15, weapons: 6,  drones: 3,  ai: 3 } },
+  cruiser:    { role: "warship", cls: "cruiser",    name: "Cruiser",    ico: "🛡️", tier: 3, build: 5, cost: { credits: 13000, metals: 150, alloys: 18, electronics: 26, radioactives: 26, weapons: 10, drones: 6,  ai: 6 } },
+  battleship: { role: "warship", cls: "battleship", name: "Battleship", ico: "⚔️", tier: 4, build: 8, cost: { credits: 26000, metals: 280, alloys: 40, electronics: 50, radioactives: 40, weapons: 16, drones: 10, ai: 10, plasmatorp: 4 } },
 };
 const FLEET_SHIP_KEYS = Object.keys(FLEET_SHIPS);
 function fleetList() { if (!Array.isArray(S.fleet)) S.fleet = []; return S.fleet; }
