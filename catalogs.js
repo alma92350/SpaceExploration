@@ -78,6 +78,29 @@ const UPGRADES = [
     desc: "Gain more influence and faction reputation from politics.", effect: t => `+${t*40}% influence` },
 ];
 
+/* ---------- Ship Trim: reallocate what UPGRADES already bought you ----------
+   Not a new bonus — a redistribution between three axes (Cargo / Firepower /
+   Autonomy), so it only bites once there's something real invested to trade
+   (see trimBuildPool, economy.js): an unupgraded ship has nothing to shift
+   either way. Balanced leaves everything untouched; each other trim is
+   +35% on its named axis and -30% on each of the other two. A strategic
+   commitment, not a toggle — switching (including back to Balanced) costs
+   credits and takes cycles to complete (setShipTrim/processTrimRefit,
+   economy.js), scaled by how much is invested, since there's more ship to
+   physically reconfigure the further you've upgraded it. */
+const SHIP_TRIMS = {
+  balanced: { ico: "⚖️", name: "Balanced", cargo: 1,    firepower: 1,    autonomy: 1,
+    hint: "the stock configuration — no trade-offs" },
+  hauler:   { ico: "📦", name: "Hauler",   cargo: 1.35, firepower: 0.7,  autonomy: 0.7,
+    hint: "+35% cargo capacity · −30% firepower &amp; autonomy" },
+  gunship:  { ico: "🔫", name: "Gunship",  cargo: 0.7,  firepower: 1.35, autonomy: 0.7,
+    hint: "+35% raid firepower · −30% cargo &amp; autonomy" },
+  voyager:  { ico: "🧭", name: "Voyager",  cargo: 0.7,  firepower: 0.7,  autonomy: 1.35,
+    hint: "+35% autonomy (fuel range, jump efficiency, flee odds) · −30% cargo &amp; firepower" },
+};
+function shipTrim() { return SHIP_TRIMS[S.trim] || SHIP_TRIMS.balanced; }
+function trimMult(axis) { return shipTrim()[axis] || 1; }
+
 /* ---------- Technology tree ---------- */
 const TECHS = [
   { id: "deepcore",   name: "Deep-Core Drilling", cost: 30,  ico: "🪨", req: [],

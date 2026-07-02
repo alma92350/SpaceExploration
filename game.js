@@ -112,6 +112,7 @@ function endTurn(fromTravel = false) {
   if (typeof processMandates === "function") processMandates();
   if (typeof processTruces === "function") processTruces();
   if (typeof processFleet === "function") processFleet();
+  processTrimRefit();
   reportCycleLedger();
   reportCycleDigest();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
@@ -255,12 +256,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.84.0";
+const APP_VERSION = "2.85.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.85.0", notes: "New: ⚖️ Ship Trim (🚀 Ship tab). Reallocate what your upgrades already bought you across Cargo, Firepower, and Autonomy (fuel range, jump efficiency, flee odds) — Hauler, Gunship, and Voyager each trade +35% on one axis for −30% on the other two. It's a real commitment: a refit costs credits and takes several cycles to complete." },
   { version: "2.84.0", notes: "New: the 🏗️ Small Shipyard now pays off further. A Tier 2 module boosts scrap salvage to 60% of a hull's metals (up from 40%). And any idle ship docked at its home Small Shipyard can commit to a permanent Cargo or Combat loadout — up to 3 levels, paid in hold materials — for more cargo capacity or more hull and firepower." },
   { version: "2.83.0", notes: "New: 🏗️ Small Shipyard — a base module (🏗️ Bases tab) that lets you lay down light hulls anywhere you've founded a base, including worlds no colony could ever reach. Caps at Light Freighter/Corvette (Tier 1) and Medium Freighter/Frigate (Tier 2) forever — a full-range Shipyard is still a colony building — but it's real construction: repair, reassignment, and slipways for parallel builds all work exactly like at a colony." },
   { version: "2.82.0", notes: "New: ⚓ Reassign a fleet ship's home shipyard. Built ships piecemeal across several colonies? Dock an idle ship at any colony with an adequately-tiered Shipyard and re-register its home port there for a modest fee — handy for consolidating repairs, convoy assignment and slipway use at one yard." },
@@ -638,6 +640,8 @@ function init() {
   if (!S.pirateBands) S.pirateBands = {};
   if (S.commission === undefined) S.commission = null;
   UPGRADES.forEach(u => { if (S.upgrades[u.id] == null) S.upgrades[u.id] = 0; });  // backfill new upgrades (cannons)
+  if (!S.trim) S.trim = "balanced";
+  if (S.trimRefit === undefined) S.trimRefit = null;
   if (S.ironman == null) S.ironman = false;          // backfill for saves from before Custom Start
   if (S.lengthMult == null) S.lengthMult = 1;
   syncObjectives();
@@ -682,7 +686,7 @@ window.addEventListener("DOMContentLoaded", init);
 
 Object.assign(window, {
   travel, buyQty, sellQty, buyMax, sellAll, setMarketSort, sellEntireHold, extract, salvage, produce,
-  research, researchTech, doPolitics, doMission, buyUpgrade, setDecree,
+  research, researchTech, doPolitics, doMission, buyUpgrade, setShipTrim, setDecree,
   buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract,
   colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, explore, newGame,
   foundOrg, upgradeOrg, runOrgAbility,

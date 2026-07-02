@@ -210,7 +210,7 @@ function scanOnArrival(planet) {
    ============================================================ */
 function fuelCost(destId) {
   let cost = currentPlanet().distances[destId] * 7;
-  cost *= 1 - S.upgrades.engine * 0.12;
+  cost *= 1 - S.upgrades.engine * 0.12 * trimMult("autonomy");
   if (S.techs.warpdrive) cost *= 0.8;
   cost *= fxMult("fuelMult");                 // Clean Burn / Ion Storm Fortunes
   cost *= 1 + (typeof convoyFuelSurcharge === "function" ? convoyFuelSurcharge() : 0);   // towing a personal convoy burns extra
@@ -255,6 +255,35 @@ function buyUpgrade(uid) {
   log(`Installed ${u.ico} ${u.name} (Tier ${S.upgrades[uid]}).`, "good");
   toast(`${u.name} → Tier ${S.upgrades[uid]}`, "good");
   afterAction();
+}
+/* ---------- Ship Trim: a paid, timed refit that reallocates cargo/firepower/
+   autonomy between the three axes (SHIP_TRIMS, catalogs.js) ---------- */
+const TRIM_REFIT_BASE_COST = 3000, TRIM_REFIT_PER_TIER = 900, TRIM_REFIT_BASE_CYCLES = 3, TRIM_REFIT_CYCLES_PER_TIER = 0.4;
+// how much is actually invested and up for reallocation — the bigger this is, the
+// pricier and slower a refit, since there's more ship to physically reconfigure
+function trimBuildPool() { return (S.upgrades.cargo || 0) + (S.upgrades.fueltank || 0) + (S.upgrades.engine || 0) + (S.upgrades.cannons || 0); }
+function trimRefitCost() { return TRIM_REFIT_BASE_COST + trimBuildPool() * TRIM_REFIT_PER_TIER; }
+function trimRefitCycles() { return TRIM_REFIT_BASE_CYCLES + Math.ceil(trimBuildPool() * TRIM_REFIT_CYCLES_PER_TIER); }
+function setShipTrim(trimId) {
+  if (combatLocked()) return;
+  if (!SHIP_TRIMS[trimId]) return;
+  if (S.trimRefit) return toast(`Refit to ${SHIP_TRIMS[S.trimRefit.target].name} already underway (${S.trimRefit.cyclesLeft} cyc left).`, "bad");
+  if (trimId === S.trim) return toast("Already running that configuration.", "bad");
+  const cost = trimRefitCost();
+  if ((S.res.credits || 0) < cost) return toast(`A refit costs ${fmt(cost)} cr.`, "bad");
+  S.res.credits -= cost;
+  S.trimRefit = { target: trimId, cyclesLeft: trimRefitCycles() };
+  log(`🛠️ Ordered a refit to ${SHIP_TRIMS[trimId].ico} ${SHIP_TRIMS[trimId].name} trim — ${S.trimRefit.cyclesLeft} cycles, ${fmt(cost)} cr.`, "event");
+  toast(`Refit underway: ${SHIP_TRIMS[trimId].name}`, "good"); sfx("event"); saveGame(); renderAll();
+}
+function processTrimRefit() {
+  if (!S.trimRefit) return;
+  S.trimRefit.cyclesLeft--;
+  if (S.trimRefit.cyclesLeft > 0) return;
+  const t = SHIP_TRIMS[S.trimRefit.target];
+  S.trim = S.trimRefit.target; S.trimRefit = null;
+  log(`🛠️ Refit complete — running ${t.ico} ${t.name} trim (${t.hint}).`, "good");
+  toast(`Refit complete: ${t.name}`, "good"); sfx("event");
 }
 function techUnlocked(t) { return !!S.techs[t.id]; }
 function techAvailable(t) { return !techUnlocked(t) && t.req.every(r => S.techs[r]); }

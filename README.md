@@ -347,6 +347,16 @@ Cargo Hold · Fuel Tanks · Ion Engine · Mining Laser · Bio-Harvester ·
 Research Lab · Deflector Shield · **Shielded Hold** · **Smuggler's Hold** ·
 Trade Computer · Diplomatic Suite.
 
+## ⚖️ Ship Trim
+
+Reallocate what your upgrades already bought you across three axes —
+📦 Cargo, 🔫 Firepower, 🧭 Autonomy (fuel range, jump efficiency, flee odds).
+Balanced trades nothing; Hauler/Gunship/Voyager each trade +35% on one axis
+for −30% on the other two, scaled by how much you've actually installed —
+an unupgraded ship has nothing to trade either way. It's a real strategic
+call, not a toggle: a refit costs credits and takes several cycles to
+complete (Ship tab), and switching back costs the same as switching away.
+
 ## 🔬 Technology tree
 
 Fourteen techs across extraction (Deep-Core, Xeno-Biology, Cloud Skimming,

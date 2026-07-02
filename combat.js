@@ -29,7 +29,7 @@ function clampPirate() {
   P.hull = Math.max(0, Math.min(HULL_MAX, P.hull));
 }
 function raidPower() {
-  return 6 + S.upgrades.cannons * 9 + S.pirate.dread * 0.15 + (S.techs.weapontech ? 6 : 0);
+  return 6 + S.upgrades.cannons * 9 * trimMult("firepower") + S.pirate.dread * 0.15 + (S.techs.weapontech ? 6 : 0);
 }
 /* ---------- Ship subsystem condition (Phase 1 combat) ----------
    Combat is no longer a single coin-flip: foes have hull (HP) worn down over
@@ -491,7 +491,7 @@ function encounterPay() {
 }
 function encounterFlee() {
   const e = S.encounter; if (!e) return;
-  const odds = (0.45 + S.upgrades.engine * 0.15 + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * condFactor("engines") * (0.7 + 0.3 * defenseMult());
+  const odds = (0.45 + S.upgrades.engine * 0.15 * trimMult("autonomy") + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * condFactor("engines") * (0.7 + 0.3 * defenseMult());
   if (Math.random() < odds) {
     S.encounter = null;
     log(`🏃 You burned hard and lost the ${e.name} in the void. Clean getaway.`, "good");

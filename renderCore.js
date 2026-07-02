@@ -43,6 +43,8 @@ function renderShip() {
     S.ironman ? '<span class="pill bad" title="Loading a save is disabled for this run">☠️ Ironman</span>' : "",
     S.lengthMult && S.lengthMult < 1 ? '<span class="pill" title="Shorter net-worth &amp; colony legacy goals">🏃 Sprint</span>' : "",
     S.lengthMult && S.lengthMult > 1 ? '<span class="pill" title="Bigger net-worth &amp; colony legacy goals">🏔️ Marathon</span>' : "",
+    S.trimRefit ? `<span class="pill" title="Refitting to ${SHIP_TRIMS[S.trimRefit.target].name} — ${S.trimRefit.cyclesLeft} cyc left">🛠️ Refitting (${S.trimRefit.cyclesLeft}c)</span>`
+      : S.trim && S.trim !== "balanced" ? `<span class="pill" title="${shipTrim().hint}">${shipTrim().ico} ${shipTrim().name} trim</span>` : "",
   ].join(" ").trim();
   document.getElementById("shipStats").innerHTML =
     `${modeBadges ? `<div class="ship-stat" style="margin-bottom:6px">${modeBadges}</div>` : ""}
@@ -68,6 +70,7 @@ function renderOps() {
   if (S.encounter) row("🏴", `Ambush: ${S.encounter.name}`, null, "raid", "var(--bad)");
   if (S.prey) row("🎯", `Engaging ${S.prey.name}`, null, "raid", "var(--warn)");
   if (S.jail > 0) row("⛓️", "In detention", S.jail + "c", null, "var(--bad)");
+  if (S.trimRefit) row("🛠️", `Refitting → ${SHIP_TRIMS[S.trimRefit.target].ico} ${SHIP_TRIMS[S.trimRefit.target].name} trim`, S.trimRefit.cyclesLeft + "c", "ship", "var(--warn)");
   // your fleet
   fleetList().forEach(s => { const def = FLEET_SHIPS[s.key]; if (!def) return;
     if (s.status === "building") row("🏗️", `${def.ico} ${s.name} building`, s.buildLeft + "c", "fleet", "var(--warn)");

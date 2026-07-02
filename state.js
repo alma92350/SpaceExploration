@@ -76,6 +76,8 @@ function freshState(opts = {}) {
     term,               // cycles left in the current term (0 = none / life tenure)
     legacyTitle: null,  // set when a political legacy (Consul) is completed
     upgrades: Object.fromEntries(UPGRADES.map(u => [u.id, 0])),
+    trim: "balanced",   // current Ship Trim (cargo/firepower/autonomy reallocation)
+    trimRefit: null,    // in-progress trim change: { target, cyclesLeft }
     techs,
     missions: {},
     perks: {},
@@ -121,8 +123,8 @@ function freshState(opts = {}) {
   };
 }
 
-function cargoCap()  { return Math.max(20, BASE_CARGO + S.upgrades.cargo * 150 + (typeof fxAdd === "function" ? fxAdd("cargoBonus") : 0) + (typeof convoyCargoBonus === "function" ? convoyCargoBonus() : 0)); }
-function fuelCap()   { return BASE_FUEL + S.upgrades.fueltank * 40; }
+function cargoCap()  { return Math.max(20, Math.round(BASE_CARGO + S.upgrades.cargo * 150 * trimMult("cargo") + (typeof fxAdd === "function" ? fxAdd("cargoBonus") : 0) + (typeof convoyCargoBonus === "function" ? convoyCargoBonus() : 0))); }
+function fuelCap()   { return Math.round(BASE_FUEL + S.upgrades.fueltank * 40 * trimMult("autonomy")); }
 function cargoUsed() { return CARGO_IDS.reduce((s, id) => s + (S.res[id] || 0), 0); }
 function cargoFree() { return cargoCap() - cargoUsed(); }
 function currentPlanet() { return PLANETS.find(p => p.id === S.location); }
