@@ -10,9 +10,9 @@
    Loaded last, after every other script: data.js, galaxygen.js,
    catalogs.js, crises.js, state.js, pricing.js, feedback.js,
    resources.js, combat.js, pirateBands.js, raiding.js, sector4x.js,
-   outlaw.js, politics.js, economy.js, colonization.js, minigames.js,
-   fleet.js, fortunes.js, frontier.js, mandates.js, escort.js — every
-   domain system — then the five rendering slices (renderCore.js,
+   outlaw.js, politics.js, economy.js, colonization.js, fleet.js,
+   fortunes.js, frontier.js, mandates.js, escort.js — every domain
+   system — then the five rendering slices (renderCore.js,
    renderProgression.js, renderCombat.js, renderSettlement.js,
    renderFleetFortunes.js) covering every tab, then persistence.js
    (save/load, the Captain's Log export, portable save files). What's
@@ -116,7 +116,6 @@ function endTurn(fromTravel = false) {
   reportCycleDigest();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
   checkWin(); checkMilestones(); saveGame(); renderAll();
-  maybeShowColonyRaidModal();   // offer the optional aerial-defense minigame for any garrisoned colony raided this cycle
 }
 
 /* ============================================================
@@ -256,14 +255,12 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.80.0";
+const APP_VERSION = "2.78.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
-  { version: "2.80.0", notes: "New: two more optional arcade minigames (minigames.js), same deal as the colony defense one — play for a shot at a better outcome, or just fire normally for the usual math. 🕹️ Dogfight: from the raid/ambush weapon row, a free-flying 2D exchange — dodge the foe's telegraphed shot, land yours on it — that boosts your damage and blunts its return fire for that one attack. 🕹️ Man the Guns: from the Escort tab's Fire Control, one telegraphed blip per living attacker in the current wave (reusing their real intent) — a clean round boosts the salvo's firepower and softens incoming fire before it resolves the round exactly like Open Fire." },
-  { version: "2.79.0", notes: "New: 🚨 Colony aerial defense — an optional arcade minigame (minigames.js). When pirates hit a garrisoned colony, you can now man the guns yourself in a simplified 2D turret shooter instead of leaving it to the odds; a strong defense beats the garrison's own auto-roll and can even net a salvage bonus, a weak one falls back to the usual raid loss, or you can just click Auto-resolve and skip it entirely. Undefended colonies are unaffected — nothing to man without a garrison." },
   { version: "2.78.1", notes: "Internal: code-smell cleanup. Removed a duplicate, unreachable huntPirates() declaration in combat.js (a live one already existed as an alias for prowl()). Fixed freshState() to set S.eink (it was silently relying on a lazy backfill, so mid-session New Game left it undefined until something else patched it), then stripped reserveOf() down to its own job — it was re-running a dozen unrelated one-time save-migration checks on every single call. No gameplay changes." },
   { version: "2.78.0", notes: "Internal: split persistence (the localStorage autosave, the Captain's Log narrative export, and portable save-file export/import) out into its own file, persistence.js — slice 27 of the game.js split. No gameplay changes." },
   { version: "2.77.0", notes: "Internal: split the fifth and final tab-specific slice of the rendering layer — the Fleet and Fortunes tabs — out into their own file, renderFleetFortunes.js — slice 26 of the game.js split. renderAll() is now the only rendering function left in game.js. No gameplay changes." },
@@ -605,7 +602,6 @@ function init() {
   if (S.officePath === undefined) S.officePath = null;
   if (S.legacyTitle === undefined) S.legacyTitle = null;
   if (!S.reserves) S.reserves = {};
-  if (!Array.isArray(S.colonyRaids)) S.colonyRaids = [];   // backfill pending raid-defense prompts for older saves
   if (!S.crises) S.crises = {};
   if (!S.journal) S.journal = [];
   if (!S.pirates) S.pirates = {};
@@ -675,7 +671,6 @@ function init() {
   S.lastSeenVersion = APP_VERSION;
   saveGame();
   startVersionWatch();
-  maybeShowColonyRaidModal();   // a save reloaded with an unresolved raid still gets prompted
 }
 window.addEventListener("DOMContentLoaded", init);
 
@@ -708,6 +703,4 @@ Object.assign(window, {
   setSubView,
   huntPirates, engageTarget, standDown, encounterPay, encounterFlee, encounterFight, deepScan, repairSubsys, repairAll, buyPirateMap,
   setCombatPosture, setCombatOffense, setCombatTarget, fieldRepair,
-  resolveColonyRaid, maybeShowColonyRaidModal,
-  startRaidDogfight, cancelDogfight, startEscortIntercept, cancelEscortIntercept,
 });

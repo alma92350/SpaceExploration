@@ -56,9 +56,6 @@ function tacticalHTML(t, attackFn) {
       title="${W.name} — ammo: ${ammoStr}${isRec ? " · ★ recommended counter" : ""}${t.scanned ? ` · effectiveness vs this target${eff}` : ""}"
       onclick="${attackFn}('${w}')">${W.ico}${isRec ? "★" : ""}${eff}</button>`;
   }).join(" ");
-  const dfWkey = lastW || "kinetic";
-  const dfOk = weaponAffordable(dfWkey);
-  const dogfightBtn = `<button class="btn btn-sm" ${dfOk ? "" : "disabled"} title="Play a manual dogfight round for a shot at bonus damage and lighter return fire — fires with ${WEAPONS[dfWkey].ico} ${WEAPONS[dfWkey].name}. Cancel any time for no bonus, no penalty." onclick="startRaidDogfight('${attackFn}','${dfWkey}')">🕹️ Dogfight</button>`;
   const dr = dronesDeployable();
   const droneLine = (S.upgrades.dronebay || 0) > 0
     ? `<div class="hint">🛸 ${dr > 0 ? `Will deploy <b>${dr}</b> drone${dr > 1 ? "s" : ""}${t.scanned && t.def.pd > 0 ? " (their point-defense will thin them)" : ""}` : "Drone Bay empty — stock 🛸 Combat Drones"}</div>` : "";
@@ -85,7 +82,7 @@ function tacticalHTML(t, attackFn) {
     <div class="row" style="margin-top:8px;align-items:center"><span class="hint">Posture:</span> ${postureBtns} ${advBtn}${budgetNote}</div>
     ${advRow}
     <div class="row" style="margin-top:4px;align-items:center"><span class="hint">Target:</span> ${targetBtns}</div>
-    <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Fire:</span> ${weapons} ${dogfightBtn}${t._engaged && combatState().lastWeapon ? ` <button class="btn btn-sm" title="Repeat your last attack (${WEAPONS[combatState().lastWeapon] ? WEAPONS[combatState().lastWeapon].name : ""}) for up to 5 rounds — handy for grinding down big hulls" onclick="raidVolley(5)">⏩ Volley ×5</button>` : ""}</div>
+    <div class="row" style="margin-top:6px;align-items:center">${scanBtn} <span class="hint">Fire:</span> ${weapons}${t._engaged && combatState().lastWeapon ? ` <button class="btn btn-sm" title="Repeat your last attack (${WEAPONS[combatState().lastWeapon] ? WEAPONS[combatState().lastWeapon].name : ""}) for up to 5 rounds — handy for grinding down big hulls" onclick="raidVolley(5)">⏩ Volley ×5</button>` : ""}</div>
     <div class="row" style="margin-top:6px;align-items:center"><span class="hint">🛡️ Your hull <b style="color:${ownHullCol}">${S.pirate.hull}/${HULL_MAX}</b> ·</span> ${frBtn}</div>`;
 }
 function preyCombatCard(prey, al) {
