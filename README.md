@@ -396,7 +396,8 @@ renderProgression.js — rendering, slice 2: Market, Industry, Research, Politic
 renderCombat.js — rendering, slice 3: Raid, Contacts, Ship
 renderSettlement.js — rendering, slice 4: Bases, Colonies, Escort
 renderFleetFortunes.js — rendering, slice 5: Fleet, Fortunes
-game.js      — game logic (economy, factions, production, rendering, save)
+persistence.js — save/load, the Captain's Log narrative export, portable save files
+game.js      — the application shell: turn orchestration, tab disclosure, version check, newGame/init
 test/        — automated tests (Node's built-in test runner, no dependencies)
 ```
 
@@ -405,7 +406,8 @@ test/        — automated tests (Node's built-in test runner, no dependencies)
 `sector4x.js`, `outlaw.js`, `politics.js`, `economy.js`, `colonization.js`,
 `fleet.js`, `fortunes.js`, `frontier.js`, `mandates.js`, `escort.js`,
 `renderCore.js`, `renderProgression.js`, `renderCombat.js`,
-`renderSettlement.js`, `renderFleetFortunes.js` and `game.js`
+`renderSettlement.js`, `renderFleetFortunes.js`, `persistence.js` and
+`game.js`
 are all plain classic `<script>` tags (no `type="module"`, no bundler)
 sharing one global
 scope, in that load

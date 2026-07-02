@@ -1,5 +1,5 @@
 {
-  "version": "2.77.0",
+  "version": "2.78.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the fifth and final tab-specific slice of the rendering layer — the Fleet and Fortunes tabs — out into their own file, renderFleetFortunes.js — slice 26 of the game.js split. renderAll() is now the only rendering function left in game.js. No gameplay changes."
+  "notes": "Internal: split persistence (the localStorage autosave, the Captain's Log narrative export, and portable save-file export/import) out into its own file, persistence.js — slice 27 of the game.js split. No gameplay changes."
 }
