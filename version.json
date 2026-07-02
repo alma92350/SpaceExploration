@@ -1,5 +1,5 @@
 {
-  "version": "2.78.1",
+  "version": "2.79.0",
   "saveVersion": "v2",
-  "notes": "Internal: code-smell cleanup — removed a dead duplicate huntPirates() declaration, fixed freshState() to set S.eink directly, and stripped a dozen unrelated save-migration checks out of the hot-path reserveOf() function. No gameplay changes."
+  "notes": "New: optional colony aerial-defense minigame — man the guns yourself when pirates hit a garrisoned colony, or auto-resolve as before."
 }

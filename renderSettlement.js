@@ -274,14 +274,15 @@ function renderColonies() {
     overview = ids.map(id => {
       const c = S.colonies[id], pl = PLANETS.find(p => p.id === id);
       const outs = colonyOutputs(c, pl);
+      const raided = S.colonyRaids && S.colonyRaids.some(r => r.pid === id);
       return `<div class="card ${id === pid ? "owned" : ""}">
-        <h4>${pl.name} ${c.faction ? `<span class="pill" title="${FACTIONS[c.faction].name}">${FACTIONS[c.faction].ico}</span>` : ""} ${id === pid ? '<span class="pill good">here</span>' : ""} ${colonyHealthPill(c)}</h4>
+        <h4>${pl.name} ${c.faction ? `<span class="pill" title="${FACTIONS[c.faction].name}">${FACTIONS[c.faction].ico}</span>` : ""} ${id === pid ? '<span class="pill good">here</span>' : ""} ${raided ? '<span class="pill bad">🚨 raided</span>' : colonyHealthPill(c)}</h4>
         <div class="ship-stat"><span class="k">👥 Population</span><span class="v">${fmt(c.pop)}k</span></div>
         <div class="ship-stat"><span class="k">😊 Happiness</span><span class="v">${c.happiness}%</span></div>
         <div class="ship-stat"><span class="k">🏭/🔬 Dev</span><span class="v">Ind ${effIndustry(pl)} · Tech ${effTech(pl)}</span></div>
         <div class="ship-stat"><span class="k">💰 Tax income</span><span class="v">+${fmt(colonyTaxIncome(c))}/cyc</span></div>
         <div class="ship-stat"><span class="k">🏭 Produces</span><span class="v">${outs.length ? outs.map(x => `<span title="${COM[x].name}">${COM[x].ico}</span>`).join(" ") : "—"}</span></div>
-        <div class="row" style="margin-top:6px">${cardTravelBtn(id)}</div>
+        <div class="row" style="margin-top:6px">${raided ? '<button class="btn btn-sm btn-bad" onclick="maybeShowColonyRaidModal()">🚨 Defend now</button>' : ""}${cardTravelBtn(id)}</div>
       </div>`;
     }).join("");
   } else {

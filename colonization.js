@@ -413,9 +413,13 @@ function colonyEventRoll(pid, col, planet) {
       log(`🛡️ Pirates kept clear of <span class="c">${name}</span> — your bounty hunting has them lying low.`, "good");
       return false;
     }
-    if (def > 0 && Math.random() < def * 0.30) {
-      col.happiness = Math.min(100, col.happiness + 4);
-      log(`🛡️ ${name}'s garrison repelled a pirate raid.`, "good");
+    if (def > 0) {
+      // a garrison gives you something to man — queue the optional aerial-defense
+      // minigame (minigames.js) instead of resolving on the odds alone; the player
+      // can still decline it and fall back to this same def*0.30 roll.
+      if (!S.colonyRaids) S.colonyRaids = [];
+      if (!S.colonyRaids.some(r => r.pid === pid)) S.colonyRaids.push({ pid, name, def });
+      log(`🚨 Pirates inbound on <span class="c">${name}</span> — the garrison stands ready.`, "bad");
       return false;
     }
     let lootLog = [];
