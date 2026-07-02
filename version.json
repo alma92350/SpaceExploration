@@ -1,5 +1,5 @@
 {
-  "version": "2.62.0",
+  "version": "2.63.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the Sector 4X layer (rising pirate powers with their own havens, faction territory contest, and persistent inter-faction relations) out into its own file, sector4x.js — slice 11 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the outlaw path (navy interdiction, the Pirate Haven, Privateer Commissions, and the Pirate Lord / Sector Marshal capstone legacies) out into its own file, outlaw.js — slice 12 of the game.js split. No gameplay changes."
 }

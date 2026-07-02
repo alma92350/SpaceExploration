@@ -11,7 +11,7 @@ const path = require("node:path");
 // `window.S` doesn't exist in a real browser. `run()` below executes a
 // snippet in that same shared scope, which is how tests reach in to set up
 // state and call functions.
-const SCRIPT_FILES = ["data.js", "galaxygen.js", "crises.js", "state.js", "pricing.js", "feedback.js", "resources.js", "combat.js", "pirateBands.js", "raiding.js", "sector4x.js", "game.js"];
+const SCRIPT_FILES = ["data.js", "galaxygen.js", "crises.js", "state.js", "pricing.js", "feedback.js", "resources.js", "combat.js", "pirateBands.js", "raiding.js", "sector4x.js", "outlaw.js", "game.js"];
 const SCRIPTS = SCRIPT_FILES.map(name => ({
   name,
   source: fs.readFileSync(path.join(__dirname, "..", "..", name), "utf8"),
