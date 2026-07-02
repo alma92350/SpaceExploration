@@ -1,5 +1,5 @@
 {
-  "version": "2.80.0",
+  "version": "2.81.0",
   "saveVersion": "v2",
-  "notes": "Ship-building material overhaul: radioactives for propulsion, AI cores past entry-level hulls, weapons & drones for warships, and a new Plasma Torpedoes commodity exclusive to the Battleship."
+  "notes": "New: Personal Convoy — bring idle freighters along on your own trading runs for extra cargo capacity, escorted by your own warships or a following pirate band."
 }

@@ -73,7 +73,7 @@ function orderShip(shipKey) {
 function scrapShip(id) {
   const i = fleetList().findIndex(s => s.id === id); if (i < 0) return;
   const s = fleetList()[i], def = FLEET_SHIPS[s.key];
-  if (s.status === "mission" || s.status === "escort" || s.status === "logistics") return toast("That ship is on duty — recall it first.", "bad");
+  if (s.status === "mission" || s.status === "escort" || s.status === "logistics" || s.status === "convoy") return toast("That ship is on duty — recall it first.", "bad");
   const refund = def ? Math.round((def.cost.metals || 0) * 0.4) : 0;
   if (typeof confirm === "function"
       && !confirm(`Scrap the ${s.name}? This cannot be undone${refund ? ` (salvages ${refund} metals)` : ""}.`)) return;
@@ -245,6 +245,61 @@ function processConvoys() {       // pirate ambushes on your stationed freighter
     if (f.hull <= 0) { f._dead = true; log(`💥 Pirates destroyed your ${(FLEET_SHIPS[f.key] || {}).ico || ""} ${f.name} hauling for ${name}.`, "bad"); if (typeof toast === "function") toast(`${f.name} lost to pirates!`, "bad"); digestNote("threats", `${f.name} lost at ${name}`); }
     else { log(`🏴‍☠️ Pirates ambushed your convoy at ${name} — ${f.name} took ${dmg} damage${loss ? ` and lost ${fmt(loss)} cr of goods` : ""}${guards ? " (your guards drove them off)" : " — assign a warship to guard it"}.`, "bad"); digestNote("threats", `convoy ambushed at ${name}`); }
   });
+  if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
+}
+// ---- personal convoy: freighters ride WITH you on every jump, extending your OWN
+// cargo hold on the road; warships (and any pirate bands riding with you) escort
+// them, damping travel-ambush odds and softening any ambush that slips through
+// anyway. Distinct from logistics duty (above): that stations ships AT a colony
+// to haul ITS goods on a per-cycle timer; this rides with the player and
+// resolves on the per-jump travel-ambush cadence instead (maybeAmbush, combat.js). ----
+function convoyShips()      { return fleetList().filter(s => s.status === "convoy"); }
+function convoyFreighters() { return convoyShips().filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter"); }
+function convoyWarships()   { return convoyShips().filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
+function convoyGuardCount() { return convoyWarships().length + bandList().filter(bandFollowing).length; }   // your own escorts + any pirate bands riding with you
+function convoyCargoCeiling() { return BASE_CARGO + S.upgrades.cargo * 150; }   // ties the ceiling to your own Cargo Hold tier — a convoy is a real second hold, not a way to skip upgrading
+function convoyCargoBonus() {
+  const frs = convoyFreighters(); if (!frs.length) return 0;
+  const raw = frs.reduce((sum, s) => sum + FLEET_SHIPS[s.key].cap * (0.5 + 0.5 * (s.hull / s.hullMax)), 0);   // a battered freighter hauls less, same shape as escShipFP
+  return Math.min(convoyCargoCeiling(), Math.round(raw));
+}
+function convoyFuelSurcharge() {   // towing a convoy burns extra fuel every jump — scales with how many ships ride along, capped
+  const n = convoyShips().length; if (!n) return 0;
+  return Math.min(0.5, n * 0.08);
+}
+function assignConvoy(shipId) {
+  const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
+  if (!s || !def) return;
+  if (s.status !== "idle") return toast(`The ${s.name} isn't free.`, "bad");
+  if (s.home !== S.location) return toast(`Dock at ${(PLANETS.find(p => p.id === s.home) || {}).name || "its home port"} to bring the ${s.name} aboard.`, "bad");
+  s.status = "convoy";
+  log(`🚚 Your ${def.ico} ${s.name} falls in with your personal convoy.`, "event");
+  toast(`${s.name} joined your convoy`, "good"); sfx("event"); saveGame(); renderAll();
+}
+function recallConvoy(shipId) {
+  const s = fleetList().find(x => x.id === shipId); if (!s || s.status !== "convoy") return;
+  s.status = "idle";
+  log(`🚚 Recalled your ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name} from your personal convoy.`, "");
+  toast(`${s.name} recalled`, ""); saveGame(); renderAll();
+}
+// pirates ambushing you also take a swipe at your convoy in the chaos — guards
+// (warships + following bands) blunt this too, same 1/(1+guards) shape processConvoys
+// already uses for damage magnitude (distinct from its 0.45^guards shape for ODDS)
+function convoyAmbushRisk(lvl) {
+  const frs = convoyFreighters(); if (!frs.length) return;
+  const guards = convoyGuardCount();
+  const f = pick(frs);
+  const dmg = Math.round(lvl * 6 * (0.5 + Math.random()) / (1 + guards));
+  const loss = Math.min(S.res.credits || 0, Math.round(lvl * 40 * (0.5 + Math.random()) / (1 + guards)));
+  f.hull = Math.max(0, f.hull - dmg);
+  if (loss > 0) { S.res.credits -= loss; if (typeof cycleLedger === "function") cycleLedger("convoy losses", -loss); }
+  if (f.hull <= 0) {
+    f._dead = true;
+    log(`💥 In the ambush, pirates ran down your ${(FLEET_SHIPS[f.key] || {}).ico || ""} ${f.name} — lost with its cargo.`, "bad");
+    if (typeof toast === "function") toast(`${f.name} lost to pirates!`, "bad");
+  } else {
+    log(`🏴‍☠️ Your convoy's ${(FLEET_SHIPS[f.key] || {}).ico || ""} ${f.name} took ${dmg} damage in the ambush${loss ? ` and ${fmt(loss)} cr of goods spoiled` : ""}${guards ? " — your guards blunted it" : ""}.`, "bad");
+  }
   if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
 }
 // ---- fleet missions: warships work a system like a pirate mandate, but it's YOUR
