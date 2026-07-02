@@ -1,5 +1,5 @@
 {
-  "version": "2.61.0",
+  "version": "2.62.0",
   "saveVersion": "v2",
-  "notes": "Internal: split raid combat resolution and ship repair (plunder, multi-round raids, dockside/field repair, Wanted cooldown) out into their own file, raiding.js — slice 10 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the Sector 4X layer (rising pirate powers with their own havens, faction territory contest, and persistent inter-faction relations) out into its own file, sector4x.js — slice 11 of the game.js split. No gameplay changes."
 }
