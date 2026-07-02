@@ -255,12 +255,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.82.0";
+const APP_VERSION = "2.83.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.83.0", notes: "New: 🏗️ Small Shipyard — a base module (🏗️ Bases tab) that lets you lay down light hulls anywhere you've founded a base, including worlds no colony could ever reach. Caps at Light Freighter/Corvette (Tier 1) and Medium Freighter/Frigate (Tier 2) forever — a full-range Shipyard is still a colony building — but it's real construction: repair, reassignment, and slipways for parallel builds all work exactly like at a colony." },
   { version: "2.82.0", notes: "New: ⚓ Reassign a fleet ship's home shipyard. Built ships piecemeal across several colonies? Dock an idle ship at any colony with an adequately-tiered Shipyard and re-register its home port there for a modest fee — handy for consolidating repairs, convoy assignment and slipway use at one yard." },
   { version: "2.81.0", notes: "New: 🚚 Personal Convoy (✦ Fleet tab → Assignments). Bring idle freighters along on your own trading runs for a real second cargo hold — capped by your Cargo Hold upgrade tier so it's an extension, not a replacement. Costs extra fuel per jump to tow, and pirates ambushing you will take a swipe at it too — but a warship of your own, or a pirate band riding with you, cuts the odds of an ambush happening at all and softens the blow if one slips through. Ships join from their own home port; recall any time." },
   { version: "2.80.0", notes: "Ship-building now costs more than metal and credits. Every freighter and warship needs ☢️ Radioactives for its propulsion core; anything past the entry-level hull (Medium Freighter+, Frigate+) also needs 🧠 AI Cores for its avionics. Warships additionally need 🔫 Weapons and 🛸 Combat Drones to arm their turrets and bays at every tier. New: 💥 Plasma Torpedoes, a Strategic commodity (craftable once Antimatter Containment is researched) exclusively required for the Battleship's capital-grade armament." },

@@ -337,6 +337,8 @@ function baseModuleList(planet) {
       desc: "Generates Energy Cells every cycle — buildable anywhere." },
     { id: "fuelrefinery", name: "Fuel Refinery", ico: "⛽", tiers: 5, baseCost: 2800, costMul: 1.8, produces: "fuel", consumes: "ice", refiner: true,
       desc: "Cracks stored 🧊 Ice into ⛽ Fuel every cycle — buildable anywhere (keep ice in the depot)." },
+    { id: "shipyard_small", name: "Small Shipyard", ico: "🏗️", tiers: 2, baseCost: 2600, costMul: 1.7, shipyard: true,
+      desc: "Lay down light hulls right here — a Light Freighter/Corvette at Tier 1, a Medium Freighter/Frigate at Tier 2. Caps there; a full-range Shipyard is a colony building. Adds a slipway per tier for parallel builds." },
   ];
   Object.keys(planet.deposits || {}).forEach(c => {
     const meta = BASE_EXTRACTORS[c] || { name: "Extractor: " + COM[c].name, ico: COM[c].ico };
@@ -356,7 +358,7 @@ function moduleOutput(planet, mod, tier) {
 }
 /* Construction needs materials (in your hold), not just credits. */
 const BASE_FOUNDATION_MATS = { metals: 25 };
-const ADVANCED_MODULES = ["solar", "ext_gas", "ext_relics", "ext_radioactives", "ext_crystals"];
+const ADVANCED_MODULES = ["solar", "ext_gas", "ext_relics", "ext_radioactives", "ext_crystals", "shipyard_small"];
 function moduleMats(def, nextTier) {
   const mats = { metals: 8 + nextTier * 6 };          // structural metal for every module
   if (ADVANCED_MODULES.includes(def.id)) mats.electronics = 1 + nextTier * 2; // hi-tech needs chips

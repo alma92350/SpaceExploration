@@ -27,11 +27,33 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   ship's credit cost, floored at 200cr) — for consolidating a fleet built
   piecemeal across several colonies, since repair, convoy assignment (Slice 7)
   and slipway accounting are all keyed off `home`.
+- **Small Shipyard** base module (`baseModuleList`, catalogs.js, 2 tiers,
+  `shipyard: true`, no tech `req` — the base-module system has no tech-gating
+  machinery at all, so this matches every other base module's unlocked-by-
+  construction-alone convention rather than introducing a first-of-its-kind
+  exception). Bases can be founded on *any* world, including non-colonizable
+  ones a colony could never reach — so this is a forward-outpost building
+  option, not a worse colony Shipyard. Its own `tiers:2` ceiling caps it to
+  light hulls forever (Light Freighter/Corvette at Tier 1, Medium Freighter/
+  Frigate at Tier 2) — `buildModule`'s existing tier-max guard enforces this
+  for free, no separate hull-pool concept needed. `shipyardTierAt(pid)`
+  unifies the lookup: a colony's full-range Shipyard always wins if a colony
+  and a base somehow coexist on one world, never blended with the base's
+  capped tier. `shipyardVenueAt(pid)` drives the Fleet tab's copy (which tab
+  to go upgrade in). Deliberately out of scope for this slice: a
+  location-gated scrap bonus and per-ship cargo/combat customization, both
+  from the original brainstorm — natural follow-ups once this slice has
+  been played.
 - **UI**: new **✦ Fleet tab** (`renderFleet`, `#panel-fleet`, `TAB_LADDER` entry
   unlocking once you hold a colony) — roster (warships / freighters, hull bars,
-  status, repair/reassign/scrap) + the current colony's shipyard build menu.
-- State: `S.fleet` (freshState + init migrate). Exports: `orderShip`, `scrapShip`,
-  `repairFleetShip`, `reassignShipyard`. Tests: `fleet.js`, `reassign.test.js`.
+  status, repair/reassign/scrap) + the current shipyard's build menu (colony
+  or base, venue-aware copy). The Bases tab's module card shows tier/slipway
+  count for the Small Shipyard in place of a commodity output line.
+- State: `S.fleet` (freshState + init migrate); the Small Shipyard is just a
+  new key under `S.bases[pid].modules`, no migration needed. Exports:
+  `orderShip`, `scrapShip`, `repairFleetShip`, `reassignShipyard`,
+  `shipyardTierAt`, `shipyardVenueAt`. Tests: `fleet.js`, `reassign.test.js`,
+  `smallshipyard.test.js`.
 
 ## Stats
 - `fleetShipHullMax` / `fleetShipStr` derive from `SHIP_CLASSES` (warships) or

@@ -50,15 +50,23 @@ function fleetShipStr(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.cor
 function fleetShipUpkeep(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return def.role === "freighter" ? Math.round(15 + (def.cap || 0) * 0.06) : Math.round(40 * c.str); }
 function fleetUpkeep() { return fleetList().filter(s => s.status !== "building").reduce((sum, s) => sum + (FLEET_SHIPS[s.key] ? fleetShipUpkeep(FLEET_SHIPS[s.key]) : 0), 0); }
 function colonyShipyardTier(pid) { const col = S.colonies && S.colonies[pid]; return (col && col.buildings && col.buildings.shipyard) || 0; }
+// a base's Small Shipyard module — a colony's full-range Shipyard always takes
+// precedence if a colony and a base somehow coexist on the same world (neither
+// colonize() nor buildBase() checks for the other), so these stay separate
+// rather than blended by Math.max: a Small Shipyard is capped to light hulls
+// (its own tiers:2 ceiling, catalogs.js) no matter how big a same-world
+// colony Shipyard might independently be.
+function baseShipyardTier(pid) { const b = S.bases && S.bases[pid]; return (b && b.modules && b.modules.shipyard_small) || 0; }
+function shipyardTierAt(pid) { const c = colonyShipyardTier(pid); return c > 0 ? c : baseShipyardTier(pid); }
+function shipyardVenueAt(pid) { return colonyShipyardTier(pid) > 0 ? "colony" : (baseShipyardTier(pid) > 0 ? "base" : null); }
 function fleetBuildingAt(pid) { return fleetList().filter(s => s.home === pid && s.status === "building").length; }
 function fleetNameFor(def, key) { const n = fleetList().filter(s => s.key === key).length + 1; return `${def.name} ${n}`; }
 function fleetMatsOf(def) { const m = {}; Object.keys(def.cost).forEach(k => { if (k !== "credits") m[k] = def.cost[k]; }); return m; }
 function orderShip(shipKey) {
-  const pid = S.location, col = S.colonies && S.colonies[pid];
-  if (!col) return toast("No colony here.", "bad");
+  const pid = S.location;
   const def = FLEET_SHIPS[shipKey]; if (!def) return;
-  const yard = colonyShipyardTier(pid);
-  if (yard <= 0) return toast("This colony has no Shipyard — build one in the Colonies tab.", "bad");
+  const yard = shipyardTierAt(pid);
+  if (yard <= 0) return toast("No Shipyard here — build one at a colony, or a Small Shipyard module at a base.", "bad");
   if (def.tier > yard) return toast(`A Tier ${def.tier} Shipyard is needed to lay down a ${def.name}.`, "bad");
   if (fleetBuildingAt(pid) >= yard) return toast(`All ${yard} slipway(s) here are busy — wait for a hull to launch.`, "bad");
   if ((S.res.credits || 0) < def.cost.credits) return toast(`A ${def.name} costs ${fmt(def.cost.credits)} cr.`, "bad");
@@ -85,7 +93,7 @@ function scrapShip(id) {
 function fleetRepairCost(s) { const miss = (s.hullMax || 0) - (s.hull || 0); return { miss, credits: Math.round(miss * 9), metals: Math.ceil(miss / 12) }; }
 function repairFleetShip(id) {
   const s = fleetList().find(x => x.id === id); if (!s || s.status === "building") return;
-  if (colonyShipyardTier(S.location) <= 0 || s.home !== S.location) return toast("Repair at the ship's home shipyard.", "bad");
+  if (shipyardTierAt(S.location) <= 0 || s.home !== S.location) return toast("Repair at the ship's home shipyard.", "bad");
   const c = fleetRepairCost(s); if (c.miss <= 0) return toast("That ship is already sound.", "bad");
   if ((S.res.credits || 0) < c.credits || (S.res.metals || 0) < c.metals) return toast(`Repair needs ${fmt(c.credits)} cr · ${c.metals} ⛓️.`, "bad");
   S.res.credits -= c.credits; S.res.metals -= c.metals; s.hull = s.hullMax;
@@ -99,8 +107,8 @@ function reassignShipyard(shipId) {
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
   if (!s || !def) return;
   if (s.status !== "idle") return toast(`The ${s.name} isn't free.`, "bad");
-  const pid = S.location, yard = colonyShipyardTier(pid);
-  if (yard <= 0) return toast("This colony has no Shipyard — build one in the Colonies tab.", "bad");
+  const pid = S.location, yard = shipyardTierAt(pid);
+  if (yard <= 0) return toast("No Shipyard here — build one at a colony, or a Small Shipyard module at a base.", "bad");
   if (def.tier > yard) return toast(`A Tier ${yard} Shipyard can't service a ${def.name} — needs Tier ${def.tier}.`, "bad");
   if (s.home === pid) return toast(`The ${s.name} is already based here.`, "bad");
   const cost = shipyardReassignCost(def);

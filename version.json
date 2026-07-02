@@ -1,5 +1,5 @@
 {
-  "version": "2.82.0",
+  "version": "2.83.0",
   "saveVersion": "v2",
-  "notes": "New: reassign a fleet ship's home shipyard to a different colony (for a fee) — consolidate a piecemeal-built fleet at one yard."
+  "notes": "New: Small Shipyard base module — build light hulls at any base, including worlds no colony could reach. Caps at Tier 2 (Medium Freighter/Frigate)."
 }
