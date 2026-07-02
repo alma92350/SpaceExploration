@@ -89,6 +89,7 @@ function freshState(opts = {}) {
     actionsUsed: 0,
     prices: {},
     reserves: {},               // per-planet, per-commodity deposit reserves { cur, max }
+    colonyRaids: [],            // pending "man the guns" prompts queued by colonyEventRoll: [{ pid, name, def }]
     crises: {},                 // active planetary crises: pid -> { type, cyclesLeft }
     fx: [],                     // active Fortunes (temporary boons/banes): [{ key, cyclesLeft, ... }]
     signals: [],                // discoverable leads to investigate: [{ id, kind, tier, planet, ttl }]
