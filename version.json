@@ -1,5 +1,5 @@
 {
-  "version": "2.80.0",
+  "version": "2.78.1",
   "saveVersion": "v2",
-  "notes": "New: two more optional arcade minigames — a raid/ambush dogfight and an escort intercept round — each an optional alternative to firing normally, for a shot at a better outcome."
+  "notes": "Internal: code-smell cleanup — removed a dead duplicate huntPirates() declaration, fixed freshState() to set S.eink directly, and stripped a dozen unrelated save-migration checks out of the hot-path reserveOf() function. No gameplay changes."
 }

@@ -21,11 +21,6 @@
 
 const HULL_MAX = 100;
 const PROWL_FUEL = 6;
-/* optional performance bonus from the arcade dogfight minigame (minigames.js) —
-   set for the exact duration of one combatStrike()/encounterFight() call by the
-   caller, then cleared by that same caller; read here but never mutated, so it
-   can never leak into a later, un-played round. */
-let _dogfightMult = null;   // { dmg, dodge } while a manually-played round is resolving, else null
 function clampPirate() {
   const P = S.pirate;
   P.wanted = Math.max(0, Math.min(100, P.wanted));
@@ -82,7 +77,7 @@ function foeHp(foe) {
 function playerStrikes(foe, wkey) {
   const drones = droneStrike(foe);
   if (drones.lost > 0) S.res.drones -= drones.lost;
-  const base = (raidPower() * 0.55 + Math.random() * 8) * condFactor("weapons") * offenseMult() * fxMult("weaponMult") * (_dogfightMult ? _dogfightMult.dmg : 1);
+  const base = (raidPower() * 0.55 + Math.random() * 8) * condFactor("weapons") * offenseMult() * fxMult("weaponMult");
   const dmg = Math.max(1, Math.round(base * weaponEff(wkey, foe) + drones.bonus));
   return { dmg, drones };
 }
@@ -90,7 +85,7 @@ function playerStrikes(foe, wkey) {
 function foeStrikes(foe, intensity) {
   const postureFactor = Math.max(0.5, Math.min(1.8, 1 / Math.max(0.4, defenseMult())));   // evasive soaks, aggressive exposes
   intensity *= (1 + 0.12 * (foe.escorts || 0));                                            // escorts pile on
-  const raw = foe.strength * intensity * (0.7 + Math.random() * 0.6) * postureFactor * fxMult("incomingMult") * battleGroupScreenMult() * (_dogfightMult ? _dogfightMult.dodge : 1);
+  const raw = foe.strength * intensity * (0.7 + Math.random() * 0.6) * postureFactor * fxMult("incomingMult") * battleGroupScreenMult();
   let dmg = takeTypedDamage(raw, foe.wtype);
   const floor = Math.round(foe.strength * 0.06 * postureFactor);   // some fire always gets through
   if (dmg < floor) { const extra = floor - dmg; S.pirate.hull = Math.max(0, S.pirate.hull - extra); clampPirate(); if (S.pirate.hull <= 0) shipCrippled(); dmg = floor; }
