@@ -1,5 +1,5 @@
 {
-  "version": "2.82.0",
+  "version": "2.84.0",
   "saveVersion": "v2",
-  "notes": "New: reassign a fleet ship's home shipyard to a different colony (for a fee) — consolidate a piecemeal-built fleet at one yard."
+  "notes": "New: Small Shipyard payoff — Tier 2 boosts scrap salvage to 60%, and any idle ship at its home Small Shipyard can commit to a permanent Cargo or Combat loadout for more cargo or more firepower."
 }

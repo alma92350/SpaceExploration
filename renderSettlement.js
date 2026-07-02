@@ -115,8 +115,10 @@ function renderBases() {
       const ok = S.res.credits >= cost && canAfford(mats);
       const dots = Array.from({ length: m.tiers }, (_, i) => `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
       const cur = m.storage ? (tier > 0 ? `+${tier * 250} storage` : "not built")
+        : m.shipyard ? (tier > 0 ? `Tier ${tier} · ${tier} slipway${tier > 1 ? "s" : ""}` : "not built")
         : (tier > 0 ? `+${moduleOutput(planet, m, tier)} ${COM[m.produces].ico}/cycle` : "not built");
       const nxt = m.storage ? "+250 storage"
+        : m.shipyard ? `Tier ${tier + 1} · ${tier + 1} slipway${tier + 1 > 1 ? "s" : ""}`
         : `+${moduleOutput(planet, m, tier + 1) - moduleOutput(planet, m, tier)} ${COM[m.produces].ico}/cycle`;
       return `<div class="card ${tier > 0 ? (maxed ? "maxed" : "owned") : ""}">
         <h4>${m.ico} ${m.name} <span class="tier-dots">${dots}</span></h4>
@@ -605,7 +607,7 @@ function renderEscort() {
         <span class="v"><button class="btn btn-sm btn-good" onclick="escortRallyOnCall('${b.id}')">🤝 Rally (free)</button></span></div>`).join("");
     // your own warships — loyal, free convoy escorts
     const fleetRows = fleetRaidable().filter(s => !e.fleet.some(sh => sh.fleetId === s.id)).map(s =>
-      `<div class="ship-stat" style="align-items:center"><span class="k">✦ ${FLEET_SHIPS[s.key].ico} ${s.name} <span class="hint">your ${SHIP_CLASSES[FLEET_SHIPS[s.key].cls].name} · 🔥${fleetShipStr(FLEET_SHIPS[s.key])}</span></span>
+      `<div class="ship-stat" style="align-items:center"><span class="k">✦ ${FLEET_SHIPS[s.key].ico} ${s.name} <span class="hint">your ${SHIP_CLASSES[FLEET_SHIPS[s.key].cls].name} · 🔥${shipStrEff(s)}</span></span>
         <span class="v"><button class="btn btn-sm btn-good" onclick="escortRallyFleet('${s.id}')">✦ Assign (free)</button></span></div>`).join("");
     const avail = escortRecruitableBands()
       .filter(b => !e.fleet.some(s => s.hired && s.alive && s.bandId === b.id))

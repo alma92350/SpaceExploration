@@ -27,11 +27,62 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   ship's credit cost, floored at 200cr) — for consolidating a fleet built
   piecemeal across several colonies, since repair, convoy assignment (Slice 7)
   and slipway accounting are all keyed off `home`.
+- **Small Shipyard** base module (`baseModuleList`, catalogs.js, 2 tiers,
+  `shipyard: true`, no tech `req` — the base-module system has no tech-gating
+  machinery at all, so this matches every other base module's unlocked-by-
+  construction-alone convention rather than introducing a first-of-its-kind
+  exception). Bases can be founded on *any* world, including non-colonizable
+  ones a colony could never reach — so this is a forward-outpost building
+  option, not a worse colony Shipyard. Its own `tiers:2` ceiling caps it to
+  light hulls forever (Light Freighter/Corvette at Tier 1, Medium Freighter/
+  Frigate at Tier 2) — `buildModule`'s existing tier-max guard enforces this
+  for free, no separate hull-pool concept needed. `shipyardTierAt(pid)`
+  unifies the lookup: a colony's full-range Shipyard always wins if a colony
+  and a base somehow coexist on one world, never blended with the base's
+  capped tier. `shipyardVenueAt(pid)` drives the Fleet tab's copy (which tab
+  to go upgrade in).
+- **Recycling bonus** (`scrapRefundPct`) — a **Tier 2 base Small Shipyard**
+  raises `scrapShip`'s salvage rate from the usual 40% of a hull's metals
+  to 60% (`SCRAP_REFUND_PCT`/`SCRAP_RECYCLE_BONUS_PCT`). Gated to the base
+  module specifically, not colony Shipyards, matching the brainstorm's own
+  framing of the salvage bonus as a Small Shipyard perk at its higher tier.
+  The roster's scrap button (`shipRow`, renderFleetFortunes.js) previews the
+  refund amount and a ✦ bonus mark when the elevated rate applies.
+- **Ship customization** (`upgradeLoadout(shipId, "cargo"|"combat")`) — an
+  idle hull docked at its home **base** Small Shipyard (any tier ≥1; colony
+  Shipyards don't grant this) can commit to a Cargo or Combat loadout, up to
+  `LOADOUT_MAX_LEVEL` (3) levels, paid in hold materials
+  (`loadoutUpgradeCost`: metals+electronics, scaling with level). Cargo adds
+  flat capacity (`LOADOUT_CARGO_PER_LEVEL`) to a new `s.cargoBonus` field;
+  Combat adds hull (`LOADOUT_HULL_PER_LEVEL`, baked directly into the
+  ship's own `hullMax`/`hull`, same as every other per-instance hull
+  mutation) and firepower (`LOADOUT_STR_PER_LEVEL`) to a new `s.combatBonus`
+  field. A ship commits to its first lean permanently — switching means
+  scrapping and rebuilding (mirrors Escort's per-vessel stance precedent,
+  escort.js, but on hold materials rather than the weapons/drones/ai pool,
+  since this is a construction-venue mechanic, not a combat one).
+  `shipCargoCap(s)`/`shipStrEff(s)` are the bonus-aware readers, threaded
+  through every live-instance call site: `fleetAsAlly`, `escortRallyFleet`,
+  `battleGroupFirepower`, `colonyHaulCap`, `convoyCargoBonus` (fleet.js),
+  the Fleet tab's roster spec line and convoy roster (renderFleetFortunes.js),
+  and the Escort tab's "recruit your own warships" row (renderSettlement.js)
+  — deliberately NOT threaded into build-menu catalog *previews* (no ship
+  instance exists yet to have a bonus) or `fleetShipUpkeep`/
+  `fleetMissionDamage` (scoped out to avoid a wider balance pass). The Fleet
+  tab's roster row (`shipRow`) shows a compact loadout badge + upgrade
+  buttons beneath any idle ship docked at its home base Small Shipyard.
 - **UI**: new **✦ Fleet tab** (`renderFleet`, `#panel-fleet`, `TAB_LADDER` entry
   unlocking once you hold a colony) — roster (warships / freighters, hull bars,
-  status, repair/reassign/scrap) + the current colony's shipyard build menu.
-- State: `S.fleet` (freshState + init migrate). Exports: `orderShip`, `scrapShip`,
-  `repairFleetShip`, `reassignShipyard`. Tests: `fleet.js`, `reassign.test.js`.
+  status, repair/reassign/scrap/loadout) + the current shipyard's build menu
+  (colony or base, venue-aware copy). The Bases tab's module card shows
+  tier/slipway count for the Small Shipyard in place of a commodity output line.
+- State: `S.fleet` (freshState + init migrate); the Small Shipyard is just a
+  new key under `S.bases[pid].modules`, and `loadout`/`loadoutLevel`/
+  `cargoBonus`/`combatBonus` are new optional per-ship fields — no migration
+  needed for any of it. Exports: `orderShip`, `scrapShip`, `repairFleetShip`,
+  `reassignShipyard`, `upgradeLoadout`, `shipyardTierAt`, `shipyardVenueAt`,
+  `scrapRefundPct`, `shipCargoCap`, `shipStrEff`. Tests: `fleet.js`,
+  `reassign.test.js`, `smallshipyard.test.js`.
 
 ## Stats
 - `fleetShipHullMax` / `fleetShipStr` derive from `SHIP_CLASSES` (warships) or

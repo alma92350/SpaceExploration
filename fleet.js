@@ -50,15 +50,23 @@ function fleetShipStr(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.cor
 function fleetShipUpkeep(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return def.role === "freighter" ? Math.round(15 + (def.cap || 0) * 0.06) : Math.round(40 * c.str); }
 function fleetUpkeep() { return fleetList().filter(s => s.status !== "building").reduce((sum, s) => sum + (FLEET_SHIPS[s.key] ? fleetShipUpkeep(FLEET_SHIPS[s.key]) : 0), 0); }
 function colonyShipyardTier(pid) { const col = S.colonies && S.colonies[pid]; return (col && col.buildings && col.buildings.shipyard) || 0; }
+// a base's Small Shipyard module — a colony's full-range Shipyard always takes
+// precedence if a colony and a base somehow coexist on the same world (neither
+// colonize() nor buildBase() checks for the other), so these stay separate
+// rather than blended by Math.max: a Small Shipyard is capped to light hulls
+// (its own tiers:2 ceiling, catalogs.js) no matter how big a same-world
+// colony Shipyard might independently be.
+function baseShipyardTier(pid) { const b = S.bases && S.bases[pid]; return (b && b.modules && b.modules.shipyard_small) || 0; }
+function shipyardTierAt(pid) { const c = colonyShipyardTier(pid); return c > 0 ? c : baseShipyardTier(pid); }
+function shipyardVenueAt(pid) { return colonyShipyardTier(pid) > 0 ? "colony" : (baseShipyardTier(pid) > 0 ? "base" : null); }
 function fleetBuildingAt(pid) { return fleetList().filter(s => s.home === pid && s.status === "building").length; }
 function fleetNameFor(def, key) { const n = fleetList().filter(s => s.key === key).length + 1; return `${def.name} ${n}`; }
 function fleetMatsOf(def) { const m = {}; Object.keys(def.cost).forEach(k => { if (k !== "credits") m[k] = def.cost[k]; }); return m; }
 function orderShip(shipKey) {
-  const pid = S.location, col = S.colonies && S.colonies[pid];
-  if (!col) return toast("No colony here.", "bad");
+  const pid = S.location;
   const def = FLEET_SHIPS[shipKey]; if (!def) return;
-  const yard = colonyShipyardTier(pid);
-  if (yard <= 0) return toast("This colony has no Shipyard — build one in the Colonies tab.", "bad");
+  const yard = shipyardTierAt(pid);
+  if (yard <= 0) return toast("No Shipyard here — build one at a colony, or a Small Shipyard module at a base.", "bad");
   if (def.tier > yard) return toast(`A Tier ${def.tier} Shipyard is needed to lay down a ${def.name}.`, "bad");
   if (fleetBuildingAt(pid) >= yard) return toast(`All ${yard} slipway(s) here are busy — wait for a hull to launch.`, "bad");
   if ((S.res.credits || 0) < def.cost.credits) return toast(`A ${def.name} costs ${fmt(def.cost.credits)} cr.`, "bad");
@@ -70,22 +78,28 @@ function orderShip(shipKey) {
   log(`🏗️ Laid down a ${def.ico} ${def.name} at ${currentPlanet().name} — ${def.build} cycles to launch.`, "event");
   toast(`${def.name} under construction`, "good"); sfx("event"); saveGame(); renderAll();
 }
+const SCRAP_REFUND_PCT = 0.4, SCRAP_RECYCLE_BONUS_PCT = 0.6;
+// a Tier 2 base Small Shipyard is a proper recycling line, not just a slipway —
+// gated to the base module specifically (not colony Shipyards) per the brainstorm's
+// own framing of the salvage bonus as a Small Shipyard perk.
+function scrapRefundPct() { return baseShipyardTier(S.location) >= 2 ? SCRAP_RECYCLE_BONUS_PCT : SCRAP_REFUND_PCT; }
 function scrapShip(id) {
   const i = fleetList().findIndex(s => s.id === id); if (i < 0) return;
   const s = fleetList()[i], def = FLEET_SHIPS[s.key];
   if (s.status === "mission" || s.status === "escort" || s.status === "logistics" || s.status === "convoy") return toast("That ship is on duty — recall it first.", "bad");
-  const refund = def ? Math.round((def.cost.metals || 0) * 0.4) : 0;
+  const pct = scrapRefundPct(), bonus = pct > SCRAP_REFUND_PCT;
+  const refund = def ? Math.round((def.cost.metals || 0) * pct) : 0;
   if (typeof confirm === "function"
-      && !confirm(`Scrap the ${s.name}? This cannot be undone${refund ? ` (salvages ${refund} metals)` : ""}.`)) return;
+      && !confirm(`Scrap the ${s.name}? This cannot be undone${refund ? ` (salvages ${refund} metals${bonus ? " — recycling bonus" : ""})` : ""}.`)) return;
   if (refund) S.res.metals = (S.res.metals || 0) + refund;
   fleetList().splice(i, 1);
-  log(`♻️ Scrapped the ${def ? def.ico + " " + s.name : s.name}${refund ? ` — salvaged ${refund} ⛓️ metals` : ""}.`, "");
+  log(`♻️ Scrapped the ${def ? def.ico + " " + s.name : s.name}${refund ? ` — salvaged ${refund} ⛓️ metals${bonus ? " (recycling bonus)" : ""}` : ""}.`, "");
   toast("Ship scrapped", ""); saveGame(); renderAll();
 }
 function fleetRepairCost(s) { const miss = (s.hullMax || 0) - (s.hull || 0); return { miss, credits: Math.round(miss * 9), metals: Math.ceil(miss / 12) }; }
 function repairFleetShip(id) {
   const s = fleetList().find(x => x.id === id); if (!s || s.status === "building") return;
-  if (colonyShipyardTier(S.location) <= 0 || s.home !== S.location) return toast("Repair at the ship's home shipyard.", "bad");
+  if (shipyardTierAt(S.location) <= 0 || s.home !== S.location) return toast("Repair at the ship's home shipyard.", "bad");
   const c = fleetRepairCost(s); if (c.miss <= 0) return toast("That ship is already sound.", "bad");
   if ((S.res.credits || 0) < c.credits || (S.res.metals || 0) < c.metals) return toast(`Repair needs ${fmt(c.credits)} cr · ${c.metals} ⛓️.`, "bad");
   S.res.credits -= c.credits; S.res.metals -= c.metals; s.hull = s.hullMax;
@@ -99,8 +113,8 @@ function reassignShipyard(shipId) {
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
   if (!s || !def) return;
   if (s.status !== "idle") return toast(`The ${s.name} isn't free.`, "bad");
-  const pid = S.location, yard = colonyShipyardTier(pid);
-  if (yard <= 0) return toast("This colony has no Shipyard — build one in the Colonies tab.", "bad");
+  const pid = S.location, yard = shipyardTierAt(pid);
+  if (yard <= 0) return toast("No Shipyard here — build one at a colony, or a Small Shipyard module at a base.", "bad");
   if (def.tier > yard) return toast(`A Tier ${yard} Shipyard can't service a ${def.name} — needs Tier ${def.tier}.`, "bad");
   if (s.home === pid) return toast(`The ${s.name} is already based here.`, "bad");
   const cost = shipyardReassignCost(def);
@@ -111,9 +125,41 @@ function reassignShipyard(shipId) {
   log(`⚓ Your ${def.ico} ${s.name} re-registers its home port from ${oldHome} to <span class="c">${currentPlanet().name}</span> for ${fmt(cost)} cr.`, "event");
   toast(`${s.name} now based at ${currentPlanet().name}`, "good"); sfx("event"); saveGame(); renderAll();
 }
+// ---- ship customization: a Small Shipyard can refit its own hulls with a permanent
+// Cargo or Combat loadout, up to 3 levels, paid from hold materials. A ship commits to
+// a lean on its first refit and can't switch — matches Escort's per-vessel stance
+// precedent (escort.js) but on a different currency (plain hold materials, not the
+// escort weapons/drones/ai pool) since this is a construction-venue mechanic, not a
+// combat one. Gated to the ship's home BASE Small Shipyard specifically (not a colony
+// Shipyard) — the brainstorm frames customization as a Small Shipyard perk, and it
+// gives the base module a reason to matter even once a colony Shipyard outranks it.
+const LOADOUT_MAX_LEVEL = 3, LOADOUT_CARGO_PER_LEVEL = 40, LOADOUT_HULL_PER_LEVEL = 15, LOADOUT_STR_PER_LEVEL = 8;
+const LOADOUT_LEANS = { cargo: { ico: "📦", name: "Cargo Loadout", hint: `+${LOADOUT_CARGO_PER_LEVEL} cargo capacity per level` },
+                         combat: { ico: "🔥", name: "Combat Loadout", hint: `+${LOADOUT_HULL_PER_LEVEL} hull · +${LOADOUT_STR_PER_LEVEL} firepower per level` } };
+function loadoutUpgradeCost(lvl) { return { metals: 20 * lvl, electronics: 10 * lvl }; }
+function shipCargoCap(s) { const def = FLEET_SHIPS[s.key]; return def ? (def.cap || 0) + (s.cargoBonus || 0) : 0; }
+function shipStrEff(s) { const def = FLEET_SHIPS[s.key]; return def ? fleetShipStr(def) + (s.combatBonus || 0) : 0; }
+function upgradeLoadout(shipId, lean) {
+  if (!LOADOUT_LEANS[lean]) return;
+  const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
+  if (!s || !def) return;
+  if (s.status !== "idle") return toast(`The ${s.name} isn't free.`, "bad");
+  if (baseShipyardTier(S.location) <= 0 || s.home !== S.location) return toast("Refit at the ship's home Small Shipyard.", "bad");
+  if (s.loadout && s.loadout !== lean) return toast(`${s.name} is already committed to a ${LOADOUT_LEANS[s.loadout].name} — scrap and rebuild to switch.`, "bad");
+  const lvl = s.loadoutLevel || 0;
+  if (lvl >= LOADOUT_MAX_LEVEL) return toast(`${s.name}'s loadout is already maxed.`, "bad");
+  const cost = loadoutUpgradeCost(lvl + 1);
+  if (!canAfford(cost)) return toast("Need materials in your hold: " + Object.keys(cost).map(c => `${cost[c]} ${COM[c].name}`).join(", ") + ".", "bad");
+  pay(cost);
+  s.loadout = lean; s.loadoutLevel = lvl + 1;
+  if (lean === "cargo") { s.cargoBonus = (s.cargoBonus || 0) + LOADOUT_CARGO_PER_LEVEL; }
+  else { s.hullMax = (s.hullMax || 0) + LOADOUT_HULL_PER_LEVEL; s.hull = (s.hull || 0) + LOADOUT_HULL_PER_LEVEL; s.combatBonus = (s.combatBonus || 0) + LOADOUT_STR_PER_LEVEL; }
+  log(`🛠️ Refit the ${def.ico} ${s.name} — ${LOADOUT_LEANS[lean].ico} ${LOADOUT_LEANS[lean].name} Lv${s.loadoutLevel}/${LOADOUT_MAX_LEVEL}.`, "event");
+  toast(`${s.name}: ${LOADOUT_LEANS[lean].name} Lv${s.loadoutLevel}`, "good"); sfx("repair"); saveGame(); renderAll();
+}
 // ---- fleet warships as loyal, free combat allies (raids & escorts) ----
 function fleetRaidable() { return fleetList().filter(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }   // your warships are 100% callable
-function fleetAsAlly(s) { const def = FLEET_SHIPS[s.key]; return { isFleet: true, fleetId: s.id, allyName: s.name, name: s.name, ico: def.ico, strength: Math.round(fleetShipStr(def) * 2.5), share: 0 }; }   // loyal, no loot cut
+function fleetAsAlly(s) { const def = FLEET_SHIPS[s.key]; return { isFleet: true, fleetId: s.id, allyName: s.name, name: s.name, ico: def.ico, strength: Math.round(shipStrEff(s) * 2.5), share: 0 }; }   // loyal, no loot cut
 function raidSummonFleet(shipId) {
   if (!S.prey) return toast("No engagement.", "bad");
   S.allies = S.allies || [];
@@ -131,7 +177,7 @@ function escortRallyFleet(shipId) {
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
   if (!s || !def || def.role !== "warship" || s.status !== "idle") return toast("That ship isn't available.", "bad");
   if (e.fleet.some(sh => sh.fleetId === shipId)) return toast(`The ${s.name} already flies with the convoy.`, "bad");
-  e.fleet.push({ role: "escort", hired: true, support: true, fleetId: shipId, name: s.name, ico: def.ico, hullMax: s.hullMax, hull: Math.round(s.hull), str: Math.round(fleetShipStr(def) * 1.3), alive: true, stance: "balanced", fit: { aggressive: 0, balanced: 0, defensive: 0 } });
+  e.fleet.push({ role: "escort", hired: true, support: true, fleetId: shipId, name: s.name, ico: def.ico, hullMax: s.hullMax, hull: Math.round(s.hull), str: Math.round(shipStrEff(s) * 1.3), alive: true, stance: "balanced", fit: { aggressive: 0, balanced: 0, defensive: 0 } });
   s.status = "escort";
   log(`✦ Your ${def.ico} ${s.name} joins the convoy as escort — loyal and free.`, "event");
   toast(`${s.name} escorting`, "good"); sfx("event"); saveGame(); renderAll();
@@ -205,7 +251,7 @@ function battleGroupScreenMult() {   // your formation screens (or exposes) you 
 function battleGroupFirepower() {
   const grp = battleGroupShips(); if (!grp.length) return 0;
   const off = battleGroupPostureObj().off;
-  return Math.round(grp.reduce((sum, s) => sum + fleetShipStr(FLEET_SHIPS[s.key]) * (0.5 + 0.5 * (s.hull / s.hullMax)) * FORMATION_SLOTS[shipFormation(s)].fpMult, 0) * off);
+  return Math.round(grp.reduce((sum, s) => sum + shipStrEff(s) * (0.5 + 0.5 * (s.hull / s.hullMax)) * FORMATION_SLOTS[shipFormation(s)].fpMult, 0) * off);
 }
 // each combat round, the frontmost non-empty tier absorbs the hit (85% of the time; 15% stray
 // fire ignores tiering) — a formation collapses tier by tier as its defenders are lost.
@@ -229,7 +275,7 @@ function battleGroupTakeFire(prey) {
 function colonyPidOf(col) { if (!col || !S.colonies) return null; for (const k in S.colonies) if (S.colonies[k] === col) return k; return null; }
 function colonyHaulers(pid) { return fleetList().filter(s => s.status === "logistics" && s.station === pid && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter"); }
 function colonyGuards(pid) { return fleetList().filter(s => s.status === "logistics" && s.station === pid && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
-function colonyHaulCap(pid) { return colonyHaulers(pid).reduce((s, x) => s + (FLEET_SHIPS[x.key].cap || 0), 0); }
+function colonyHaulCap(pid) { return colonyHaulers(pid).reduce((s, x) => s + shipCargoCap(x), 0); }
 function colonyHaulDiscount(pid) { return pid ? Math.min(0.18, colonyHaulCap(pid) * 0.00025) : 0; }    // cheaper market imports
 function colonyFreightMult(pid) { return 1 - Math.min(0.5, colonyHaulCap(pid) * 0.0005); }              // cheaper base↔colony freight
 function assignLogistics(shipId, planetId) {
@@ -280,7 +326,7 @@ function convoyGuardCount() { return convoyWarships().length + bandList().filter
 function convoyCargoCeiling() { return BASE_CARGO + S.upgrades.cargo * 150; }   // ties the ceiling to your own Cargo Hold tier — a convoy is a real second hold, not a way to skip upgrading
 function convoyCargoBonus() {
   const frs = convoyFreighters(); if (!frs.length) return 0;
-  const raw = frs.reduce((sum, s) => sum + FLEET_SHIPS[s.key].cap * (0.5 + 0.5 * (s.hull / s.hullMax)), 0);   // a battered freighter hauls less, same shape as escShipFP
+  const raw = frs.reduce((sum, s) => sum + shipCargoCap(s) * (0.5 + 0.5 * (s.hull / s.hullMax)), 0);   // a battered freighter hauls less, same shape as escShipFP
   return Math.min(convoyCargoCeiling(), Math.round(raw));
 }
 function convoyFuelSurcharge() {   // towing a convoy burns extra fuel every jump — scales with how many ships ride along, capped
