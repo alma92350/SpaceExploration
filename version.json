@@ -1,5 +1,5 @@
 {
-  "version": "2.66.0",
+  "version": "2.67.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the core economy actions (Production, Trade, the Black Market/Fences, Contraband/Customs, Travel, buying Upgrades, researching Techs, Missions, and Governor Decrees) out into their own file, economy.js — slice 15 of the game.js split. No gameplay changes."
+  "notes": "Internal: split Player Bases, the Base<->Colony Trade Network, Random Contracts, and Colonies (founding, building, alignment, and the full per-cycle simulation) out into their own file, colonization.js — slice 16 of the game.js split. No gameplay changes."
 }
