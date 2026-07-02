@@ -338,7 +338,7 @@ function baseModuleList(planet) {
     { id: "fuelrefinery", name: "Fuel Refinery", ico: "⛽", tiers: 5, baseCost: 2800, costMul: 1.8, produces: "fuel", consumes: "ice", refiner: true,
       desc: "Cracks stored 🧊 Ice into ⛽ Fuel every cycle — buildable anywhere (keep ice in the depot)." },
     { id: "shipyard_small", name: "Small Shipyard", ico: "🏗️", tiers: 2, baseCost: 2600, costMul: 1.7, shipyard: true,
-      desc: "Lay down light hulls right here — a Light Freighter/Corvette at Tier 1, a Medium Freighter/Frigate at Tier 2. Caps there; a full-range Shipyard is a colony building. Adds a slipway per tier for parallel builds." },
+      desc: "Lay down light hulls right here — a Light Freighter/Corvette at Tier 1, a Medium Freighter/Frigate at Tier 2. Caps there; a full-range Shipyard is a colony building. Adds a slipway per tier for parallel builds. Tier 2 also boosts scrap salvage to 60% of a hull's metals (up from the usual 40%)." },
   ];
   Object.keys(planet.deposits || {}).forEach(c => {
     const meta = BASE_EXTRACTORS[c] || { name: "Extractor: " + COM[c].name, ico: COM[c].ico };

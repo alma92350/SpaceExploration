@@ -28,7 +28,7 @@ let fleetLogiForm = { planet: null };
 function setFleetLogiField(k, v) { fleetLogiForm[k] = v; renderFleet(); }
 function renderFleet() {
   const el = (typeof document !== "undefined") && document.getElementById("panel-fleet"); if (!el) return;
-  const f = fleetList(), pid = S.location, yard = shipyardTierAt(pid);
+  const f = fleetList(), pid = S.location, yard = shipyardTierAt(pid), baseYard = baseShipyardTier(pid);
   const FLEET_VIEWS = [["status", "📊 Fleet Status"], ["assign", "🎯 Assignments"], ["shipyard", "🏗️ Shipyard"]];
   const view = subView("fleet", FLEET_VIEWS);
   let body;
@@ -47,14 +47,30 @@ function renderFleet() {
       const repBtn = (s.status === "idle" && rc.miss > 0 && here) ? `<button class="btn btn-sm" title="Repair at home shipyard" onclick="repairFleetShip('${s.id}')">🔧 ${fmt(rc.credits)}</button>` : "";
       const canReassign = s.status === "idle" && !here && yard > 0 && def.tier <= yard;
       const reassignBtn = canReassign ? `<button class="btn btn-sm" title="Re-register this ship's home port to ${currentPlanet().name} (${fmt(shipyardReassignCost(def))} cr)" onclick="reassignShipyard('${s.id}')">⚓ Reassign here</button>` : "";
+      const scrapPct = scrapRefundPct(), scrapBonusOn = scrapPct > SCRAP_REFUND_PCT, scrapRefund = Math.round((def.cost.metals || 0) * scrapPct);
       const ctlBtn = onMission ? `<button class="btn btn-sm" title="Recall — bank what it's earned" onclick="recallFleetMission('${s.id}')">↩ Recall</button>`
         : onLogi ? `<button class="btn btn-sm" title="Recall from logistics duty" onclick="recallLogistics('${s.id}')">↩ Recall</button>`
         : onConvoy ? `<button class="btn btn-sm" title="Recall from your convoy" onclick="recallConvoy('${s.id}')">↩ Recall</button>`
-        : s.status === "building" || s.status === "escort" ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvage some metals)" onclick="scrapShip('${s.id}')">♻️</button>`;
-      const spec = def.role === "warship" ? `🔥${fleetShipStr(def)} · 🛡️${s.hullMax}` : `📦${def.cap} cargo`;
+        : s.status === "building" || s.status === "escort" ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvages ${scrapRefund} metals${scrapBonusOn ? " — recycling bonus" : ""})" onclick="scrapShip('${s.id}')">♻️ ${scrapRefund}${scrapBonusOn ? "✦" : ""}</button>`;
+      const spec = def.role === "warship" ? `🔥${shipStrEff(s)} · 🛡️${s.hullMax}` : `📦${shipCargoCap(s)} cargo`;
+      // ---- Small Shipyard customization: commit an idle hull to a Cargo or Combat
+      // lean, up to 3 levels, only while docked at its home base's Small Shipyard ----
+      const lvl = s.loadoutLevel || 0, maxed = lvl >= LOADOUT_MAX_LEVEL;
+      const canRefit = s.status === "idle" && s.home === pid && baseYard > 0;
+      let loadoutRow = "";
+      if (s.loadout || canRefit) {
+        const badge = s.loadout ? `<span class="hint">${LOADOUT_LEANS[s.loadout].ico} ${LOADOUT_LEANS[s.loadout].name} Lv${lvl}/${LOADOUT_MAX_LEVEL}</span>` : `<span class="hint">🛠️ Small Shipyard refit available</span>`;
+        let btns = "";
+        if (canRefit && !maxed) {
+          const cost = loadoutUpgradeCost(lvl + 1), costStr = Object.keys(cost).map(k => `${cost[k]}${COM[k].ico}`).join(" ");
+          if (!s.loadout || s.loadout === "cargo") btns += `<button class="btn btn-sm" title="${LOADOUT_LEANS.cargo.hint} (${costStr})" onclick="upgradeLoadout('${s.id}','cargo')">📦 Cargo Lv${lvl + 1}</button> `;
+          if (!s.loadout || s.loadout === "combat") btns += `<button class="btn btn-sm" title="${LOADOUT_LEANS.combat.hint} (${costStr})" onclick="upgradeLoadout('${s.id}','combat')">🔥 Combat Lv${lvl + 1}</button>`;
+        }
+        loadoutRow = `<div class="ship-stat" style="margin-top:2px">${badge}<span class="v">${btns}</span></div>`;
+      }
       return `<div class="ship-stat" style="align-items:center">
         <span class="k">${def.ico} ${s.name} <span class="hint">${SHIP_CLASSES[def.cls].name} · ${spec} · ⚓ ${homeName}</span></span>
-        <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${reassignBtn}${ctlBtn}</span></div>`;
+        <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${reassignBtn}${ctlBtn}</span></div>${loadoutRow}`;
     };
     const warships = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
     const freighters = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
@@ -122,7 +138,7 @@ function renderFleet() {
       const idleFrHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
       const idleWarHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
       const rosterRows = inConvoy.map(s => { const d = FLEET_SHIPS[s.key];
-        return `<div class="ship-stat"><span class="k">${d.ico} ${s.name}</span><span class="v">${d.role === "freighter" ? `📦${d.cap}` : `🔥${fleetShipStr(d)}`} · ${Math.round(s.hull)}/${s.hullMax} <button class="btn btn-sm" onclick="recallConvoy('${s.id}')">↩ Recall</button></span></div>`;
+        return `<div class="ship-stat"><span class="k">${d.ico} ${s.name}</span><span class="v">${d.role === "freighter" ? `📦${shipCargoCap(s)}` : `🔥${shipStrEff(s)}`} · ${Math.round(s.hull)}/${s.hullMax} <button class="btn btn-sm" onclick="recallConvoy('${s.id}')">↩ Recall</button></span></div>`;
       }).join("");
       const frBtns = idleFrHere.map(s => `<button class="btn btn-sm btn-good" onclick="assignConvoy('${s.id}')">🚚 ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
       const warBtns = idleWarHere.map(s => `<button class="btn btn-sm" onclick="assignConvoy('${s.id}')">🛡️ ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
