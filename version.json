@@ -1,5 +1,5 @@
 {
-  "version": "2.69.0",
+  "version": "2.70.0",
   "saveVersion": "v2",
-  "notes": "Internal: split Fortunes (temporary boons & banes) and Signals (the hunt for faint contacts) out into their own file, fortunes.js — slice 18 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the Logistics Network, Exploration, and Win Condition/Milestone tracking out into their own file, frontier.js — slice 19 of the game.js split. No gameplay changes."
 }
