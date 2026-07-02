@@ -1,5 +1,5 @@
 {
-  "version": "2.67.0",
+  "version": "2.68.0",
   "saveVersion": "v2",
-  "notes": "Internal: split Player Bases, the Base<->Colony Trade Network, Random Contracts, and Colonies (founding, building, alignment, and the full per-cycle simulation) out into their own file, colonization.js — slice 16 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the player fleet (ordering/repairing/scrapping ships, raid allies, the Battle Group, logistics stationing, and fleet missions) out into its own file, fleet.js — slice 17 of the game.js split. No gameplay changes."
 }
