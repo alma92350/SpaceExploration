@@ -1,5 +1,5 @@
 {
-  "version": "2.73.0",
+  "version": "2.74.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the first slice of the rendering layer — the always-visible UI chrome (resources bar, ship stats, operations digest, log) and the Galaxy tab — out into its own file, renderCore.js — slice 22 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the second slice of the rendering layer — the Market, Industry, Research, Politics, and Missions tabs — out into their own file, renderProgression.js — slice 23 of the game.js split. No gameplay changes."
 }
