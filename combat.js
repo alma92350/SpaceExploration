@@ -11,10 +11,11 @@
 
    Loaded after resources.js, before game.js. fxMult, battleGroupScreenMult,
    escortInCombat, renderRaid, saveGame, digestNote, spawnSignal, bindBand,
-   plunder, raidJoinFollowers, startInterdiction, releaseBattleGroup, unlock
-   and setTab still live in game.js at this point in the split — safe,
-   since every function here is only CALLED later, once every script has
-   finished loading, same pattern as every prior slice.
+   plunder, raidJoinFollowers, startInterdiction, releaseBattleGroup, unlock,
+   setTab, convoyGuardCount and convoyAmbushRisk still live in game.js/fleet.js
+   at this point in the split — safe, since every function here is only
+   CALLED later, once every script has finished loading, same pattern as
+   every prior slice.
    ============================================================ */
 
 "use strict";
@@ -467,13 +468,16 @@ function maybeAmbush(dest) {
   if (S.encounter || S.interdiction || S.jail > 0 || pirateCalm()) return;
   const lvl = pirateLevel(dest.id);
   if (lvl <= 0) return;
-  if (Math.random() < 0.05 + lvl * 0.045) {
+  const guards = typeof convoyGuardCount === "function" ? convoyGuardCount() : 0;
+  const chance = (0.05 + lvl * 0.045) * Math.pow(0.45, guards);   // your own warship escort + any pirate bands riding with you damp this, same shape processConvoys() uses for stationed colony guards
+  if (Math.random() < chance) {
     const pirate = genPirate(pirateOpposition(lvl, -1));
     pirate.toll = Math.round(300 * pirate.level + Math.min(2500, (S.res.credits + cargoValue()) * 0.04));
     S.encounter = pirate;
     log(`🏴‍☠️ Ambush! A ${pirate.ico} <span class="c">${pirate.name}</span> drops out of the dark off ${dest.name} and demands ${fmt(pirate.toll)} cr — or your cargo.`, "bad");
     toast(`Pirate ambush: ${pirate.name}!`, "bad");
     if (typeof announce === "function") announce("🏴‍☠️ Pirate Ambush", `A ${pirate.name} has you in its sights. Pay, run, or fight.`, false);
+    if (typeof convoyAmbushRisk === "function") convoyAmbushRisk(lvl);
     unlock("raid"); if (typeof setTab === "function") setTab("raid");
   }
 }

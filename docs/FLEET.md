@@ -138,4 +138,48 @@ and pirate mandates (📜) at the planets they're running at, alongside the
 existing pirate/crisis/signal pills — so the map surfaces everything the
 Operations board tracks, spatially. Tests: `galaxymarkers.js`.
 
-This completes the player fleet: build → mission → ally → haul → battle group.
+## Slice 7 (shipped) — personal convoy: extending the player's own cargo hold
+Slice 4's freight convoys are stationary at a colony, hauling *that colony's*
+goods. This slice is the travel-companion mirror: a `status:"convoy"` fleet
+ship rides **with the player**, resolving on the per-jump travel-ambush
+cadence (`maybeAmbush`, combat.js) instead of a per-cycle timer.
+
+- `assignConvoy(shipId)` / `recallConvoy(shipId)` — only an **idle ship docked
+  at its own home port** can come aboard (there's no "current location"
+  tracked for idle ships beyond `home`, so the player must physically
+  rendezvous with it); indefinite until recalled, same as `logistics`/
+  `mission`.
+- **Cargo**: `convoyCargoBonus()` sums convoy-status freighters' `cap`
+  (damaged ones haul less, same `hull/hullMax` shape as `escShipFP`), added
+  straight into `cargoCap()` — but capped at `convoyCargoCeiling()`
+  (`BASE_CARGO + upgrades.cargo*150`, i.e. the player's *own* Cargo Hold
+  investment). Upgrading Cargo Hold raises both your own hold and the
+  convoy's usable ceiling, so the two reinforce rather than one making the
+  other pointless — a real second hold, not a way to skip the upgrade.
+- **Cost**: `convoyFuelSurcharge()` adds +8% fuel per jump per convoy ship
+  (any role), capped at +50% — hooked into `fuelCost()`. This is the second
+  lever against just stacking cheap freighters past the cargo ceiling: it
+  keeps climbing with zero further cargo benefit once you're capped.
+- **Escort**: `convoyGuardCount()` = convoy-status **warships** *plus* any
+  pirate band currently `bandFollowing()` — reusing that mechanic as-is (a
+  following band already travels with you every cycle, `processBandSupport`;
+  this just gives that state a second job). Guards damp travel-ambush odds
+  in `maybeAmbush()` (`×0.45^guards`, the same shape `processConvoys` already
+  uses for stationed colony guards), and if an ambush slips through anyway,
+  `convoyAmbushRisk(lvl)` swipes at one convoy freighter — damage/credit loss
+  scaled by `1/(1+guards)` (again reusing `processConvoys`' own formula),
+  hull 0 → lost with its cargo.
+- A ship on convoy duty can't be scrapped until recalled. UI: a "🚚 Personal
+  Convoy" card in the Fleet tab's Assignments sub-tab (bonus cargo + ceiling,
+  fuel surcharge, guard count/odds, roster + recall, add-ship buttons scoped
+  to idle ships docked here) and convoy status in the roster + Operations
+  board. No galaxy-map marker — unlike a stationed logistics convoy, a
+  personal convoy has no fixed planet to pin.
+- Deliberately **out of scope for this slice**: convoy warships/bands don't
+  yet add firepower to actually *fighting* an ambush that occurs (`
+  encounterFight()` has no multi-actor machinery today, unlike raid combat's
+  `combatStrike()`) — a natural, separately-audited follow-up once this
+  slice's numbers have been played. Exports added. Tests: `convoy.test.js`.
+
+This completes the player fleet: build → mission → ally → haul → battle group
+→ personal convoy.

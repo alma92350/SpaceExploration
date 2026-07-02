@@ -11,11 +11,11 @@
 
    Loaded after politics.js, before game.js. combatLocked, actionsLeft,
    useAction, currentPlanet, fxMult, isVisible, rollFx, spawnSignal,
-   maybeAmbush, maybeInterdict, endTurn, releaseBattleGroup and
-   afterAction still live in combat.js/state.js/galaxygen.js/game.js at
-   this point in the split — safe, since every function here is only
-   CALLED later, once every script has finished loading, same pattern as
-   every prior slice.
+   maybeAmbush, maybeInterdict, endTurn, releaseBattleGroup, afterAction
+   and convoyFuelSurcharge still live in combat.js/state.js/galaxygen.js/
+   game.js/fleet.js at this point in the split — safe, since every function
+   here is only CALLED later, once every script has finished loading, same
+   pattern as every prior slice.
    ============================================================ */
 
 "use strict";
@@ -213,6 +213,7 @@ function fuelCost(destId) {
   cost *= 1 - S.upgrades.engine * 0.12;
   if (S.techs.warpdrive) cost *= 0.8;
   cost *= fxMult("fuelMult");                 // Clean Burn / Ion Storm Fortunes
+  cost *= 1 + (typeof convoyFuelSurcharge === "function" ? convoyFuelSurcharge() : 0);   // towing a personal convoy burns extra
   return Math.max(1, Math.round(cost));
 }
 function travel(destId) {

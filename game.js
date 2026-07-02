@@ -255,12 +255,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.80.0";
+const APP_VERSION = "2.81.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.81.0", notes: "New: 🚚 Personal Convoy (✦ Fleet tab → Assignments). Bring idle freighters along on your own trading runs for a real second cargo hold — capped by your Cargo Hold upgrade tier so it's an extension, not a replacement. Costs extra fuel per jump to tow, and pirates ambushing you will take a swipe at it too — but a warship of your own, or a pirate band riding with you, cuts the odds of an ambush happening at all and softens the blow if one slips through. Ships join from their own home port; recall any time." },
   { version: "2.80.0", notes: "Ship-building now costs more than metal and credits. Every freighter and warship needs ☢️ Radioactives for its propulsion core; anything past the entry-level hull (Medium Freighter+, Frigate+) also needs 🧠 AI Cores for its avionics. Warships additionally need 🔫 Weapons and 🛸 Combat Drones to arm their turrets and bays at every tier. New: 💥 Plasma Torpedoes, a Strategic commodity (craftable once Antimatter Containment is researched) exclusively required for the Battleship's capital-grade armament." },
   { version: "2.79.0", notes: "UI: the ✦ Fleet tab is now split into three sub-tabs — 📊 Fleet Status (your roster), 🎯 Assignments (system missions + logistics duty), and 🏗️ Shipyard (build queue) — instead of one long scroll. No gameplay changes." },
   { version: "2.78.1", notes: "Internal: code-smell cleanup. Removed a duplicate, unreachable huntPirates() declaration in combat.js (a live one already existed as an alias for prowl()). Fixed freshState() to set S.eink (it was silently relying on a lazy backfill, so mid-session New Game left it undefined until something else patched it), then stripped reserveOf() down to its own job — it was re-running a dozen unrelated one-time save-migration checks on every single call. No gameplay changes." },

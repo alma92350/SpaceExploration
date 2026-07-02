@@ -121,7 +121,7 @@ function freshState(opts = {}) {
   };
 }
 
-function cargoCap()  { return Math.max(20, BASE_CARGO + S.upgrades.cargo * 150 + (typeof fxAdd === "function" ? fxAdd("cargoBonus") : 0)); }
+function cargoCap()  { return Math.max(20, BASE_CARGO + S.upgrades.cargo * 150 + (typeof fxAdd === "function" ? fxAdd("cargoBonus") : 0) + (typeof convoyCargoBonus === "function" ? convoyCargoBonus() : 0)); }
 function fuelCap()   { return BASE_FUEL + S.upgrades.fueltank * 40; }
 function cargoUsed() { return CARGO_IDS.reduce((s, id) => s + (S.res[id] || 0), 0); }
 function cargoFree() { return cargoCap() - cargoUsed(); }

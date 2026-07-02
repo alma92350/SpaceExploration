@@ -37,15 +37,17 @@ function renderFleet() {
     const shipRow = s => {
       const def = FLEET_SHIPS[s.key]; if (!def) return "";
       const homeName = (PLANETS.find(p => p.id === s.home) || {}).name || "—", here = s.home === pid && yard > 0, rc = fleetRepairCost(s);
-      const onMission = s.status === "mission" && s.mission, onLogi = s.status === "logistics";
+      const onMission = s.status === "mission" && s.mission, onLogi = s.status === "logistics", onConvoy = s.status === "convoy";
       const status = s.status === "building" ? `<span style="color:var(--warn)">🏗️ building (${s.buildLeft} cyc)</span>`
         : onMission ? `<span style="color:var(--accent)">🎯 ${MANDATE_TASKS[s.mission.task].name} @ ${mdPlanetName(s.mission.planet)} (${s.mission.cyclesLeft} cyc · +${fmt(s.mission.accrued)} cr)</span>`
         : s.status === "escort" ? `<span style="color:var(--accent)">🛡️ escorting a convoy</span>`
         : onLogi ? `<span style="color:var(--accent)">${def.role === "freighter" ? "🚚 hauling for" : "🛡️ guarding"} ${mdPlanetName(s.station)}</span>`
+        : onConvoy ? `<span style="color:var(--accent)">🚚 riding in your personal convoy</span>`
         : `<span style="color:var(--good)">idle</span>`;
       const repBtn = (s.status === "idle" && rc.miss > 0 && here) ? `<button class="btn btn-sm" title="Repair at home shipyard" onclick="repairFleetShip('${s.id}')">🔧 ${fmt(rc.credits)}</button>` : "";
       const ctlBtn = onMission ? `<button class="btn btn-sm" title="Recall — bank what it's earned" onclick="recallFleetMission('${s.id}')">↩ Recall</button>`
         : onLogi ? `<button class="btn btn-sm" title="Recall from logistics duty" onclick="recallLogistics('${s.id}')">↩ Recall</button>`
+        : onConvoy ? `<button class="btn btn-sm" title="Recall from your convoy" onclick="recallConvoy('${s.id}')">↩ Recall</button>`
         : s.status === "building" || s.status === "escort" ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvage some metals)" onclick="scrapShip('${s.id}')">♻️</button>`;
       const spec = def.role === "warship" ? `🔥${fleetShipStr(def)} · 🛡️${s.hullMax}` : `📦${def.cap} cargo`;
       return `<div class="ship-stat" style="align-items:center">
@@ -107,7 +109,33 @@ function renderFleet() {
         ${idleWar2.length ? `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Assign guard</span> ${warBtns}</div>` : ""}
         ${!idleFr.length && !idleWar2.length ? '<div class="hint" style="margin-top:6px">No idle ships to assign — build more, or recall some.</div>' : ""}</div>`;
     }
-    body = `${missionCard}${logiCard}${!missionCard && !logiCard ? '<div class="card"><div class="hint">No idle warships to dispatch, and no colonies yet to station freighters at. Build a ship in the 🏗️ Shipyard tab, or found a colony first.</div></div>' : ""}`;
+    // ---- personal convoy: freighters ride WITH you; warships + following bands escort ----
+    let convoyCard = "";
+    if (f.length) {
+      const inConvoy = convoyShips(), frGuardN = convoyWarships().length, bandGuards = bandList().filter(bandFollowing);
+      const guards = frGuardN + bandGuards.length;
+      const bonus = convoyCargoBonus(), ceil = convoyCargoCeiling();
+      const surcharge = Math.round(convoyFuelSurcharge() * 100);
+      const oddsPct = Math.round(Math.pow(0.45, guards) * 100);
+      const idleFrHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
+      const idleWarHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
+      const rosterRows = inConvoy.map(s => { const d = FLEET_SHIPS[s.key];
+        return `<div class="ship-stat"><span class="k">${d.ico} ${s.name}</span><span class="v">${d.role === "freighter" ? `📦${d.cap}` : `🔥${fleetShipStr(d)}`} · ${Math.round(s.hull)}/${s.hullMax} <button class="btn btn-sm" onclick="recallConvoy('${s.id}')">↩ Recall</button></span></div>`;
+      }).join("");
+      const frBtns = idleFrHere.map(s => `<button class="btn btn-sm btn-good" onclick="assignConvoy('${s.id}')">🚚 ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
+      const warBtns = idleWarHere.map(s => `<button class="btn btn-sm" onclick="assignConvoy('${s.id}')">🛡️ ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
+      convoyCard = `<div class="card"><h4>🚚 Personal Convoy</h4>
+        <div class="hint">Have freighters ride with you on every jump — a second hold on the road, on top of your own ship's. It costs extra fuel to tow, and it isn't risk-free: pirates ambushing you also take a swipe at the convoy. Warships (and any pirate bands currently riding with you) escort it — cutting the odds of a travel ambush, and softening the blow if one slips through anyway. Only idle ships docked <b>here</b>, at their home port, can come aboard.</div>
+        <div class="ship-stat"><span class="k">Bonus cargo</span><span class="v">+${fmt(bonus)}${bonus >= ceil && ceil > 0 ? ` <span class="hint">(capped — Cargo Hold upgrade sets the ceiling: ${fmt(ceil)})</span>` : ` <span class="hint">of a ${fmt(ceil)} ceiling</span>`}</span></div>
+        <div class="ship-stat"><span class="k">Fuel surcharge</span><span class="v">+${surcharge}% per jump</span></div>
+        <div class="ship-stat"><span class="k">Guards</span><span class="v">${frGuardN} warship(s)${bandGuards.length ? ` + ${bandGuards.length} following band(s)` : ""} → ambush odds ×${oddsPct}%</span></div>
+        ${bandGuards.length ? `<div class="hint">🏴 Following: ${bandGuards.map(b => b.ico + " " + b.name).join(", ")} (manage from 🤝 Contacts).</div>` : ""}
+        ${inConvoy.length ? rosterRows : '<div class="hint">No ships in your convoy yet.</div>'}
+        ${idleFrHere.length ? `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Add freighter</span> ${frBtns}</div>` : ""}
+        ${idleWarHere.length ? `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Add warship</span> ${warBtns}</div>` : ""}
+        ${!idleFrHere.length && !idleWarHere.length && !inConvoy.length ? '<div class="hint" style="margin-top:6px">No idle ships docked here — build one, or fly to where an idle ship of yours is stationed.</div>' : ""}</div>`;
+    }
+    body = `${missionCard}${logiCard}${convoyCard}${!missionCard && !logiCard && !convoyCard ? '<div class="card"><div class="hint">No idle warships to dispatch, no colonies yet to station freighters at, and no idle ships docked here for a convoy. Build a ship in the 🏗️ Shipyard tab, or found a colony first.</div></div>' : ""}`;
   } else {
     let yardCard;
     if (!col) yardCard = `<div class="card"><div class="hint">🏗️ Dock at one of your colonies with a <b>Shipyard</b> to build ships. (Build a Shipyard in the 🌍 Colonies tab — it needs Metallurgy.)</div></div>`;
