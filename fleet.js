@@ -91,6 +91,26 @@ function repairFleetShip(id) {
   S.res.credits -= c.credits; S.res.metals -= c.metals; s.hull = s.hullMax;
   log(`🔧 Repaired the ${s.name} for ${fmt(c.credits)} cr.`, "good"); toast("Ship repaired", "good"); sfx("repair"); saveGame(); renderAll();
 }
+// ---- reassign a ship's home shipyard — lets a fleet built up piecemeal across
+// several colonies be consolidated (or just moved closer to where you operate),
+// since repair, convoy assignment and slipway accounting are all keyed off `home` ----
+function shipyardReassignCost(def) { return Math.max(200, Math.round(def.cost.credits * 0.08)); }
+function reassignShipyard(shipId) {
+  const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
+  if (!s || !def) return;
+  if (s.status !== "idle") return toast(`The ${s.name} isn't free.`, "bad");
+  const pid = S.location, yard = colonyShipyardTier(pid);
+  if (yard <= 0) return toast("This colony has no Shipyard — build one in the Colonies tab.", "bad");
+  if (def.tier > yard) return toast(`A Tier ${yard} Shipyard can't service a ${def.name} — needs Tier ${def.tier}.`, "bad");
+  if (s.home === pid) return toast(`The ${s.name} is already based here.`, "bad");
+  const cost = shipyardReassignCost(def);
+  if ((S.res.credits || 0) < cost) return toast(`Re-registering home port costs ${fmt(cost)} cr.`, "bad");
+  S.res.credits -= cost;
+  const oldHome = (PLANETS.find(p => p.id === s.home) || {}).name || "its old port";
+  s.home = pid;
+  log(`⚓ Your ${def.ico} ${s.name} re-registers its home port from ${oldHome} to <span class="c">${currentPlanet().name}</span> for ${fmt(cost)} cr.`, "event");
+  toast(`${s.name} now based at ${currentPlanet().name}`, "good"); sfx("event"); saveGame(); renderAll();
+}
 // ---- fleet warships as loyal, free combat allies (raids & escorts) ----
 function fleetRaidable() { return fleetList().filter(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }   // your warships are 100% callable
 function fleetAsAlly(s) { const def = FLEET_SHIPS[s.key]; return { isFleet: true, fleetId: s.id, allyName: s.name, name: s.name, ico: def.ico, strength: Math.round(fleetShipStr(def) * 2.5), share: 0 }; }   // loyal, no loot cut

@@ -1,5 +1,5 @@
 {
-  "version": "2.81.0",
+  "version": "2.82.0",
   "saveVersion": "v2",
-  "notes": "New: Personal Convoy — bring idle freighters along on your own trading runs for extra cargo capacity, escorted by your own warships or a following pirate band."
+  "notes": "New: reassign a fleet ship's home shipyard to a different colony (for a fee) — consolidate a piecemeal-built fleet at one yard."
 }
