@@ -1,5 +1,5 @@
 {
-  "version": "2.63.0",
+  "version": "2.64.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the outlaw path (navy interdiction, the Pirate Haven, Privateer Commissions, and the Pirate Lord / Sector Marshal capstone legacies) out into its own file, outlaw.js — slice 12 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the content catalogs (ship Upgrades, the Technology tree, faction Missions, the public Office ladder, political Organizations, Senate Bills, and base/colony building catalogs) out into their own file, catalogs.js — slice 13 of the game.js split. No gameplay changes."
 }
