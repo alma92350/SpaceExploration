@@ -495,7 +495,7 @@ function subTabBar(panel, views) {
 }
 function setSubView(panel, v) {
   subViews[panel] = v;
-  ({ ship: renderShipPanel, research: renderResearch, industry: renderIndustry, colonies: renderColonies, bases: renderBases, contacts: renderContacts }[panel] || renderAll)();
+  ({ ship: renderShipPanel, research: renderResearch, industry: renderIndustry, colonies: renderColonies, bases: renderBases, contacts: renderContacts, fleet: renderFleet }[panel] || renderAll)();
 }
 
 /* ----- Ship ----- */
