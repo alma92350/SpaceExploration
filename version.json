@@ -1,5 +1,5 @@
 {
-  "version": "2.76.0",
+  "version": "2.77.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the fourth and last tab-specific slice of the rendering layer — the Bases, Colonies, and Escort tabs — out into their own file, renderSettlement.js — slice 25 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the fifth and final tab-specific slice of the rendering layer — the Fleet and Fortunes tabs — out into their own file, renderFleetFortunes.js — slice 26 of the game.js split. renderAll() is now the only rendering function left in game.js. No gameplay changes."
 }
