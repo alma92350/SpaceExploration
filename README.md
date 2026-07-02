@@ -383,13 +383,14 @@ pirateBands.js — named pirate crews: standing, feuds/truces, tags, call-for-su
 raiding.js   — raid resolution, plunder, dockside/field ship repair
 sector4x.js  — sector 4X layer: rising pirate powers, territory contest, faction relations
 outlaw.js    — the outlaw path: navy interdiction, Pirate Haven, Privateer Commissions, capstone legacies
+politics.js  — research & politics actions: orgs, the Senate, trade-law lobbying, investigations, offices
 game.js      — game logic (economy, factions, production, rendering, save)
 test/        — automated tests (Node's built-in test runner, no dependencies)
 ```
 
 `data.js`, `galaxygen.js`, `catalogs.js`, `crises.js`, `state.js`, `pricing.js`,
 `feedback.js`, `resources.js`, `combat.js`, `pirateBands.js`, `raiding.js`,
-`sector4x.js`, `outlaw.js` and `game.js`
+`sector4x.js`, `outlaw.js`, `politics.js` and `game.js`
 are all plain classic `<script>` tags (no `type="module"`, no bundler)
 sharing one global
 scope, in that load
