@@ -392,6 +392,7 @@ frontier.js  — the logistics network, exploration, and win condition/milestone
 mandates.js  — commission a pirate band to work a system for several cycles
 escort.js    — convoy escort: the expert-gated fleet-command combat tab
 renderCore.js — rendering, slice 1: always-visible UI chrome and the Galaxy tab
+renderProgression.js — rendering, slice 2: Market, Industry, Research, Politics, Missions
 game.js      — game logic (economy, factions, production, rendering, save)
 test/        — automated tests (Node's built-in test runner, no dependencies)
 ```
@@ -400,7 +401,7 @@ test/        — automated tests (Node's built-in test runner, no dependencies)
 `feedback.js`, `resources.js`, `combat.js`, `pirateBands.js`, `raiding.js`,
 `sector4x.js`, `outlaw.js`, `politics.js`, `economy.js`, `colonization.js`,
 `fleet.js`, `fortunes.js`, `frontier.js`, `mandates.js`, `escort.js`,
-`renderCore.js` and `game.js`
+`renderCore.js`, `renderProgression.js` and `game.js`
 are all plain classic `<script>` tags (no `type="module"`, no bundler)
 sharing one global
 scope, in that load
