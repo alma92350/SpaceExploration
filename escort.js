@@ -21,6 +21,10 @@
    ============================================================ */
 
 "use strict";
+/* optional performance bonus from the arcade intercept minigame (minigames.js) —
+   set for the exact duration of one escortFire() call by the caller, then
+   cleared by that same caller; read here but never mutated. */
+let _escortMult = null;   // { off, def } while a manually-played round is resolving, else null
 const ESCORT_FLEET = { escorts: 2, freighters: 2 };
 const ESCORT_MAX_HIRED = 5;         // how many pirate bands you can field as hired escorts
 const ESCORT_ESCORT_FP = 13;        // base firepower per escort (× ship class)
@@ -168,7 +172,7 @@ function escShipFP(sh) {
   const base = sh.role === "flagship" ? escFlagshipFP() : sh.str * (0.5 + 0.5 * (sh.hull / sh.hullMax));   // a battered ship shoots less
   return base * (1 + stanceProfile(sh).atk);               // an aggressive/balanced stance adds firepower
 }
-function escortFirepower() { return Math.round(escortFleet().reduce((s, sh) => s + escShipFP(sh), 0) * escortPosture().off); }
+function escortFirepower() { return Math.round(escortFleet().reduce((s, sh) => s + escShipFP(sh), 0) * escortPosture().off * (_escortMult ? _escortMult.off : 1)); }
 function escortAliveFoes() { const w = S.escort && S.escort.wave; return w ? w.foes.filter(f => f.hp > 0) : []; }
 // Live threat tracks pirate activity at BOTH ends of the route, so hunting
 // pirates there (Raider tab) before you set out genuinely lowers the danger.
@@ -412,7 +416,7 @@ function escortEnemyTurn() {
     let sh = (f.intent != null && f.intent >= 0 && fleet[f.intent] && escShipAlive(fleet[f.intent])) ? fleet[f.intent] : null;
     if (!sh) sh = fleet[chooseIntent(f, e.posture === "screen")];   // intended target gone — re-pick now
     if (!sh) return;
-    let dmg = Math.max(1, Math.round(f.dmg * (f.dmgMul || 1) * (0.7 + Math.random() * 0.6) * defMod * rally));
+    let dmg = Math.max(1, Math.round(f.dmg * (f.dmgMul || 1) * (0.7 + Math.random() * 0.6) * defMod * rally * (_escortMult ? _escortMult.def : 1)));
     if (f._alpha) { dmg = Math.round(dmg * 2); f._alpha = false; log(`💥 ${f.ico} ${f.name} unloads an alpha strike!`, "bad"); }
     dmg = Math.max(1, Math.round(dmg * (1 - stanceProfile(sh).mit)));   // a defensive/balanced stance soaks the hit
     if (sh.role === "flagship") {
