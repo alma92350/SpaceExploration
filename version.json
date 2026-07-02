@@ -1,5 +1,5 @@
 {
-  "version": "2.79.0",
+  "version": "2.80.0",
   "saveVersion": "v2",
-  "notes": "UI: split the Fleet tab into three sub-tabs (Fleet Status, Assignments, Shipyard). No gameplay changes."
+  "notes": "Ship-building material overhaul: radioactives for propulsion, AI cores past entry-level hulls, weapons & drones for warships, and a new Plasma Torpedoes commodity exclusive to the Battleship."
 }
