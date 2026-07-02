@@ -1,5 +1,5 @@
 {
-  "version": "2.72.0",
+  "version": "2.73.0",
   "saveVersion": "v2",
-  "notes": "Internal: split Convoy Escort (the expert-gated fleet-command tab) out into its own file, escort.js — slice 21 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the first slice of the rendering layer — the always-visible UI chrome (resources bar, ship stats, operations digest, log) and the Galaxy tab — out into its own file, renderCore.js — slice 22 of the game.js split. No gameplay changes."
 }
