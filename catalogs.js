@@ -462,6 +462,9 @@ function colonyBuildingList(planet) {
     { id: "antimatter_forge", name: "Antimatter Forge", ico: "🌀", tiers: 4, baseCost: 5200, costMul: 1.8, req: "antimatter", pollute: 0.6,
       recipe: { in: { relics: 2, electronics: 1, energy: 3 }, out: "antimatter", outQty: 1, rate: 1, stage: 5 },
       desc: "Binds Relics + Electronics into Antimatter — the apex of colonial industry." },
+    { id: "torpedo_works", name: "Torpedo Works", ico: "💥", tiers: 4, baseCost: 5600, costMul: 1.8, req: "antimatter", pollute: 0.5,
+      recipe: { in: { antimatter: 1, alloys: 2, radioactives: 2 }, out: "plasmatorp", outQty: 1, rate: 1, stage: 6 },
+      desc: "Mates Antimatter warcores to alloy casings — Plasma Torpedoes, the heaviest ordnance in the sector. Pairs with an Antimatter Forge on the same world." },
     { id: "scrubber", name: "Atmo Scrubber",   ico: "🌬️", tiers: 5, baseCost: 2800, costMul: 1.65,
       desc: "Scrubs industrial pollution from air and soil — keeps an industrial world livable." },
     { id: "lab",     name: "Research Campus",  ico: "🔬", tiers: 6, baseCost: 3000, costMul: 1.7,
@@ -484,7 +487,7 @@ function colonyBuildingMats(def, nextTier) {
   const mats = { metals: 10 + nextTier * 7 };
   if (["factory", "lab", "spaceport", "garrison", "shipyard", "reactor", "foundry", "fabricator",
        "machine_works", "luxury_atelier", "pharma_lab", "arms_factory", "antimatter_forge",
-       "drone_works", "datacenter"].includes(def.id)
+       "torpedo_works", "drone_works", "datacenter"].includes(def.id)
       || ADVANCED_MODULES.includes(def.id))
     mats.electronics = 2 + nextTier * 2;
   return mats;
