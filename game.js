@@ -255,12 +255,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.78.0";
+const APP_VERSION = "2.78.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.78.1", notes: "Internal: code-smell cleanup. Removed a duplicate, unreachable huntPirates() declaration in combat.js (a live one already existed as an alias for prowl()). Fixed freshState() to set S.eink (it was silently relying on a lazy backfill, so mid-session New Game left it undefined until something else patched it), then stripped reserveOf() down to its own job — it was re-running a dozen unrelated one-time save-migration checks on every single call. No gameplay changes." },
   { version: "2.78.0", notes: "Internal: split persistence (the localStorage autosave, the Captain's Log narrative export, and portable save-file export/import) out into its own file, persistence.js — slice 27 of the game.js split. No gameplay changes." },
   { version: "2.77.0", notes: "Internal: split the fifth and final tab-specific slice of the rendering layer — the Fleet and Fortunes tabs — out into their own file, renderFleetFortunes.js — slice 26 of the game.js split. renderAll() is now the only rendering function left in game.js. No gameplay changes." },
   { version: "2.76.0", notes: "Internal: split the fourth and last tab-specific slice of the rendering layer — the Bases, Colonies, and Escort tabs — out into their own file, renderSettlement.js — slice 25 of the game.js split. No gameplay changes." },
