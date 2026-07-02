@@ -1,5 +1,5 @@
 {
-  "version": "2.75.0",
+  "version": "2.76.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the third slice of the rendering layer — the Raid, Contacts, and Ship tabs — out into their own file, renderCombat.js — slice 24 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the fourth and last tab-specific slice of the rendering layer — the Bases, Colonies, and Escort tabs — out into their own file, renderSettlement.js — slice 25 of the game.js split. No gameplay changes."
 }
