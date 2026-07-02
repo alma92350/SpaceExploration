@@ -45,6 +45,8 @@ function renderFleet() {
         : onConvoy ? `<span style="color:var(--accent)">🚚 riding in your personal convoy</span>`
         : `<span style="color:var(--good)">idle</span>`;
       const repBtn = (s.status === "idle" && rc.miss > 0 && here) ? `<button class="btn btn-sm" title="Repair at home shipyard" onclick="repairFleetShip('${s.id}')">🔧 ${fmt(rc.credits)}</button>` : "";
+      const canReassign = s.status === "idle" && !here && yard > 0 && def.tier <= yard;
+      const reassignBtn = canReassign ? `<button class="btn btn-sm" title="Re-register this ship's home port to ${currentPlanet().name} (${fmt(shipyardReassignCost(def))} cr)" onclick="reassignShipyard('${s.id}')">⚓ Reassign here</button>` : "";
       const ctlBtn = onMission ? `<button class="btn btn-sm" title="Recall — bank what it's earned" onclick="recallFleetMission('${s.id}')">↩ Recall</button>`
         : onLogi ? `<button class="btn btn-sm" title="Recall from logistics duty" onclick="recallLogistics('${s.id}')">↩ Recall</button>`
         : onConvoy ? `<button class="btn btn-sm" title="Recall from your convoy" onclick="recallConvoy('${s.id}')">↩ Recall</button>`
@@ -52,7 +54,7 @@ function renderFleet() {
       const spec = def.role === "warship" ? `🔥${fleetShipStr(def)} · 🛡️${s.hullMax}` : `📦${def.cap} cargo`;
       return `<div class="ship-stat" style="align-items:center">
         <span class="k">${def.ico} ${s.name} <span class="hint">${SHIP_CLASSES[def.cls].name} · ${spec} · ⚓ ${homeName}</span></span>
-        <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${ctlBtn}</span></div>`;
+        <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${reassignBtn}${ctlBtn}</span></div>`;
     };
     const warships = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
     const freighters = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");

@@ -20,11 +20,18 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   `processFleet`, reported to the 💰 Cycle accounts ledger as "fleet upkeep".
 - **Repair** (`repairFleetShip`) and **scrap** (`scrapShip`, ~40% metals salvage)
   at the ship's home shipyard.
+- **Reassign home shipyard** (`reassignShipyard`) — an idle ship can re-register
+  its home port to whatever colony you're currently docked at, provided that
+  colony's Shipyard tier can service it (`def.tier <= yard`, same gate as
+  construction). Costs a flat logistics fee (`shipyardReassignCost`, 8% of the
+  ship's credit cost, floored at 200cr) — for consolidating a fleet built
+  piecemeal across several colonies, since repair, convoy assignment (Slice 7)
+  and slipway accounting are all keyed off `home`.
 - **UI**: new **✦ Fleet tab** (`renderFleet`, `#panel-fleet`, `TAB_LADDER` entry
   unlocking once you hold a colony) — roster (warships / freighters, hull bars,
-  status, repair/scrap) + the current colony's shipyard build menu.
+  status, repair/reassign/scrap) + the current colony's shipyard build menu.
 - State: `S.fleet` (freshState + init migrate). Exports: `orderShip`, `scrapShip`,
-  `repairFleetShip`. Tests: `fleet.js`.
+  `repairFleetShip`, `reassignShipyard`. Tests: `fleet.js`, `reassign.test.js`.
 
 ## Stats
 - `fleetShipHullMax` / `fleetShipStr` derive from `SHIP_CLASSES` (warships) or
