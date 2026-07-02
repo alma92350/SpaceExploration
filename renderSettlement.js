@@ -550,7 +550,8 @@ function renderEscort() {
       <div class="row" style="margin:8px 0">
         ${e.pendingRedeploy
           ? `<button class="btn btn-primary" onclick="escortBraceRound()">🛡️ Brace (end round)</button>`
-          : `<button class="btn btn-primary" onclick="escortFire()">🔥 Open fire</button>`}
+          : `<button class="btn btn-primary" onclick="escortFire()">🔥 Open fire</button>
+             <button class="btn btn-sm" title="Play a manual intercept round for a shot at bonus salvo damage and lighter return fire — one blip per live attacker, tap each before its ring closes. Cancel any time for no bonus, no penalty." onclick="startEscortIntercept()">🕹️ Man the Guns</button>`}
         <button class="btn btn-sm ${canRun ? "btn-good" : ""}" ${canRun ? "" : "disabled"} title="${canRun ? "Every attacker's drive is crippled — slip away and continue" : "Cripple every attacker's 🚀 engines to break off"}" onclick="escortBreakOff()">🚀 Break off &amp; run</button>
         <button class="btn btn-sm" onclick="escortRepair()" title="Patch the flagship (+${FIELD_REPAIR.hull} hull, ${matsString(FIELD_REPAIR.mats)}) — you hold fire this round">🔧 Field repair (flagship)</button>
         ${postBtns}

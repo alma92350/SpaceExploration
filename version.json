@@ -1,5 +1,5 @@
 {
-  "version": "2.79.0",
+  "version": "2.80.0",
   "saveVersion": "v2",
-  "notes": "New: optional colony aerial-defense minigame — man the guns yourself when pirates hit a garrisoned colony, or auto-resolve as before."
+  "notes": "New: two more optional arcade minigames — a raid/ambush dogfight and an escort intercept round — each an optional alternative to firing normally, for a shot at a better outcome."
 }
