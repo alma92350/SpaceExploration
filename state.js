@@ -114,6 +114,7 @@ function freshState(opts = {}) {
     made: {},                  // first-manufactured commodities (drives disclosure & objectives)
     showAllTabs: false,        // veteran toggle: reveal every tab at once
     sound: true,               // procedural SFX on/off
+    eink: false,               // high-contrast e-ink display mode
     pirateIntel: null,         // bought pirate-activity chart { worlds, until, scope }
     achieved: {},
     won: false,

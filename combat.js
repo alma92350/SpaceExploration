@@ -444,26 +444,6 @@ function genPirate(level) {
   applyShipClass(foe, rollShipClass());
   return maybeElite(foe);
 }
-function huntPirates() {
-  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
-  if (S.interdiction) return toast("Deal with the navy first.", "bad");
-  if (S.encounter) return toast("You're already in a fight.", "bad");
-  if (S.prey) return toast("You're already shadowing a target.", "bad");
-  const p = currentPlanet(), lvl = pirateLevel(p.id);
-  if (lvl <= 0) return toast("No pirate activity to hunt here.", "bad");
-  if (S.res.fuel < PROWL_FUEL) return toast(`Need ${PROWL_FUEL} fuel to sweep the system.`, "bad");
-  S.res.fuel -= PROWL_FUEL; useAction();
-  if (Math.random() < 0.12) {
-    log("🎯 You swept the system but the pirates kept to their holes.", "");
-    toast("No pirates found.", "");
-    return afterAction();
-  }
-  S.prey = genPirate(pirateOpposition(lvl));
-  bindBand(S.prey);                                       // this contact belongs to a (possibly known) band
-  if (S.prey.elite) { log(`💀 ELITE contact: <span class="c">${S.prey.name}</span>${(S.prey.escorts || 0) > 0 ? ` and ${S.prey.escorts} escort(s)` : ""} — bounty ${fmt(S.prey.bounty)} cr. A dangerous mark.`, "event"); toast(`Elite raider: ${S.prey.name}!`, "event"); }
-  else { log(`🎯 Pirate contact: a ${S.prey.ico} <span class="c">${S.prey.name}</span> — bounty ${fmt(S.prey.bounty)} cr on its head.`, "event"); toast(`Pirate sighted: ${S.prey.name}`, "event"); }
-  afterAction();
-}
 function pirateKillRewards(prey) {
   const p = currentPlanet();
   if (!S.pirates) S.pirates = {};

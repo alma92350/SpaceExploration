@@ -7,11 +7,10 @@
    ores/relics barely at all); and the pollution/climate footprint industry
    and extraction leave behind, which decays when the player eases off.
 
-   Loaded after feedback.js, before game.js. combatLocked, fxMult,
-   checkUnlocks and nonFrontierPlanets still live in game.js/galaxygen.js
-   at this point in the split — safe, since every function here is only
-   CALLED later, once every script has finished loading, same pattern as
-   every prior slice.
+   Loaded after feedback.js, before game.js. combatLocked, fxMult and
+   nonFrontierPlanets still live in game.js/galaxygen.js at this point in
+   the split — safe, since every function here is only CALLED later, once
+   every script has finished loading, same pattern as every prior slice.
    ============================================================ */
 
 "use strict";
@@ -47,21 +46,6 @@ const RESERVE_PER_DEP = 2500;                       // reserve stock per 1.0 of 
 const RENEWABLE_RES = { biomass: true, spice: true, ice: true, gas: true };
 function reserveOf(pid, c) {
   if (!S.reserves) S.reserves = {};
-  if (!S.crises) S.crises = {};
-  if (!S.journal) S.journal = [];
-  if (!S.pirates) S.pirates = {};
-  if (S.pirateCalm == null) S.pirateCalm = 0;
-  if (S.encounter === undefined) S.encounter = null;
-  if (!S.unlocked) { S.unlocked = {}; checkUnlocks(true); }   // veterans keep everything they've earned, silently
-  if (S.showAllTabs == null) S.showAllTabs = false;
-  if (S.sound == null) S.sound = true;
-  if (S.eink == null) S.eink = false;
-  if (S.pirateIntel === undefined) S.pirateIntel = null;
-  if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
-  if (S.res && S.res.drones == null) S.res.drones = 0;
-  if (S.res && S.res.ai == null) S.res.ai = 0;
-  if (!S.pollution) S.pollution = {};
-  if (S.climate == null) S.climate = 0;
   if (!S.reserves[pid]) S.reserves[pid] = {};
   if (!S.reserves[pid][c]) {
     const p = PLANETS.find(x => x.id === pid);
