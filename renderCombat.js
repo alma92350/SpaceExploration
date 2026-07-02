@@ -194,7 +194,7 @@ function renderRaid() {
     const rp = raidPower();
     const odds = rp >= e.strength * 1.2 ? "favorable" : rp >= e.strength * 0.8 ? "even" : "grim";
     const oddsCol = odds === "favorable" ? "var(--good)" : odds === "even" ? "var(--warn)" : "var(--bad)";
-    const fleeOdds = Math.round(Math.max(5, Math.min(95, (0.45 + S.upgrades.engine * 0.15 + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * 100)));
+    const fleeOdds = Math.round(Math.max(5, Math.min(95, (0.45 + S.upgrades.engine * 0.15 * trimMult("autonomy") + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * 100)));
     action = `<div class="card" style="border-color:var(--bad)">
       <h4>🏴‍☠️ Ambush: ${classLabel(e)} <span class="hint">— ${e.name}</span> <span class="pill bad">🏴 Pirate</span></h4>
       <div class="hint">It demands <b>${fmt(e.toll)} 💰</b> to let you pass. Bounty on its head ${fmt(e.bounty)} cr. ${(e.engines||0)>0 ? "Cripple its 🚀 engines if you mean to stop it running." : ""}</div>
@@ -543,6 +543,23 @@ function repairBayHTML() {
     ${anyDamage ? `<button class="btn btn-good" style="margin-top:6px" onclick="repairAll()">🛠️ Full refit (hull + systems)</button>` : '<div class="pill good" style="margin-top:6px">◉ All systems pristine</div>'}
   </div>`;
 }
+function shipTrimHTML() {
+  const pool = trimBuildPool();
+  if (S.trimRefit) {
+    const t = SHIP_TRIMS[S.trimRefit.target], cur = shipTrim();
+    return `<div class="card" style="margin-bottom:12px"><h4>🛠️ Ship Trim <span class="hint">refit in progress</span></h4>
+      <div class="hint">Reconfiguring to ${t.ico} ${t.name} (${t.hint}) — ${S.trimRefit.cyclesLeft} cycle${S.trimRefit.cyclesLeft === 1 ? "" : "s"} left. Running on ${cur.ico} ${cur.name} until it completes.</div></div>`;
+  }
+  const cost = trimRefitCost(), cyc = trimRefitCycles();
+  const rows = Object.keys(SHIP_TRIMS).map(id => {
+    const t = SHIP_TRIMS[id], active = id === S.trim, afford = (S.res.credits || 0) >= cost;
+    return `<div class="ship-stat" style="align-items:center"><span class="k">${t.ico} ${t.name}${active ? ' <span class="pill good">active</span>' : ""} <span class="hint">${t.hint}</span></span>
+      <span class="v">${active ? "" : `<button class="btn btn-sm ${afford ? "" : "disabled"}" title="Refit: ${fmt(cost)} cr · ${cyc} cyc" onclick="setShipTrim('${id}')">Refit (${fmt(cost)} cr · ${cyc} cyc)</button>`}</span></div>`;
+  }).join("");
+  return `<div class="card" style="margin-bottom:12px"><h4>🛠️ Ship Trim <span class="hint">${pool > 0 ? `reallocates ${pool} installed upgrade tier(s) between cargo/firepower/autonomy` : "install some Core/Combat upgrades first — nothing to trade yet"}</span></h4>
+    <div class="hint">A trim is a real commitment: refits cost credits and take cycles to complete, and switching back costs the same as switching away.</div>
+    ${rows}</div>`;
+}
 function renderShipPanel() {
   const el = document.getElementById("panel-ship");
   const cur = subView("ship", SHIP_TAB_VIEWS);
@@ -555,6 +572,7 @@ function renderShipPanel() {
   el.innerHTML = `<h2>Ship Outfitting — S.S. Wanderer</h2>
     <div class="subtitle">Twenty upgrade systems across four bays, three tiers each. Some modules (Gas Scoop, Salvage Rig) unlock new extraction; others (Shielded & Smuggler's Holds) keep contraband out of customs' hands.</div>
     ${repairBayHTML()}
+    ${shipTrimHTML()}
     ${subTabBar("ship", SHIP_TAB_VIEWS)}
     <div class="cards">${cards}</div>`;
 }
