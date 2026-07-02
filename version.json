@@ -1,5 +1,5 @@
 {
-  "version": "2.70.0",
+  "version": "2.71.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the Logistics Network, Exploration, and Win Condition/Milestone tracking out into their own file, frontier.js — slice 19 of the game.js split. No gameplay changes."
+  "notes": "Internal: split Mandates (commission a pirate band to work a system) out into its own file, mandates.js — slice 20 of the game.js split. No gameplay changes."
 }
