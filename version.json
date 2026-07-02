@@ -1,5 +1,5 @@
 {
-  "version": "2.74.0",
+  "version": "2.75.0",
   "saveVersion": "v2",
-  "notes": "Internal: split the second slice of the rendering layer — the Market, Industry, Research, Politics, and Missions tabs — out into their own file, renderProgression.js — slice 23 of the game.js split. No gameplay changes."
+  "notes": "Internal: split the third slice of the rendering layer — the Raid, Contacts, and Ship tabs — out into their own file, renderCombat.js — slice 24 of the game.js split. No gameplay changes."
 }
