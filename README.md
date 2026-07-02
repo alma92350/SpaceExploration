@@ -385,13 +385,15 @@ sector4x.js  — sector 4X layer: rising pirate powers, territory contest, facti
 outlaw.js    — the outlaw path: navy interdiction, Pirate Haven, Privateer Commissions, capstone legacies
 politics.js  — research & politics actions: orgs, the Senate, trade-law lobbying, investigations, offices
 economy.js   — core economy actions: production, trade, black market, contraband, travel, upgrades/techs/missions
+colonization.js — bases, the base<->colony trade network, random contracts, and colonies
 game.js      — game logic (economy, factions, production, rendering, save)
 test/        — automated tests (Node's built-in test runner, no dependencies)
 ```
 
 `data.js`, `galaxygen.js`, `catalogs.js`, `crises.js`, `state.js`, `pricing.js`,
 `feedback.js`, `resources.js`, `combat.js`, `pirateBands.js`, `raiding.js`,
-`sector4x.js`, `outlaw.js`, `politics.js`, `economy.js` and `game.js`
+`sector4x.js`, `outlaw.js`, `politics.js`, `economy.js`, `colonization.js` and
+`game.js`
 are all plain classic `<script>` tags (no `type="module"`, no bundler)
 sharing one global
 scope, in that load
