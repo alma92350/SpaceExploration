@@ -324,9 +324,9 @@ function renderRaid() {
       ${ready ? `<button class="btn btn-primary" style="margin-top:8px" onclick="marshalLegacy()">⚖️ Claim your badge</button>` : ""}
     </div>`;
   }
-  // ---- Pirate intel charts ----
-  const mapBtns = Object.entries(PIRATE_MAP).map(([k, m]) =>
-    `<button class="btn btn-sm" ${S.res.credits >= m.cost ? "" : "disabled"} title="Reveal pirate activity ${m.ly === Infinity ? "across the whole sector" : "within " + m.ly + " ly"} for ${PIRATE_INTEL_DURATION} cycles" onclick="buyPirateMap('${k}')">${m.ico} ${m.name} (${fmt(m.cost)} 💰)</button>`).join(" ");
+  // ---- Pirate intel charts (the Deep-space tier stays off the shelf until you've found an edge world) ----
+  const mapBtns = Object.entries(PIRATE_MAP).filter(([, m]) => !m.frontier || edgeIntelUnlocked()).map(([k, m]) =>
+    `<button class="btn btn-sm" ${S.res.credits >= m.cost ? "" : "disabled"} title="Reveal pirate activity ${m.frontier ? "across the whole sector AND every edge world you've discovered" : m.ly === Infinity ? "across the whole sector" : "within " + m.ly + " ly"} for ${PIRATE_INTEL_DURATION} cycles" onclick="buyPirateMap('${k}')">${m.ico} ${m.name} (${fmt(m.cost)} 💰)</button>`).join(" ");
   let intelCard;
   if (pirateIntelActive()) {
     const left = S.pirateIntel.until - S.turn;
@@ -334,7 +334,7 @@ function renderRaid() {
       .map(id => ({ id, pl: PLANETS.find(x => x.id === id), lvl: pirateLevel(id), d: currentPlanet().distances[id] || 0 }))
       .filter(r => r.pl)
       .sort((a, b) => b.lvl - a.lvl || a.d - b.d)
-      .map(r => `<div class="ship-stat"><span class="k">${r.pl.name} <span class="hint">${r.id === S.location ? "here" : r.d + " ly"}</span></span><span class="v" style="color:${r.lvl >= 2 ? "var(--bad)" : r.lvl >= 1 ? "var(--warn)" : "var(--good)"}">${r.lvl > 0 ? "🏴 " + r.lvl : "clear"}</span></div>`).join("");
+      .map(r => `<div class="ship-stat"><span class="k">${r.pl.frontier ? "🧭 " : ""}${r.pl.name} <span class="hint">${r.id === S.location ? "here" : r.d + " ly"}</span></span><span class="v" style="color:${r.lvl >= 2 ? "var(--bad)" : r.lvl >= 1 ? "var(--warn)" : "var(--good)"}">${r.lvl > 0 ? "🏴 " + r.lvl : "clear"}</span></div>`).join("");
     const hot = S.pirateIntel.worlds.filter(id => pirateLevel(id) > 1).length;
     intelCard = `<div class="card"><h4>🗺️ Pirate Intel <span class="pill ${left <= 2 ? "bad" : ""}">${left} cyc left</span></h4>
       <div class="hint">${hot ? `<b>${hot}</b> charted world(s) above activity 1 — hunt them down to pacify the sector.` : "All charted worlds are pacified (≤1)."}</div>

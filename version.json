@@ -1,5 +1,5 @@
 {
-  "version": "2.86.0",
+  "version": "2.87.0",
   "saveVersion": "v2",
-  "notes": "Plasma Torpedoes: now fireable in combat and manufacturable at a colony Torpedo Works. Fixed the vanishing-torpedo hold bug and the market paying for torpedoes you didn't have."
+  "notes": "New: Deep-space chart — a fourth pirate-intel tier covering the discovered edge worlds beyond the charted sector. Unlocks once your first edge world is found."
 }

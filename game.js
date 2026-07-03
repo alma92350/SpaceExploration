@@ -256,12 +256,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.86.0";
+const APP_VERSION = "2.87.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.87.0", notes: "New: 🧭 Deep-space chart — a fourth pirate-intel tier (⚔️ Raider tab) covering the whole sector PLUS every edge world you've discovered beyond the charted sector; ordinary charts have never reached the frontier ring. It goes on sale only once you've found your first edge world, and edge worlds show a 🧭 marker in the intel readout." },
   { version: "2.86.0", notes: "💥 Plasma Torpedoes are now a real weapon system: fire them in combat (the hardest-hitting munition in the rack, though point-defense can thin it — the 🌀 Antimatter Warhead stays uncounterable), and build a Torpedo Works at a colony to manufacture them from Antimatter + Alloys + Radioactives. Fixed: torpedoes produced in industry vanishing from the hold, and the market paying out for torpedoes you didn't have — old saves are repaired automatically on load." },
   { version: "2.85.0", notes: "New: ⚖️ Ship Trim (🚀 Ship tab). Reallocate what your upgrades already bought you across Cargo, Firepower, and Autonomy (fuel range, jump efficiency, flee odds) — Hauler, Gunship, and Voyager each trade +35% on one axis for −30% on the other two. It's a real commitment: a refit costs credits and takes several cycles to complete." },
   { version: "2.84.0", notes: "New: the 🏗️ Small Shipyard now pays off further. A Tier 2 module boosts scrap salvage to 60% of a hull's metals (up from 40%). And any idle ship docked at its home Small Shipyard can commit to a permanent Cargo or Combat loadout — up to 3 levels, paid in hold materials — for more cargo capacity or more hull and firepower." },
