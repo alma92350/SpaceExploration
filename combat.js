@@ -222,6 +222,9 @@ const WEAPONS = {
   energy:     { name: "Energy Lance",        ico: "⚡", mult: 1.2,  ammo: { energy: 5 },                   counter: "shield", req: "energyweapons" },
   torpedo:    { name: "Fusion Torpedoes",    ico: "☢️", mult: 1.45, ammo: { radioactives: 2, metals: 2 },  counter: "pd",     req: "torpedoes" },
   antimatter: { name: "Antimatter Warhead",  ico: "🌀", mult: 1.95, ammo: { antimatter: 1 },               counter: null,     req: "antimatter" },
+  // the biggest stick in the rack — beats the warhead on raw yield, but it IS a
+  // torpedo: point-defense thins it, where the warhead can't be countered at all
+  plasma:     { name: "Plasma Torpedoes",    ico: "💥", mult: 2.4,  ammo: { plasmatorp: 1 },               counter: "pd",     req: "antimatter" },
 };
 function weaponAvailable(w) { const W = WEAPONS[w]; return !W.req || !!S.techs[W.req]; }
 function weaponAffordable(w) { return Object.entries(WEAPONS[w].ammo).every(([c, q]) => (S.res[c] || 0) >= q); }

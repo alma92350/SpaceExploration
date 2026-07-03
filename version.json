@@ -1,5 +1,5 @@
 {
-  "version": "2.85.0",
+  "version": "2.86.0",
   "saveVersion": "v2",
-  "notes": "New: Ship Trim — reallocate cargo/firepower/autonomy across your own vessel's upgrades. A paid, timed refit, not a free toggle."
+  "notes": "Plasma Torpedoes: now fireable in combat and manufacturable at a colony Torpedo Works. Fixed the vanishing-torpedo hold bug and the market paying for torpedoes you didn't have."
 }

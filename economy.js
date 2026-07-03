@@ -45,7 +45,7 @@ function produce(recipeId) {
     return toast(lack ? `Need more ${COM[lack[0]].name}.` : "No room for output.", "bad");
   }
   Object.entries(r.in).forEach(([k, v]) => { S.res[k] -= v * batches; });
-  S.res[r.out] += r.qty * batches;
+  S.res[r.out] = (S.res[r.out] || 0) + r.qty * batches;
   S.made = S.made || {}; S.made[r.out] = true;   // first-manufactured tracking (disclosure / objectives)
   useAction();
   const inStr = Object.entries(r.in).map(([k, v]) => `${v*batches} ${COM[k].ico}`).join(" + ");
@@ -66,7 +66,7 @@ function buy(c, qty) {
   if (S.res.credits < cost) return toast("Not enough credits.", "bad");
   if (COM[c].isFuel) { if (S.res.fuel + qty > fuelCap()) return toast("Fuel tank too small.", "bad"); }
   else if (cargoUsed() + qty > cargoCap()) return toast("Cargo hold full.", "bad");
-  S.res.credits -= cost; S.res[c] += qty; S.stats.trades++;
+  S.res.credits -= cost; S.res[c] = (S.res[c] || 0) + qty; S.stats.trades++;
   applyMarketMove(S.location, c, slip, false); // bulk buying drains supply → price up
   addRep(currentPlanet().faction, 1);
   log(`Bought ${qty} ${COM[c].ico} ${COM[c].name} for <span class="c">${fmt(cost)}</span> cr${slip > 0.05 ? " (price rose)" : ""}.`);
@@ -76,7 +76,7 @@ function buy(c, qty) {
 function sell(c, qty) {
   if (combatLocked()) return;
   qty = Math.max(0, Math.floor(qty)); if (qty <= 0) return;
-  if (S.res[c] < qty) return toast("You don't have that many.", "bad");
+  if ((S.res[c] || 0) < qty) return toast("You don't have that many.", "bad");   // `|| 0`: an undefined stock (commodity newer than the save) must refuse, not sell
   // selling contraband where illegal triggers a customs check
   if (isIllegalAt(c, S.location)) {
     const busted = customsCheck(c, qty, "sale");

@@ -256,12 +256,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.85.0";
+const APP_VERSION = "2.86.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.86.0", notes: "💥 Plasma Torpedoes are now a real weapon system: fire them in combat (the hardest-hitting munition in the rack, though point-defense can thin it — the 🌀 Antimatter Warhead stays uncounterable), and build a Torpedo Works at a colony to manufacture them from Antimatter + Alloys + Radioactives. Fixed: torpedoes produced in industry vanishing from the hold, and the market paying out for torpedoes you didn't have — old saves are repaired automatically on load." },
   { version: "2.85.0", notes: "New: ⚖️ Ship Trim (🚀 Ship tab). Reallocate what your upgrades already bought you across Cargo, Firepower, and Autonomy (fuel range, jump efficiency, flee odds) — Hauler, Gunship, and Voyager each trade +35% on one axis for −30% on the other two. It's a real commitment: a refit costs credits and takes several cycles to complete." },
   { version: "2.84.0", notes: "New: the 🏗️ Small Shipyard now pays off further. A Tier 2 module boosts scrap salvage to 60% of a hull's metals (up from 40%). And any idle ship docked at its home Small Shipyard can commit to a permanent Cargo or Combat loadout — up to 3 levels, paid in hold materials — for more cargo capacity or more hull and firepower." },
   { version: "2.83.0", notes: "New: 🏗️ Small Shipyard — a base module (🏗️ Bases tab) that lets you lay down light hulls anywhere you've founded a base, including worlds no colony could ever reach. Caps at Light Freighter/Corvette (Tier 1) and Medium Freighter/Frigate (Tier 2) forever — a full-range Shipyard is still a colony building — but it's real construction: repair, reassignment, and slipways for parallel builds all work exactly like at a colony." },
@@ -621,8 +622,10 @@ function init() {
   if (S.eink == null) S.eink = false;
   if (S.pirateIntel === undefined) S.pirateIntel = null;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
-  if (S.res && S.res.drones == null) S.res.drones = 0;
-  if (S.res && S.res.ai == null) S.res.ai = 0;
+  // backfill every commodity added since this save was made (drones, ai, antimatter,
+  // plasmatorp, ...) and repair NaN-corrupted stocks — an undefined S.res[c] slips
+  // straight past guards like `S.res[c] < qty` and poisons `+=` into NaN
+  if (S.res) CARGO_IDS.forEach(c => { if (S.res[c] == null || !Number.isFinite(S.res[c])) S.res[c] = 0; });
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
