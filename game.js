@@ -163,8 +163,10 @@ const TAB_LADDER = [
     hint: "Unlocks once you're an established trader (50,000 cr in sales) — or you gain influence/office", test: s => (s.res.influence || 0) > 0 || s.office > 0 || (s.orgs && s.orgs.party) || (s.stats && s.stats.sales >= 50000) || s.turn >= 85 },
   { id: "colonies",  blurb: "found and grow your own worlds",
     hint: "Unlocks with the Colonial Charter (Research)", test: s => !!s.techs.colonial || currentPlanet().colonizable || Object.keys(s.colonies || {}).length > 0 },
-  { id: "fleet",     blurb: "build your own ships at colony shipyards",
-    hint: "Unlocks once you have a colony (build a Shipyard there)", test: s => Object.keys(s.colonies || {}).length > 0 || (Array.isArray(s.fleet) && s.fleet.length > 0) },
+  { id: "fleet",     blurb: "build your own ships at a colony Shipyard or a base Small Shipyard",
+    hint: "Unlocks once you have a colony, or a base with a Small Shipyard module",
+    test: s => Object.keys(s.colonies || {}).length > 0 || (Array.isArray(s.fleet) && s.fleet.length > 0)
+      || Object.values(s.bases || {}).some(b => (b.modules || {}).shipyard_small > 0) },
 ];
 const RAW_IDS = ["ore", "crystals", "radioactives", "ice", "biomass", "spice", "gas", "relics"];
 function tabUnlocked(id) { return S.showAllTabs || ALWAYS_TABS.includes(id) || !!(S.unlocked && S.unlocked[id]); }
@@ -276,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.89.0";
+const APP_VERSION = "2.89.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.89.1", notes: "Fix: the ✦ Fleet tab only unlocked once you held a colony, even though a base's Small Shipyard module lets you build ships without one. Building a Small Shipyard at a base now unlocks the tab on its own." },
   { version: "2.89.0", notes: "New: 🏛️ The Concordat Spire (🏛️ Politics tab) — once Terraforming is researched, designate a colony as the site of a sector-defining mega-project and fund it with tech points and Alloys/Electronics/Antimatter from anywhere in your empire. Spread the load and every faction drifts toward peace; funnel it through one faction and their rivals grow tenser instead — a third capstone legacy alongside the Pirate Lord and Sector Marshal. Also: four features that shipped quietly (Small Shipyard, Ship Trim, Plasma Torpedoes, the Deep-space chart) now announce themselves the first time you reach them." },
   { version: "2.88.0", notes: "Changed: Deep-Space Survey and Probe the Frontier merged into one 🛰️ Survey Expedition. Launch it (an action + fuel) and your crew works toward the nearest uncharted world over several cycles — longer into the deep frontier, shorter with a Research Lab. A lawless heading can still draw an ambush en route, but a returned expedition always brings back a charted world — the coin-flip is gone." },
   { version: "2.87.0", notes: "New: 🧭 Deep-space chart — a fourth pirate-intel tier (⚔️ Raider tab) covering the whole sector PLUS every edge world you've discovered beyond the charted sector; ordinary charts have never reached the frontier ring. It goes on sale only once you've found your first edge world, and edge worlds show a 🧭 marker in the intel readout." },
