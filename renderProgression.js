@@ -312,6 +312,65 @@ function polMeter(label, ico, val, max, col, note) {
   return `<div class="ship-stat"><span class="k">${ico} ${label}</span><span class="v">${note != null ? note : Math.round(val)}</span></div>
     <div class="bar"><span style="width:${pct}%;background:${col}"></span></div>`;
 }
+/* ---- The Concordat Spire — a late-game mega-project, hidden until Terraforming is
+   researched (spireUnlocked(), sector4x.js). Three states: no site chosen yet (a
+   colony picker + groundbreaking cost), under construction (per-resource polMeter()
+   bars + contribution rows, docked-colony-only for materials, tech from anywhere),
+   complete (a capstone card mirroring lordCard/marshalCard in renderCombat.js). ---- */
+function renderSpireProject() {
+  if (!spireUnlocked()) return "";
+  if (!S.spire) {
+    const cols = Object.keys(S.colonies || {});
+    if (!cols.length) return `<div class="section-title">🏛️ The Concordat Spire</div>
+      <div class="cards"><div class="card"><div class="hint">Terraforming is researched — a mega-project is within reach, but it needs a colony to break ground at. Found one first.</div></div></div>`;
+    const afford = (S.res.credits || 0) >= SPIRE_SITE_COST.credits && canAfford({ metals: SPIRE_SITE_COST.metals });
+    const rows = cols.map(pid => `<button class="btn btn-sm" ${afford ? "" : "disabled"} onclick="launchSpireProject('${pid}')">${mdPlanetName(pid)}</button>`).join(" ");
+    return `<div class="section-title">🏛️ The Concordat Spire</div>
+      <div class="cards"><div class="card" style="border-color:var(--accent-2)">
+        <h4>🏛️ Break Ground</h4>
+        <div class="desc">Terraforming is researched — the sector's science has nowhere left to go but into something permanent. Designate one of your colonies as the Spire's site: a monument funded from anywhere in your empire, over as long as it takes.</div>
+        <div class="meta"><span class="hint">Groundbreaking</span><span class="cost">${fmt(SPIRE_SITE_COST.credits)} cr + ${SPIRE_SITE_COST.metals} ⛓️</span></div>
+        <div class="row" style="flex-wrap:wrap;gap:4px;margin-top:6px">${rows}</div>
+      </div></div>`;
+  }
+  const siteName = mdPlanetName(S.spire.site);
+  if (S.spire.complete) {
+    const ready = spireReady(), dom = spireDominantFaction();
+    return `<div class="section-title">🏛️ The Concordat Spire</div>
+      <div class="cards"><div class="card maxed">
+        <h4>🏛️ The Concordat Spire Stands</h4>
+        <div class="pill good">Complete — raised at ${siteName}</div>
+        <div class="hint" style="margin-top:6px">${dom ? `A monument to ${FACTIONS[dom].name} alone.` : "A monument to every faction's shared work."}</div>
+        ${ready ? `<button class="btn btn-primary" style="margin-top:8px" onclick="spireLegacy()">🏛️ Claim your legacy</button>`
+          : S.legacyTitle ? `<div class="pill good" style="margin-top:8px">${S.legacyTitle}</div>` : ""}
+      </div></div>`;
+  }
+  const here = S.colonies[S.location];
+  const meters = Object.keys(SPIRE_TARGETS).map(c => {
+    const meta = c === "tech" ? { name: "Tech", ico: "🔬" } : COM[c];
+    return polMeter(meta.name, meta.ico, S.spire.contributed[c], SPIRE_TARGETS[c], "var(--accent)", `${fmt(S.spire.contributed[c])}/${fmt(SPIRE_TARGETS[c])}`);
+  }).join("");
+  const dom = spireDominantFaction();
+  const mood = dom ? `<span style="color:var(--bad)">⚠️ ${FACTIONS[dom].name} is seen as claiming this project — its rivals grow tenser.</span>`
+    : `<span class="hint">Contributions are broadly shared so far — a common cause, easing tensions sector-wide.</span>`;
+  const techRow = `<div class="ship-stat" style="align-items:center"><span class="k">🔬 Contribute tech <span class="hint">${fmt(S.res.tech || 0)} on hand</span></span>
+    <span class="v"><input class="qty" id="spire-techqty" type="number" min="1" value="${Math.min(100, S.res.tech || 0)}" style="width:70px" />
+    <button class="btn btn-sm" ${(S.res.tech || 0) > 0 ? "" : "disabled"} onclick="contributeSpireTech(+document.getElementById('spire-techqty').value)">Send ▸</button></span></div>`;
+  const matRows = here ? ["alloys", "electronics", "antimatter"].map(c => {
+    const stock = here.storage[c] || 0;
+    return `<div class="ship-stat" style="align-items:center"><span class="k">${COM[c].ico} ${COM[c].name} <span class="hint">${fmt(stock)} in ${currentPlanet().name}</span></span>
+      <span class="v"><input class="qty" id="spire-${c}" type="number" min="1" value="${Math.min(50, stock) || 1}" style="width:70px" />
+      <button class="btn btn-sm" ${stock > 0 ? "" : "disabled"} onclick="contributeToSpire('${c}')">Ship ▸</button></span></div>`;
+  }).join("") : `<div class="hint">Dock at one of your colonies to ship its stocked materials to the Spire.</div>`;
+  return `<div class="section-title">🏛️ The Concordat Spire <span class="hint">${spirePctComplete()}% complete — rising at ${siteName}</span></div>
+    <div class="cards"><div class="card">
+      <h4>🏛️ Under Construction</h4>
+      <div class="hint">${mood}</div>
+      <div style="margin:8px 0">${meters}</div>
+      ${techRow}
+      ${matRows}
+    </div></div>`;
+}
 function abilityCostStr(c) {
   c = c || {}; const parts = [];
   if (c.credits)   parts.push(`${fmt(c.credits)} 💰`);
@@ -551,7 +610,8 @@ function renderPolitics() {
     ${renderPower()}
     ${renderLocalLaws()}
     ${renderSenate()}
-    ${decrees}`;
+    ${decrees}
+    ${renderSpireProject()}`;
 }
 
 /* ----- Missions (long-term goals + time-bound contracts) ----- */

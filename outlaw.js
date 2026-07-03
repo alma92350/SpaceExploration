@@ -305,6 +305,34 @@ function marshalLegacy() {
   toast(`⭐ ${title} — bounty-hunter legacy complete!`, "good");
   afterAction();
 }
+
+/* ---- Concordat Spire capstone — a third, political/cooperative legacy path
+   alongside the two above (sector4x.js has the mega-project itself) ---- */
+function spireCriteria() {
+  return [
+    { label: "Research Terraforming", ok: !!S.techs.terraform },
+    { label: "Break ground on the Spire (🏛️ Politics tab)", ok: !!S.spire },
+    { label: "Complete construction", ok: spireComplete() },
+  ];
+}
+function spireReady() { return !S.legacyTitle && spireCriteria().every(c => c.ok); }
+function spireLegacy() {
+  if (S.legacyTitle) return toast("Your legacy is already sealed.", "bad");
+  if (!spireReady()) return toast("The Spire is not yet complete.", "bad");
+  const dom = spireDominantFaction();
+  const title = dom ? `Patron of the ${FACTIONS[dom].name}` : "The Peacemaker";
+  const blurb = dom
+    ? `You raised the Concordat Spire, but its shadow falls across the sector as ${FACTIONS[dom].name}'s monument alone — a triumph its rivals will not forget.`
+    : "You raised the Concordat Spire as every faction's shared work — the closest thing the sector has to a lasting peace.";
+  S.legacyTitle = title;
+  log(`🏛️ CONCORDAT LEGACY — <span class="c">${title}</span>: ${blurb}`, "good");
+  jot(`CONCORDAT LEGACY: ${title} — ${blurb}`, "legacy");
+  if (typeof announce === "function") announce(`⭐ ${title}`, `${blurb} Your legacy is complete!`, true);
+  if (typeof fireworks === "function") fireworks(8000, true);
+  if (!S.won) S.won = true;
+  toast(`⭐ ${title} — Concordat legacy complete!`, "good");
+  afterAction();
+}
 function processCommission() {
   if (!S.commission || S.turn < S.commission.expires) return;
   const c = S.commission;

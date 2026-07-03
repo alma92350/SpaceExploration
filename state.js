@@ -87,6 +87,7 @@ function freshState(opts = {}) {
     colonies: {},       // planetId -> { pop, happiness, tax, buildings, storage }
     discovered: {},     // hidden planetId -> true (revealed by survey)
     expedition: null,   // survey expedition underway: { target, cyclesLeft }
+    spire: null,        // Concordat Spire mega-project: { site, contributed, byFaction, complete }
     contracts: [],      // active time-bounded random contracts
     contractSeq: 0,
     actionsUsed: 0,
