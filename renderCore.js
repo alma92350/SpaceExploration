@@ -71,6 +71,7 @@ function renderOps() {
   if (S.prey) row("🎯", `Engaging ${S.prey.name}`, null, "raid", "var(--warn)");
   if (S.jail > 0) row("⛓️", "In detention", S.jail + "c", null, "var(--bad)");
   if (S.trimRefit) row("🛠️", `Refitting → ${SHIP_TRIMS[S.trimRefit.target].ico} ${SHIP_TRIMS[S.trimRefit.target].name} trim`, S.trimRefit.cyclesLeft + "c", "ship", "var(--warn)");
+  if (S.expedition) { const _xt = PLANETS.find(p => p.id === S.expedition.target); row("🛰️", `Survey expedition${_xt && _xt.frontier ? " — deep frontier" : ""}`, S.expedition.cyclesLeft + "c", "galaxy", "var(--accent)"); }
   // your fleet
   fleetList().forEach(s => { const def = FLEET_SHIPS[s.key]; if (!def) return;
     if (s.status === "building") row("🏗️", `${def.ico} ${s.name} building`, s.buildLeft + "c", "fleet", "var(--warn)");
@@ -297,20 +298,27 @@ function renderGalaxy() {
     </div>`;
   }).join("");
   const unknownCount = undiscoveredHidden().length;
-  const survey = canColonize() ? `<div class="card">
-    <h4>🛰️ Deep-Space Survey</h4>
-    <div class="desc">Scan the dark for uncharted worlds to chart and colonize. ${unknownCount ? unknownCount + " world(s) still hidden." : "All worlds discovered."} A Research Lab improves your sensors.</div>
-    <button class="btn btn-primary" ${unknownCount && actionsLeft() > 0 ? "" : "disabled"} onclick="explore()">Survey (1 action)</button>
-  </div>` : `<div class="card">
-    <h4>🛰️ Deep-Space Survey <span class="pill bad">locked</span></h4>
+  let survey;
+  if (!canColonize()) {
+    survey = `<div class="card">
+    <h4>🛰️ Survey Expedition <span class="pill bad">locked</span></h4>
     <div class="desc">Uncharted worlds lie beyond the dark. Research <b>Colonial Charter</b> (in the Research tab) to build the sensors and authority to chart and settle them.</div>
   </div>`;
-  const frontierUnknown = undiscoveredHidden().filter(p => p.frontier).length;
-  const probeCard = canColonize() ? `<div class="card">
-    <h4>🔭 Probe the Frontier</h4>
-    <div class="desc">Push a probe straight at the frontier ring instead of waiting on a routine survey — fuel spent whether it pays off or not, and a lawless target can draw an ambush. But a frontier world charted this way turns up richer signals. ${frontierUnknown ? frontierUnknown + " frontier world(s) still uncharted." : "All frontier worlds charted."}</div>
-    <button class="btn btn-primary" ${frontierUnknown && actionsLeft() > 0 && S.res.fuel >= PROBE_FUEL_COST ? "" : "disabled"} onclick="probeFrontier()">Probe (1 action, ${PROBE_FUEL_COST}⛽)</button>
-  </div>` : '';
+  } else if (S.expedition) {
+    const tgt = PLANETS.find(p => p.id === S.expedition.target);
+    survey = `<div class="card">
+    <h4>🛰️ Survey Expedition <span class="pill">underway</span></h4>
+    <div class="desc">Your survey crew is ${S.expedition.cyclesLeft} cycle(s) from charting the nearest uncharted signature${tgt && tgt.frontier ? " out in the deep frontier" : ""}. Lawless space can draw raiders to their trail — keep your guns ready.</div>
+    <div class="pill good">◉ Returns in ${S.expedition.cyclesLeft} cycle(s)</div>
+  </div>`;
+  } else {
+    const nextTgt = undiscoveredHidden()[0];
+    survey = `<div class="card">
+    <h4>🛰️ Survey Expedition</h4>
+    <div class="desc">Outfit an expedition to chart the nearest uncharted signature — it takes several cycles (${nextTgt && nextTgt.frontier ? "longer into the deep frontier" : "deep-frontier targets take longer"}; a Research Lab shortens the trip), and a lawless heading can draw an ambush en route, but a returned crew always brings back a charted world. Frontier finds turn up richer signals. ${unknownCount ? unknownCount + " world(s) still hidden." : "All worlds discovered."}</div>
+    <button class="btn btn-primary" ${unknownCount && actionsLeft() > 0 && S.res.fuel >= EXPEDITION_FUEL_COST ? "" : "disabled"} onclick="launchExpedition()">Launch expedition (1 action, ${EXPEDITION_FUEL_COST}⛽)</button>
+  </div>`;
+  }
   const nCrises = S.crises ? Object.keys(S.crises).length : 0;
   const crisisBadge = nCrises ? `<span class="pill bad" title="Worlds in crisis — relief needed, prices spiking">🆘 ${nCrises} in crisis</span>` : "";
   const cl = Math.round(S.climate || 0);
@@ -324,11 +332,11 @@ function renderGalaxy() {
     intelBadge = `<span class="pill ${hot ? "bad" : "good"}" title="Active pirate chart — ${left} cycle(s) left. Activity updates live on the map.">🏴 ${hot ? hot + " pirate hotspot" + (hot > 1 ? "s" : "") : "lanes charted"} · ${left}cyc</span>`;
   }
   el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}${intelBadge}</h2>
-    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. This sector's own Sector Code also jitters every core world's deposits, industry, tech and law level a little, so exact yields vary game to game even though names and history never do. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with the 🛰️ Deep-Space Survey below. Travelling costs fuel and advances a cycle. <span class="hint">Sector code: <b>${seedCodeFor(S.frontierSeed)}</b> — share it, or start a new game from one, with the 🔑 Seed button.</span></div>
+    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. This sector's own Sector Code also jitters every core world's deposits, industry, tech and law level a little, so exact yields vary game to game even though names and history never do. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with a 🛰️ Survey Expedition below. Travelling costs fuel and advances a cycle. <span class="hint">Sector code: <b>${seedCodeFor(S.frontierSeed)}</b> — share it, or start a new game from one, with the 🔑 Seed button.</span></div>
     ${renderStarmap(known)}
     <div class="planet-grid">${cards}</div>
     ${(() => { const beyond = PLANETS.filter(p => isActive(p) && !p.hidden && !p.colonizable && !galaxyKnown(p)).length; return beyond ? `<div class="hint" style="margin-top:8px">🛰️ ${beyond} more world(s) lie beyond your sensor range (~${GALAXY_FUEL_HORIZON} fuel) — travel toward the frontier to chart them.</div>` : ""; })()}
     <div class="section-title">🔭 Exploration</div>
-    <div class="cards">${survey}${probeCard}</div>
+    <div class="cards">${survey}</div>
     <div class="hint" style="margin-top:14px">🏆 Your long-term legacy goals and all contracts now live in the <b>🎯 Missions</b> tab.</div>`;
 }

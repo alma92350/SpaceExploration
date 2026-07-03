@@ -10,9 +10,10 @@
    generateFrontierRing, applyCoreVariance, seedCodeFor/seedFromCode, ...)
    from freshState(), init() and newGame().
 
-   probeFrontier() (slice 4) and renderStarmap() (slice 5) stay in game.js
-   for now — they cross-cut with the ambush/encounter system and the
-   Galaxy tab's rendering respectively, both later slices of this split.
+   The expedition lever (slice 4, since merged into launchExpedition,
+   frontier.js) and renderStarmap() (slice 5) stay out of this file — they
+   cross-cut with the ambush/encounter system and the Galaxy tab's
+   rendering respectively, both later slices of this split.
    ============================================================ */
 
 "use strict";
@@ -55,8 +56,9 @@ function nonFrontierPlanets() { return PLANETS.filter(p => !p.frontier); }   // 
    PLANETS at init() time — same "PLANETS is static source, replay after every
    load" pattern as replayTerritoryFlips(), just constructing new objects
    instead of mutating existing ones. Every frontier world is `hidden`, so
-   charting them runs through the EXISTING Deep-Space Survey / explore()
-   pipeline unchanged — procedural generation, but discovery stays manual.
+   charting them runs through the EXISTING Survey Expedition pipeline
+   (launchExpedition, frontier.js) unchanged — procedural generation, but
+   discovery stays manual.
 */
 function mulberry32(seed) {
   return function () {

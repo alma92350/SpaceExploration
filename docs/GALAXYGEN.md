@@ -206,6 +206,19 @@ higher tier than core-world ones, kind-bias checks for both archetype
 flavors, confirmation that non-frontier `spawnSignal()` behavior is
 untouched, and the Galaxy tab card's visibility/state).
 
+**Superseded — merged into the Survey Expedition.** `explore()` and
+`probeFrontier()` were later folded into a single multi-cycle
+`launchExpedition()`/`processExpedition()` pair (frontier.js): one Galaxy-tab
+card, one action + 25 fuel to outfit, targeting `undiscoveredHidden()[0]`
+(the same nearest-first queue both old buttons drew from). The trip takes
+`3 + 2·frontier − ⌊lab/2⌋` cycles (min 2, ticked from `endTurn`), a lawless
+heading rolls the probe's ambush risk each cycle en route (8%/3% — the old
+one-shot 22%/10% spread over the journey), and completion always charts the
+target — the dice moved from the outcome into the journey. Frontier finds
+still call `spawnSignal({ planet })`, so slice 4's richer-signal bias is
+untouched. State: `S.expedition = { target, cyclesLeft }`. Tests:
+`expedition.test.js`.
+
 ## Slice 5 (shipped) — the starmap
 The lane graph has had genuine topology since slice 2 — hazard stretches,
 hyperlane shortcuts — but the Galaxy tab only ever surfaced it as text (a

@@ -104,7 +104,7 @@ function endTurn(fromTravel = false) {
   if (!fromTravel && combatLocked()) return;
   S.turn++; S.actionsUsed = 0; _cledger = {}; _cdigest = { production: {}, arrivals: [], threats: [], sector: [] };
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
-  processFx(); processSignals();
+  processFx(); processSignals(); processExpedition();
   processCrises(); processPirates(); processPirateHavens(); processFactionRelations(); processTerritoryContest(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
   if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (typeof decayBands === "function") decayBands();
@@ -256,12 +256,14 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.86.0";
+const APP_VERSION = "2.88.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.88.0", notes: "Changed: Deep-Space Survey and Probe the Frontier merged into one 🛰️ Survey Expedition. Launch it (an action + fuel) and your crew works toward the nearest uncharted world over several cycles — longer into the deep frontier, shorter with a Research Lab. A lawless heading can still draw an ambush en route, but a returned expedition always brings back a charted world — the coin-flip is gone." },
+  { version: "2.87.0", notes: "New: 🧭 Deep-space chart — a fourth pirate-intel tier (⚔️ Raider tab) covering the whole sector PLUS every edge world you've discovered beyond the charted sector; ordinary charts have never reached the frontier ring. It goes on sale only once you've found your first edge world, and edge worlds show a 🧭 marker in the intel readout." },
   { version: "2.86.0", notes: "💥 Plasma Torpedoes are now a real weapon system: fire them in combat (the hardest-hitting munition in the rack, though point-defense can thin it — the 🌀 Antimatter Warhead stays uncounterable), and build a Torpedo Works at a colony to manufacture them from Antimatter + Alloys + Radioactives. Fixed: torpedoes produced in industry vanishing from the hold, and the market paying out for torpedoes you didn't have — old saves are repaired automatically on load." },
   { version: "2.85.0", notes: "New: ⚖️ Ship Trim (🚀 Ship tab). Reallocate what your upgrades already bought you across Cargo, Firepower, and Autonomy (fuel range, jump efficiency, flee odds) — Hauler, Gunship, and Voyager each trade +35% on one axis for −30% on the other two. It's a real commitment: a refit costs credits and takes several cycles to complete." },
   { version: "2.84.0", notes: "New: the 🏗️ Small Shipyard now pays off further. A Tier 2 module boosts scrap salvage to 60% of a hull's metals (up from 40%). And any idle ship docked at its home Small Shipyard can commit to a permanent Cargo or Combat loadout — up to 3 levels, paid in hold materials — for more cargo capacity or more hull and firepower." },
@@ -370,7 +372,7 @@ function helpHTML() {
 
     <h4>The tabs</h4>
     <ul style="line-height:1.55;margin:0 0 6px 18px;padding:0">
-      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. A <b>🗺️ Starmap</b> at the top charts every world you know about and the hyperlanes between them — click a node to travel there directly, or read the card grid below for full detail. The charted 20's names, factions and history never change — but a Sector Code now jitters each one's deposits, industry, tech and law level too, so Ferros Prime's ore or Terra Nova's law level isn't always exactly what it was last game. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until your <b>🛰️ Deep-Space Survey</b> charts them, same as any other uncharted world. Travel distance isn't a straight line either: a seeded lane graph gives every game its own hazard-stretched routes and cheap hyperlane shortcuts, marked with a <b>🛰️ hyperlane</b> pill (and a bright line on the Starmap) wherever one bypasses the usual path from your ship. Impatient? <b>🔭 Probe the Frontier</b> pushes straight at the frontier ring instead of a routine survey — burns fuel whether it pays off or not, and a lawless target can draw an ambush, but a world charted this way turns up richer <b>📡 signals</b>.</li>
+      <li>🪐 <b>Galaxy</b> — travel, explore, watch worlds, factions & crises. A <b>🗺️ Starmap</b> at the top charts every world you know about and the hyperlanes between them — click a node to travel there directly, or read the card grid below for full detail. The charted 20's names, factions and history never change — but a Sector Code now jitters each one's deposits, industry, tech and law level too, so Ferros Prime's ore or Terra Nova's law level isn't always exactly what it was last game. Beyond the charted 20 lies a further <b>frontier ring</b> of procedurally-generated worlds — a different set every game — hidden until a <b>🛰️ Survey Expedition</b> charts them: outfit one (an action + fuel) and it works toward the nearest uncharted signature over several cycles (longer into the deep frontier; a Research Lab shortens the trip). A lawless heading can draw an ambush en route, but a returned crew always brings back a charted world, and frontier finds turn up richer <b>📡 signals</b>. Travel distance isn't a straight line either: a seeded lane graph gives every game its own hazard-stretched routes and cheap hyperlane shortcuts, marked with a <b>🛰️ hyperlane</b> pill (and a bright line on the Starmap) wherever one bypasses the usual path from your ship.</li>
       <li>💱 <b>Market</b> — trade goods; black market for contraband; aid or profiteer during crises. Quantity boxes remember what you last typed for each good; a 💡 hint flags the best <b>known</b> world to flip a commodity you buy here (profit per light-year), and <b>Sort: Best margin</b> ranks each tier by that same opportunity. <b>💰 Sell entire hold</b> unloads every legal good you're carrying at today's prices in one click (contraband here is held back — sell that individually if you'll risk the customs check).</li>
       <li>🏭 <b>Industry</b> — refine raw materials into finished goods.</li>
       <li>🔬 <b>Research</b> — unlock technologies.</li>
@@ -621,6 +623,7 @@ function init() {
   if (S.sound == null) S.sound = true;
   if (S.eink == null) S.eink = false;
   if (S.pirateIntel === undefined) S.pirateIntel = null;
+  if (S.expedition === undefined) S.expedition = null;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   // backfill every commodity added since this save was made (drones, ai, antimatter,
   // plasmatorp, ...) and repair NaN-corrupted stocks — an undefined S.res[c] slips
@@ -691,7 +694,7 @@ Object.assign(window, {
   travel, buyQty, sellQty, buyMax, sellAll, setMarketSort, sellEntireHold, extract, salvage, produce,
   research, researchTech, doPolitics, doMission, buyUpgrade, setShipTrim, setDecree,
   buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract,
-  colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, explore, newGame,
+  colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, launchExpedition, newGame,
   foundOrg, upgradeOrg, runOrgAbility,
   proposeBill, lobbyFaction, bribeFaction, callVote, repealPolicy,
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,

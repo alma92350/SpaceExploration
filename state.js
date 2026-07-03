@@ -86,6 +86,7 @@ function freshState(opts = {}) {
     bases: {},          // planetId -> { modules:{id:tier}, storage:{com:qty} }
     colonies: {},       // planetId -> { pop, happiness, tax, buildings, storage }
     discovered: {},     // hidden planetId -> true (revealed by survey)
+    expedition: null,   // survey expedition underway: { target, cyclesLeft }
     contracts: [],      // active time-bounded random contracts
     contractSeq: 0,
     actionsUsed: 0,

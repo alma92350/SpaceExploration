@@ -1,5 +1,5 @@
 {
-  "version": "2.86.0",
+  "version": "2.88.0",
   "saveVersion": "v2",
-  "notes": "Plasma Torpedoes: now fireable in combat and manufacturable at a colony Torpedo Works. Fixed the vanishing-torpedo hold bug and the market paying for torpedoes you didn't have."
+  "notes": "Changed: Deep-Space Survey and Probe the Frontier merged into one Survey Expedition — a multi-cycle trip that always charts its target on return."
 }

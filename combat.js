@@ -336,15 +336,26 @@ const PIRATE_MAP = {
   local:    { name: "Local chart",    ico: "🗺️", ly: 6,        cost: 700 },
   regional: { name: "Regional chart", ico: "🗺️", ly: 14,       cost: 2200 },
   global:   { name: "Sector chart",   ico: "🛰️", ly: Infinity, cost: 5500 },
+  // top tier: the Sector chart's coverage PLUS every hidden world you've discovered —
+  // frontier-ring worlds keep `hidden: true` forever (visibility flows through
+  // S.discovered), so no ordinary chart can ever include them. Offered only once
+  // you've actually found an edge world (edgeIntelUnlocked), since a cartographer
+  // can't sell you intel on space nobody's charted.
+  deepspace: { name: "Deep-space chart", ico: "🧭", ly: Infinity, cost: 8500, frontier: true },
 };
 const PIRATE_INTEL_DURATION = 8;   // cycles of fresh intel per purchase
 function pirateIntelActive() { return !!(S.pirateIntel && S.turn < S.pirateIntel.until); }
 function pirateIntelKnows(pid) { return pid === S.location || (pirateIntelActive() && S.pirateIntel.worlds.indexOf(pid) >= 0); }
+function edgeIntelUnlocked() { return PLANETS.some(p => p.frontier && S.discovered && S.discovered[p.id]); }
 function buyPirateMap(scope) {
   const m = PIRATE_MAP[scope]; if (!m) return;
+  if (m.frontier && !edgeIntelUnlocked()) return toast("No edge worlds discovered yet — chase deep-space signals beyond the charted sector first.", "bad");
   if (S.res.credits < m.cost) return toast(`The ${m.name} costs ${fmt(m.cost)} cr.`, "bad");
   const here = currentPlanet();
-  const worlds = PLANETS.filter(p => isActive(p) && !p.hidden && (p.id === here.id || (here.distances[p.id] || 0) <= m.ly)).map(p => p.id);
+  const worlds = (m.frontier
+    ? PLANETS.filter(isVisible)   // whole sector + every hidden world you've discovered
+    : PLANETS.filter(p => isActive(p) && !p.hidden && (p.id === here.id || (here.distances[p.id] || 0) <= m.ly))
+  ).map(p => p.id);
   S.res.credits -= m.cost;
   S.pirateIntel = { worlds, until: S.turn + PIRATE_INTEL_DURATION, scope };
   log(`${m.ico} Bought a ${m.name} — pirate activity across <b>${worlds.length}</b> world(s) revealed for ${PIRATE_INTEL_DURATION} cycles.`, "event");

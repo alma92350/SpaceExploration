@@ -134,73 +134,61 @@ function galaxyKnown(p) {
 function undiscoveredHidden() {
   return PLANETS.filter(p => p.hidden && !S.discovered[p.id]).sort((a, b) => a.x - b.x);
 }
-function explore() {
-  if (!canColonize()) return toast("Research Colonial Charter to run deep-space surveys.", "bad");
+/* ---------- Survey Expedition — one lever, multiple cycles ----------
+   Replaces the old pair of instant one-click rolls (Deep-Space Survey, free
+   dice; Probe the Frontier, fuel + dice at the ring): a single expedition
+   works toward the NEAREST uncharted signature over several cycles. You pay
+   an action and fuel to outfit it, the trip takes real time (longer into the
+   deep frontier; a good Research Lab shortens it), and a lawless heading can
+   draw an ambush out of the dark en route — but a completed expedition
+   ALWAYS charts its world: the risk lives in the journey now, not in a
+   die roll after you've already paid. Frontier worlds still turn up richer
+   signals on discovery, exactly as the old probe did. */
+function frontierArchetypeFor(p) { return (p && p.frontier) ? FRONTIER_ARCHETYPES.find(a => a.tag === p.tag) : null; }
+const EXPEDITION_FUEL_COST = 25;
+const EXPEDITION_BASE_CYCLES = 3, EXPEDITION_FRONTIER_EXTRA = 2;
+function expeditionCycles(target) {
+  return Math.max(2, EXPEDITION_BASE_CYCLES + (target.frontier ? EXPEDITION_FRONTIER_EXTRA : 0) - Math.floor((S.upgrades.lab || 0) / 2));
+}
+function launchExpedition() {
+  if (!canColonize()) return toast("Research Colonial Charter to mount survey expeditions.", "bad");
+  if (S.expedition) return toast(`A survey expedition is already out — ${S.expedition.cyclesLeft} cycle(s) from its target.`, "bad");
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const pool = undiscoveredHidden();
   if (!pool.length) return toast("No uncharted worlds remain.", "bad");
+  if (S.res.fuel < EXPEDITION_FUEL_COST) return toast(`Outfitting an expedition needs ${EXPEDITION_FUEL_COST} ⛽.`, "bad");
   useAction();
-  const sensors = 0.45 + S.upgrades.lab * 0.06;   // research lab doubles as long-range sensors
-  if (Math.random() < sensors) {
-    const w = pool[0];
-    S.discovered[w.id] = true;
-    log(`🛰️ Deep-space survey discovered a new world: <span class="c">${w.name}</span> (${w.tag})!`, "event");
-    toast(`Discovered ${w.name}!`, "event");
-    announce(`🛰️ ${w.name} Discovered`, `${w.tag} — a new world to chart and colonize.`, false);
-    fireworks(2200, false);
-  } else {
-    log("🛰️ Survey swept the dark and found nothing… this time.", "");
-    toast("Survey found nothing.", "");
-  }
+  S.res.fuel -= EXPEDITION_FUEL_COST;
+  const target = pool[0];
+  S.expedition = { target: target.id, cyclesLeft: expeditionCycles(target) };
+  log(`🛰️ Survey expedition outfitted and away (−${EXPEDITION_FUEL_COST} ⛽) — ${S.expedition.cyclesLeft} cycles to chart the nearest uncharted signature${target.frontier ? " out in the deep frontier" : ""}.`, "event");
+  toast(`Expedition away — ${S.expedition.cyclesLeft} cycles`, "event"); sfx("event");
   afterAction();
 }
-
-/* ---------- Probe the Frontier — slice 4 of procedural galaxy generation ----------
-   explore() surveys whatever's nearest, hidden worlds and legacy alike, with
-   no cost beyond the action and no way to say "the frontier ring specifically."
-   probeFrontier() is a second, riskier lever aimed only at the frontier ring:
-   it burns real fuel whether or not it pays off, and a lawless target can
-   draw an ambush — but it's the only way to deliberately push past the
-   charted 20 rather than wait for the queue. Reuses undiscoveredHidden()'s
-   existing sort (nearest-first) and maybeAmbush()'s "spend something, risk
-   a fight" shape, just filtered to frontier worlds and themed as a probe
-   drawing attention rather than a ship physically arriving.
-*/
-function frontierArchetypeFor(p) { return (p && p.frontier) ? FRONTIER_ARCHETYPES.find(a => a.tag === p.tag) : null; }
-const PROBE_FUEL_COST = 30;
-function probeFrontier() {
-  if (!canColonize()) return toast("Research Colonial Charter to push probes into the frontier.", "bad");
-  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
-  const pool = undiscoveredHidden().filter(p => p.frontier);
-  if (!pool.length) return toast("No uncharted frontier worlds remain.", "bad");
-  if (S.res.fuel < PROBE_FUEL_COST) return toast(`Probing the frontier needs ${PROBE_FUEL_COST} ⛽.`, "bad");
-  useAction();
-  S.res.fuel -= PROBE_FUEL_COST;
-  const target = pool[0], arch = frontierArchetypeFor(target), lawless = !!(arch && arch.lawless) || target.enforce <= 0.15;
-  if (!S.encounter && !S.interdiction && Math.random() < (lawless ? 0.22 : 0.1)) {
+function processExpedition() {
+  const e = S.expedition; if (!e) return;
+  const target = PLANETS.find(p => p.id === e.target);
+  if (!target || S.discovered[e.target]) { S.expedition = null; return; }   // charted some other way meanwhile — stand the crew down
+  // en route through thin-law space, survey activity can draw raiders (the old probe's risk, spread over the trip)
+  const arch = frontierArchetypeFor(target), lawless = !!(arch && arch.lawless) || target.enforce <= 0.15;
+  if (!S.encounter && !S.interdiction && Math.random() < (lawless ? 0.08 : 0.03)) {
     const pirate = genPirate(pirateOpposition(rint(1, 3), -1));
     pirate.toll = Math.round(250 * pirate.level + Math.min(2000, (S.res.credits + cargoValue()) * 0.03));
     S.encounter = pirate;
-    log(`🏴‍☠️ Your probe draws a ${pirate.ico} <span class="c">${pirate.name}</span> out of the dark — it demands ${fmt(pirate.toll)} cr, or your cargo.`, "bad");
-    toast(`Probe ambushed: ${pirate.name}!`, "bad");
-    announce("🏴‍☠️ Probe Ambushed", `A ${pirate.name} intercepted your probe. Pay, run, or fight.`, false);
-    unlock("raid"); if (typeof setTab === "function") setTab("raid");
-    afterAction();
-    return;
+    log(`🏴‍☠️ Your survey expedition draws a ${pirate.ico} <span class="c">${pirate.name}</span> out of the dark — it demands ${fmt(pirate.toll)} cr, or your cargo. The expedition presses on.`, "bad");
+    if (typeof toast === "function") toast(`Expedition drew an ambush: ${pirate.name}!`, "bad");
+    announce("🏴‍☠️ Expedition Ambushed", `A ${pirate.name} was drawn to your survey activity. Pay, run, or fight.`, false);
+    unlock("raid");
   }
-  const sensors = 0.35 + S.upgrades.lab * 0.05;   // a harder shot than a routine survey — the frontier is farther and less charted
-  if (Math.random() < sensors) {
-    S.discovered[target.id] = true;
-    log(`🔭 Your probe charts a new frontier world: <span class="c">${target.name}</span> (${target.tag})!`, "event");
-    toast(`Probe discovered ${target.name}!`, "event");
-    announce("🔭 Frontier Charted", `${target.name} (${target.tag}) — a new world at the edge of the sector.`, false);
-    fireworks(2200, false);
-    spawnSignal({ planet: target.id });   // frontier worlds skew toward richer signals — see spawnSignal()
-  } else {
-    log("🔭 Your probe returns with nothing to show for the fuel it burned.", "");
-    toast("Probe found nothing.", "");
-  }
-  afterAction();
+  e.cyclesLeft--;
+  if (e.cyclesLeft > 0) return;
+  S.expedition = null;
+  S.discovered[target.id] = true;
+  log(`🛰️ Survey expedition returns triumphant — charted a new world: <span class="c">${target.name}</span> (${target.tag})!`, "event");
+  if (typeof toast === "function") toast(`Expedition charted ${target.name}!`, "event");
+  announce(`🛰️ ${target.name} Charted`, `${target.tag} — a new world at the ${target.frontier ? "edge of the sector" : "sector's margins"}.`, false);
+  fireworks(2200, false);
+  if (target.frontier) spawnSignal({ planet: target.id });   // the deep frontier still skews toward richer signals
 }
 
 /* ============================================================
