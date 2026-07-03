@@ -1,5 +1,5 @@
 {
-  "version": "2.87.0",
+  "version": "2.88.0",
   "saveVersion": "v2",
-  "notes": "New: Deep-space chart — a fourth pirate-intel tier covering the discovered edge worlds beyond the charted sector. Unlocks once your first edge world is found."
+  "notes": "Changed: Deep-Space Survey and Probe the Frontier merged into one Survey Expedition — a multi-cycle trip that always charts its target on return."
 }

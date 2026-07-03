@@ -197,10 +197,14 @@ fed and stocked without you ever ferrying cargo by hand.
 
 ## 🔭 Exploration — chart the unknown
 
-Beyond the charted worlds lie **hidden planets**. Run a **Deep-Space Survey**
-(in the Galaxy tab) to discover them — a Research Lab sharpens your sensors.
-Newly found worlds (jungle Pandora, shattered Tartarus, paradise Elysium) are
-prime, untouched colony sites. Two colonizable worlds (Aurora, Cinder) are
+Beyond the charted worlds lie **hidden planets**. Launch a **Survey
+Expedition** (in the Galaxy tab, an action + fuel to outfit) and your crew
+works toward the nearest uncharted signature over several cycles — longer
+into the deep frontier, shorter with a good Research Lab. Lawless headings
+can draw an ambush en route, but a returned expedition always brings back
+a charted world, and frontier finds turn up richer signals. Newly found
+worlds (jungle Pandora, shattered Tartarus, paradise Elysium) are prime,
+untouched colony sites. Two colonizable worlds (Aurora, Cinder) are
 charted from the start; the rest are yours to find.
 
 ## 🏛️ Politics, factions & trade law (the deep end)
