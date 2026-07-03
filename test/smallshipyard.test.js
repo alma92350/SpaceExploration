@@ -265,3 +265,20 @@ test("shipCargoCap/shipStrEff are threaded through live fleet totals (colonyHaul
        S.fleet[0].status = "logistics"; S.fleet[0].station = S.location;`);
   assert.equal(run(`colonyHaulCap(S.location)`), baseCap + bonus, "colonyHaulCap should include the cargo loadout bonus, not just the catalog cap");
 });
+
+test("the Fleet tab unlocks from a base's Small Shipyard alone, with no colony at all", () => {
+  const { run } = createSandbox();
+  run(`S = freshState();`);
+  const fleetGate = () => `TAB_LADDER.find(g => g.id === "fleet").test(S)`;
+  assert.equal(run(fleetGate()), false, "no colony, no base shipyard, no fleet yet — should stay locked");
+  withBaseShipyard(run, 1);
+  assert.equal(run(fleetGate()), true, "a base Small Shipyard alone should unlock the Fleet tab");
+});
+
+test("checkUnlocks actually flips S.unlocked.fleet on for a base-only Small Shipyard", () => {
+  const { run } = createSandbox();
+  run(`S = freshState();`);
+  withBaseShipyard(run, 1);
+  run(`checkUnlocks(true);`);
+  assert.equal(run(`!!S.unlocked.fleet`), true, "the real unlock pipeline should reveal the Fleet tab, not just the raw test() predicate");
+});
