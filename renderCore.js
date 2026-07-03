@@ -72,6 +72,7 @@ function renderOps() {
   if (S.jail > 0) row("⛓️", "In detention", S.jail + "c", null, "var(--bad)");
   if (S.trimRefit) row("🛠️", `Refitting → ${SHIP_TRIMS[S.trimRefit.target].ico} ${SHIP_TRIMS[S.trimRefit.target].name} trim`, S.trimRefit.cyclesLeft + "c", "ship", "var(--warn)");
   if (S.expedition) { const _xt = PLANETS.find(p => p.id === S.expedition.target); row("🛰️", `Survey expedition${_xt && _xt.frontier ? " — deep frontier" : ""}`, S.expedition.cyclesLeft + "c", "galaxy", "var(--accent)"); }
+  if (S.spire && !S.spire.complete) row("🏛️", "Concordat Spire construction", spirePctComplete() + "%", "politics", "var(--accent)");
   // your fleet
   fleetList().forEach(s => { const def = FLEET_SHIPS[s.key]; if (!def) return;
     if (s.status === "building") row("🏗️", `${def.ico} ${s.name} building`, s.buildLeft + "c", "fleet", "var(--warn)");

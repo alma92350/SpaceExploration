@@ -113,6 +113,7 @@ function endTurn(fromTravel = false) {
   if (typeof processTruces === "function") processTruces();
   if (typeof processFleet === "function") processFleet();
   processTrimRefit();
+  processSpire();
   reportCycleLedger();
   reportCycleDigest();
   if (!fromTravel) log(`— Cycle ${S.turn} begins —`);
@@ -188,6 +189,25 @@ const DISCLOSURE_GATES = [
   { id: "advMarkets", icon: "🧪", goal: "Manufacture your first Medicine",
     reward: "Opens the full market — components, finished goods, luxuries & strategics",
     done: s => !!(s.made && s.made.medicine), fallbackTurn: 15 },
+  // ---- retroactive reveal moments for features that were already playable but never
+  // announced themselves — none of these HIDE anything (checkDisclosure only fires the
+  // one-time toast/log), so adding them is low-risk on an existing save ----
+  { id: "smallShipyard", icon: "🏗️", goal: "Build a Small Shipyard module at a base",
+    reward: "Light hulls, buildable anywhere you've founded a base",
+    done: s => Object.values(s.bases || {}).some(b => (b.modules || {}).shipyard_small > 0) },
+  { id: "shipTrim", icon: "⚖️", goal: "Complete a Ship Trim refit",
+    reward: "Cargo/Firepower/Autonomy on your own vessel are now yours to reallocate",
+    done: s => !!s.trim && s.trim !== "balanced" },
+  { id: "plasmaTorpedoes", icon: "💥", goal: "Research Antimatter Containment",
+    reward: "Plasma Torpedoes are now fireable in combat, and a colony Torpedo Works can manufacture them",
+    done: s => !!s.techs.antimatter },
+  { id: "deepspaceChart", icon: "🧭", goal: "Discover your first edge world",
+    reward: "The Deep-space chart (⚔️ Raider tab) now covers pirate activity on the frontier ring",
+    done: s => edgeIntelUnlocked() },
+  // ---- the Concordat Spire — stays hidden until genuinely earned, no fallbackTurn ----
+  { id: "spire", icon: "🏛️", goal: "Research Terraforming",
+    reward: "Reveals the Concordat Spire — a sector-defining mega-project (🏛️ Politics tab)",
+    done: s => spireUnlocked() },
 ];
 function checkDisclosure(silent) {
   if (!S.disc) S.disc = {};
@@ -256,12 +276,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.88.0";
+const APP_VERSION = "2.89.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.89.0", notes: "New: 🏛️ The Concordat Spire (🏛️ Politics tab) — once Terraforming is researched, designate a colony as the site of a sector-defining mega-project and fund it with tech points and Alloys/Electronics/Antimatter from anywhere in your empire. Spread the load and every faction drifts toward peace; funnel it through one faction and their rivals grow tenser instead — a third capstone legacy alongside the Pirate Lord and Sector Marshal. Also: four features that shipped quietly (Small Shipyard, Ship Trim, Plasma Torpedoes, the Deep-space chart) now announce themselves the first time you reach them." },
   { version: "2.88.0", notes: "Changed: Deep-Space Survey and Probe the Frontier merged into one 🛰️ Survey Expedition. Launch it (an action + fuel) and your crew works toward the nearest uncharted world over several cycles — longer into the deep frontier, shorter with a Research Lab. A lawless heading can still draw an ambush en route, but a returned expedition always brings back a charted world — the coin-flip is gone." },
   { version: "2.87.0", notes: "New: 🧭 Deep-space chart — a fourth pirate-intel tier (⚔️ Raider tab) covering the whole sector PLUS every edge world you've discovered beyond the charted sector; ordinary charts have never reached the frontier ring. It goes on sale only once you've found your first edge world, and edge worlds show a 🧭 marker in the intel readout." },
   { version: "2.86.0", notes: "💥 Plasma Torpedoes are now a real weapon system: fire them in combat (the hardest-hitting munition in the rack, though point-defense can thin it — the 🌀 Antimatter Warhead stays uncounterable), and build a Torpedo Works at a colony to manufacture them from Antimatter + Alloys + Radioactives. Fixed: torpedoes produced in industry vanishing from the hold, and the market paying out for torpedoes you didn't have — old saves are repaired automatically on load." },
@@ -624,6 +645,7 @@ function init() {
   if (S.eink == null) S.eink = false;
   if (S.pirateIntel === undefined) S.pirateIntel = null;
   if (S.expedition === undefined) S.expedition = null;
+  if (S.spire === undefined) S.spire = null;
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   // backfill every commodity added since this save was made (drones, ai, antimatter,
   // plasmatorp, ...) and repair NaN-corrupted stocks — an undefined S.res[c] slips
@@ -695,6 +717,7 @@ Object.assign(window, {
   research, researchTech, doPolitics, doMission, buyUpgrade, setShipTrim, setDecree,
   buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract,
   colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, launchExpedition, newGame,
+  launchSpireProject, contributeToSpire, contributeSpireTech, spireLegacy,
   foundOrg, upgradeOrg, runOrgAbility,
   proposeBill, lobbyFaction, bribeFaction, callVote, repealPolicy,
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,

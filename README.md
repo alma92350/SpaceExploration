@@ -229,6 +229,15 @@ charted from the start; the rest are yours to find.
 - **Governor Decrees** — once you rule the sector, declare a **Trade Monopoly**
   (passive income each cycle) and a **Sell Tariff** (+15% to your sell price on
   a chosen commodity).
+- **The Concordat Spire** — once **Terraforming** is researched, the tech tree
+  has nowhere left to send your accumulating research points. Designate one of
+  your colonies as the site of a sector-defining mega-project and pour tech
+  points plus Alloys/Electronics/Antimatter into it from any colony's own
+  stock. Which factions' worlds end up supplying it is never asked of you
+  directly — spread the load and every faction's relations drift toward
+  peace; funnel it through one faction's colonies and their rivals grow
+  tenser instead. A third capstone legacy alongside the outlaw's Pirate Lord
+  and the lawful Sector Marshal.
 
 ### 🏛️ Power & Organizations — the politician's machine
 

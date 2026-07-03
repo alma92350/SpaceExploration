@@ -283,6 +283,8 @@ const MILESTONES = [
   { id: "allied",       ico: "⭐", name: "Best Friends Forever", desc: "Reach Allied standing with a faction.",                     test: S => Object.values(S.rep || {}).some(v => v >= 60) },
   { id: "bustcaught",   ico: "🚨", name: "Caught Red-Handed",    desc: "Get hit with a customs bust — and live to tell the tale.", test: S => (S.stats && S.stats.busts) >= 1 },
   { id: "fortuneseeker",ico: "✨", name: "Lucky Star",           desc: "Experience your first Fortune.",                            test: S => Object.keys(S.fxSeen || {}).length >= 1 },
+  { id: "spirefounded", ico: "🏛️", name: "Groundbreaking",       desc: "Break ground on the Concordat Spire.",                      test: S => !!S.spire },
+  { id: "spirebuilt",   ico: "🏛️", name: "Age of the Concordat", desc: "Complete the Concordat Spire.",                             test: () => spireComplete() },
 ];
 function checkMilestones(silent) {
   if (!S.milestones) S.milestones = {};

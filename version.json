@@ -1,5 +1,5 @@
 {
-  "version": "2.88.0",
+  "version": "2.89.0",
   "saveVersion": "v2",
-  "notes": "Changed: Deep-Space Survey and Probe the Frontier merged into one Survey Expedition — a multi-cycle trip that always charts its target on return."
+  "notes": "New: The Concordat Spire — a late-game mega-project fed by Terraforming's leftover research points, with an emergent faction-rivalry hook. Plus disclosure fixes for several recently-added features."
 }

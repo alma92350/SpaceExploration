@@ -216,3 +216,98 @@ function processFactionRelations() {
     }
   }
 }
+
+/* ------------------------------------------------------------
+   THE CONCORDAT SPIRE — a late-game mega-project. Once Terraforming is
+   researched, the tech tree has nowhere left to send S.res.tech — colony
+   Research Campuses/Datacenters just keep generating a resource with no
+   sink. The Spire turns that surplus (plus huge material contributions)
+   into a monument built at one colony the player designates, funded from
+   anywhere in their empire. Which factions' worlds end up supplying it is
+   never asked of the player directly — it's read from S.spire.byFaction
+   and drives an emergent outcome through the existing S.factionRel system:
+   spread contributions ease every rivalry, contributions funneled through
+   one faction provoke its rivals. Mirrors the Pirate Lord / Sector Marshal
+   capstone shape (outlaw.js) as a third, political/cooperative legacy path.
+   ------------------------------------------------------------ */
+function spireUnlocked() { return !!S.techs.terraform; }
+const SPIRE_SITE_COST = { credits: 20000, metals: 500 };
+const SPIRE_TARGETS = { tech: 3000, alloys: 4000, electronics: 3000, antimatter: 800 };
+const SPIRE_DOMINANCE_SHARE = 0.5;   // one faction's cut of contributed VALUE at/above this = "claimed"
+const SPIRE_SPREAD_SHARE = 0.35;     // no faction above this = "shared" (unity bonus applies)
+const SPIRE_READ_THRESHOLD = 500;    // total contributed value below this is too early to read intent either way
+
+function spirePctComplete() {
+  if (!S.spire) return 0;
+  const parts = Object.keys(SPIRE_TARGETS).map(c => Math.min(1, (S.spire.contributed[c] || 0) / SPIRE_TARGETS[c]));
+  return Math.round(parts.reduce((a, b) => a + b, 0) / parts.length * 100);
+}
+function spireComplete() { return !!(S.spire && Object.keys(SPIRE_TARGETS).every(c => S.spire.contributed[c] >= SPIRE_TARGETS[c])); }
+
+function launchSpireProject(pid) {
+  if (!spireUnlocked()) return;
+  if (S.spire) return toast("The Spire's site is already chosen.", "bad");
+  const col = S.colonies[pid]; if (!col) return toast("Pick one of your colonies.", "bad");
+  if ((S.res.credits || 0) < SPIRE_SITE_COST.credits || !canAfford({ metals: SPIRE_SITE_COST.metals }))
+    return toast(`Groundbreaking costs ${fmt(SPIRE_SITE_COST.credits)} cr + ${SPIRE_SITE_COST.metals} ⛓️.`, "bad");
+  S.res.credits -= SPIRE_SITE_COST.credits; pay({ metals: SPIRE_SITE_COST.metals });
+  S.spire = { site: pid, contributed: { tech: 0, alloys: 0, electronics: 0, antimatter: 0 },
+              byFaction: Object.fromEntries(FACTION_KEYS.map(f => [f, 0])), complete: false };
+  log(`🏛️ Groundbreaking at <span class="c">${PLANETS.find(p => p.id === pid).name}</span> — the Concordat Spire begins.`, "event");
+  toast("The Spire's foundation is laid", "good"); sfx("event"); saveGame(); renderAll();
+}
+// material contribution: pulled straight from the DOCKED colony's own storage (any colony,
+// not necessarily the Spire's site) into the shared tally — mirrors colonyDeposit/
+// colonyWithdraw's shape (colonization.js) but skips the ship-hold step entirely
+function contributeToSpire(c) {
+  if (!S.spire || S.spire.complete) return;
+  const col = S.colonies[S.location]; if (!col) return;
+  const need = SPIRE_TARGETS[c] - (S.spire.contributed[c] || 0); if (need <= 0) return;
+  let qty = Math.min(+((typeof document !== "undefined" && document.getElementById("spire-" + c) || {}).value) || 0, col.storage[c] || 0, need);
+  qty = Math.floor(Math.max(0, qty));
+  if (qty <= 0) return toast("Nothing to contribute.", "bad");
+  col.storage[c] -= qty; S.spire.contributed[c] += qty;
+  if (col.faction) S.spire.byFaction[col.faction] += qty * COM[c].base;   // weighted by economic value, same shape as netWorth()
+  log(`🏛️ ${currentPlanet().name} ships ${qty} ${COM[c].ico} ${COM[c].name} to the Spire.`, "event");
+  checkSpireCompletion(); afterAction();
+}
+// tech is a global currency (S.res.tech), not colony storage — no location gate, mirrors buyUpgrade()
+function contributeSpireTech(qty) {
+  if (!S.spire || S.spire.complete) return;
+  const need = SPIRE_TARGETS.tech - S.spire.contributed.tech; if (need <= 0) return;
+  qty = Math.floor(Math.max(0, Math.min(+qty || 0, S.res.tech || 0, need)));
+  if (qty <= 0) return toast("No tech points to spare.", "bad");
+  S.res.tech -= qty; S.spire.contributed.tech += qty;
+  log(`🏛️ ${fmt(qty)} tech points channeled into the Spire's design.`, "event");
+  checkSpireCompletion(); afterAction();
+}
+function checkSpireCompletion() {
+  if (!S.spire || S.spire.complete || !spireComplete()) return;
+  S.spire.complete = true;
+  const dom = spireDominantFaction();
+  if (dom) addRep(dom, 15);                                                                 // a permanent claim to fame with its patron
+  else Object.keys(ensureFactionRel()).forEach(k => { S.factionRel[k] = Math.max(S.factionRel[k], -30); });  // shared work: never falls back below Cold War
+  if (typeof announce === "function") announce("🏛️ The Concordat Spire Stands", "Decades of labor made real. The sector will remember this age.", true);
+  if (typeof fireworks === "function") fireworks(8000, true);
+  log("🏛️ THE CONCORDAT SPIRE IS COMPLETE.", "good");
+}
+// emergent rivalry hook, read from contribution history — no dedication menu, the player's
+// own funding choices ARE the decision. Ticked every cycle (processSpire) and read again on
+// completion (checkSpireCompletion) and by the capstone legacy (spireLegacy, outlaw.js).
+function spireDominantFaction() {
+  if (!S.spire) return null;
+  const total = Object.values(S.spire.byFaction).reduce((a, b) => a + b, 0); if (total < SPIRE_READ_THRESHOLD) return null;
+  const [f, v] = Object.entries(S.spire.byFaction).sort((a, b) => b[1] - a[1])[0];
+  return (v / total) >= SPIRE_DOMINANCE_SHARE ? f : null;
+}
+function processSpire() {
+  if (!S.spire || S.spire.complete) return;
+  ensureFactionRel();
+  const dom = spireDominantFaction();
+  const total = Object.values(S.spire.byFaction).reduce((a, b) => a + b, 0);
+  if (dom) {   // one faction is seen claiming the Spire — its rivals grow tenser
+    FACTION_KEYS.forEach(f => { if (f !== dom && factionsAreRivals(dom, f)) S.factionRel[factionPairKey(dom, f)] -= 0.4; });
+  } else if (total >= SPIRE_READ_THRESHOLD && Math.max(...Object.values(S.spire.byFaction)) / total < SPIRE_SPREAD_SHARE) {
+    Object.keys(S.factionRel).forEach(k => { S.factionRel[k] += 0.2; });   // a common cause nudges every pair toward peace
+  }
+}
