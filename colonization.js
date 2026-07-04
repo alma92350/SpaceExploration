@@ -396,6 +396,28 @@ function colonyStorageCap(col, planet) {
   cap += (col.buildings.habitat || 0) * 60;
   return cap;
 }
+/* ---------- Production scaling: workforce, automation, unrest ----------
+   Building tiers alone used to set output — population and research never
+   entered the formula, even though effIndustry/effTech (catalogs.js) already
+   track both per colony and are shown right on the colony card. Three
+   multipliers close that gap without duplicating population's effect twice:
+   workforce reads population directly (are there enough hands to run what's
+   built), automation reads effTech specifically — NOT effIndustry, since
+   effIndustry's own pop/12 term would double-count workforce's population
+   effect — and unrest (already tracked for secession, colonization.js below)
+   now costs real output before it ever costs the colony outright. */
+const LABOR_PER_TIER = 2, WORKFORCE_MIN = 0.5, WORKFORCE_MAX = 1.3;
+function colonyLaborNeeded(col) { return Object.values(col.buildings || {}).reduce((s, t) => s + t, 0); }
+function colonyWorkforceMult(col) {
+  const needed = colonyLaborNeeded(col);
+  if (needed <= 0) return 1;
+  return Math.max(WORKFORCE_MIN, Math.min(WORKFORCE_MAX, col.pop / (needed * LABOR_PER_TIER)));
+}
+const AUTOMATION_PER_TECH = 0.03, AUTOMATION_CAP = 0.5;   // +3%/tech point, capped at +50% — industry-chain buildings only
+function colonyAutomationMult(planet) { return 1 + Math.min(AUTOMATION_CAP, effTech(planet) * AUTOMATION_PER_TECH); }
+const UNREST_PENALTY_PER_POINT = 0.06, UNREST_FLOOR = 0.6;
+function colonyUnrestMult(col) { return Math.max(UNREST_FLOOR, 1 - (col.unrest || 0) * UNREST_PENALTY_PER_POINT); }
+const GRANARY_BUFFER_CYCLES = 40;   // how many cycles of the food stockpile count toward growth's carrying capacity
 function colonyTaxIncome(col) {
   const factionMul = col.faction ? 1.25 : 1;   // bloc trade network lifts commerce
   return Math.round(col.pop * (col.tax / 100) * 5 * (col.happiness / 100) * factionMul);
@@ -603,9 +625,9 @@ function processColonies() {
       if (b.recipe) return;                                               // industry chain handled in 1b
       if (b.produces) {
         let out;
-        if (b.id === "farm") out = Math.round(t * 8 * pollutionFarmMult(pid) * (col.faction === "agri" ? 1.25 : 1));   // smog withers crops; Agri-Combine agronomists boost them
+        if (b.id === "farm") out = Math.round(t * 8 * pollutionFarmMult(pid) * (col.faction === "agri" ? 1.25 : 1) * colonyWorkforceMult(col) * colonyUnrestMult(col));   // smog withers crops; Agri-Combine agronomists boost them
         else {
-          out = Math.round(t * 5 * (planet.deposits[b.produces] || 1) * depletionMult(pid, b.produces) * pollutionYieldMult(pid));
+          out = Math.round(t * 5 * (planet.deposits[b.produces] || 1) * depletionMult(pid, b.produces) * pollutionYieldMult(pid) * colonyWorkforceMult(col) * colonyUnrestMult(col));
           drawReserve(pid, b.produces, out);
           if (out > 0 && b.pollute) addPollution(pid, b.pollute * t);
         }
@@ -622,7 +644,10 @@ function processColonies() {
       const t = col.buildings[b.id] || 0; if (t <= 0) return;
       if (col.idle && col.idle[b.id]) return;                             // paused — the line is idle this cycle
       const r = b.recipe;
-      let batches = t * r.rate;                                            // throughput scales with tier
+      // Math.round, not floor: a tier-1/rate-1 building's single nominal batch shouldn't
+      // vanish to 0 from a moderate workforce/unrest dip — larger multi-batch lines still
+      // feel the multiplier proportionally (e.g. 15 nominal * 0.625 workforce -> 9, not 15)
+      let batches = Math.round(t * r.rate * colonyWorkforceMult(col) * colonyUnrestMult(col) * colonyAutomationMult(planet));
       Object.entries(r.in).forEach(([c, q]) => { batches = Math.min(batches, Math.floor((col.storage[c] || 0) / q)); });
       const net = r.outQty - Object.values(r.in).reduce((s, q) => s + q, 0); // only net growth needs free space
       if (net > 0) batches = Math.min(batches, Math.floor((cap - colonyStorageUsed(col)) / net));
@@ -665,7 +690,8 @@ function processColonies() {
     // 4) population tracks its food supply gracefully — grow only into genuine local
     //    food surplus (never overshoot), and emigrate rather than collapse when food falls short
     const housing = colonyHousing(col, planet);
-    const carrying = Math.min(housing, foodMade);              // people the local harvest can sustain
+    const granaryBuffer = Math.floor((col.storage[COLONY_FOOD] || 0) / GRANARY_BUFFER_CYCLES);   // a stocked granary sustains growth beyond this cycle's raw harvest alone
+    const carrying = Math.min(housing, foodMade + granaryBuffer);   // people the harvest AND its stockpile can sustain
     if (fed && col.happiness >= 60 && col.pop < carrying) {
       col.pop += Math.max(1, Math.round(col.pop * 0.05));      // room to grow: spare food AND housing
     } else if (!fed) {

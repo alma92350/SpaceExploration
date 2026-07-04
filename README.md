@@ -159,6 +159,15 @@ economies. Found a colony, then develop it:
   the colony to keep people happy and feed its factories. As population and
   buildings grow, the world's **industry and tech levels rise**, improving
   production, research and prices there.
+- **Growth uses your stockpile, not just this cycle's harvest** — a colony
+  banking a real food surplus keeps growing toward its housing cap even if
+  the farm's raw output alone would otherwise plateau it.
+- **Output tracks population, research and stability, not just building
+  tiers** — a colony's **Workforce** (population vs. what its buildings need
+  to run), **Automation** (a bonus from its tech level, on manufacturing
+  specifically) and **Unrest** (a penalty once discontent sets in) all show
+  on the governor card, so a colony that looks "stuck" always has a visible
+  reason and a lever to pull.
 
 Colonies live and grow **every cycle, even while you're away**. A populous
 colony is a major asset toward your net worth.
