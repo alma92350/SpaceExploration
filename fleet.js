@@ -128,8 +128,9 @@ function repairFleetShip(id) {
   const s = fleetList().find(x => x.id === id); if (!s || s.status === "building") return;
   if (shipyardTierAt(S.location) <= 0 || s.home !== S.location) return toast("Repair at the ship's home shipyard.", "bad");
   const c = fleetRepairCost(s); if (c.miss <= 0) return toast("That ship is already sound.", "bad");
-  if ((S.res.credits || 0) < c.credits || (S.res.metals || 0) < c.metals) return toast(`Repair needs ${fmt(c.credits)} cr · ${c.metals} ⛓️.`, "bad");
-  S.res.credits -= c.credits; S.res.metals -= c.metals; s.hull = s.hullMax;
+  const local = shipyardLocalStorage(S.location), mats = { metals: c.metals };
+  if ((S.res.credits || 0) < c.credits || !canAffordMats(mats, local)) return toast(`Repair needs ${fmt(c.credits)} cr · ${c.metals} ⛓️.`, "bad");
+  S.res.credits -= c.credits; payMats(mats, local); s.hull = s.hullMax;
   log(`🔧 Repaired the ${s.name} for ${fmt(c.credits)} cr.`, "good"); toast("Ship repaired", "good"); sfx("repair"); saveGame(); renderAll();
 }
 // ---- reassign a ship's home shipyard — lets a fleet built up piecemeal across

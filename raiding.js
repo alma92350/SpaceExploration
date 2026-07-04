@@ -281,9 +281,10 @@ function repairSubsys(sub) {
   if (combatLocked()) return;
   const q = subsysRepairCost(sub);
   if (!q) return toast(`${SUBSYS_META[sub].name} is intact.`, "bad");
+  const local = localStockpileAt(S.location), mats = { [q.mat]: q.matQ };
   if (S.res.credits < q.credits) return toast(`${SUBSYS_META[sub].name} repair costs ${fmt(q.credits)} cr.`, "bad");
-  if ((S.res[q.mat] || 0) < q.matQ) return toast(`Need ${q.matQ} ${COM[q.mat].name} to repair ${SUBSYS_META[sub].name}.`, "bad");
-  S.res.credits -= q.credits; S.res[q.mat] -= q.matQ; S.pirate.subsys[sub] = 100;
+  if (!canAffordMats(mats, local)) return toast(`Need ${q.matQ} ${COM[q.mat].name} to repair ${SUBSYS_META[sub].name}.`, "bad");
+  S.res.credits -= q.credits; payMats(mats, local); S.pirate.subsys[sub] = 100;
   log(`🔧 ${SUBSYS_META[sub].ico} ${SUBSYS_META[sub].name} repaired for ${fmt(q.credits)} cr + ${q.matQ} ${COM[q.mat].ico}.`, "good");
   toast(`${SUBSYS_META[sub].name} repaired.`, "good");
   topUpFuelAtVenue();
@@ -291,15 +292,16 @@ function repairSubsys(sub) {
 }
 function repairAll() {
   if (combatLocked()) return;
-  let spent = 0; const did = [];
+  let spent = 0; const did = []; const local = localStockpileAt(S.location);
   if (S.pirate.hull < HULL_MAX) {
     const cost = Math.round((HULL_MAX - S.pirate.hull) * 30 * repairDiscount());
     if (S.res.credits >= cost) { S.res.credits -= cost; S.pirate.hull = HULL_MAX; spent += cost; did.push("hull"); }
   }
   SUBSYS.forEach(sub => {
     const q = subsysRepairCost(sub); if (!q) return;
-    if (S.res.credits >= q.credits && (S.res[q.mat] || 0) >= q.matQ) {
-      S.res.credits -= q.credits; S.res[q.mat] -= q.matQ; S.pirate.subsys[sub] = 100;
+    const mats = { [q.mat]: q.matQ };
+    if (S.res.credits >= q.credits && canAffordMats(mats, local)) {
+      S.res.credits -= q.credits; payMats(mats, local); S.pirate.subsys[sub] = 100;
       spent += q.credits; did.push(SUBSYS_META[sub].name);
     }
   });

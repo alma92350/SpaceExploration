@@ -1,5 +1,5 @@
 {
-  "version": "2.91.0",
+  "version": "2.91.1",
   "saveVersion": "v2",
-  "notes": "Ship construction now spends local stockpile materials first (colony or base storage) before dipping into your ship's hold."
+  "notes": "Repairs (fleet hulls and your own ship's subsystems) now spend local colony/base stockpile materials before your hold, matching ship construction."
 }

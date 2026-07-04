@@ -42,6 +42,16 @@ function baseStorageCap(pid) {
   return BASE_BASE_STORAGE + (b.modules.warehouse || 0) * 250;
 }
 function baseStorageUsed(b) { return Object.values(b.storage).reduce((s, q) => s + q, 0); }
+// Repair materials (a fleet hull, or the player's own ship) draw from whatever local stockpile
+// sits at a location first — colony storage over base storage, same precedence a Shipyard build
+// venue uses (shipyardVenueAt, fleet.js) — but repair itself needs no Shipyard/Small Shipyard
+// building the way construction does, just a storeroom, so this checks for the colony/base
+// itself rather than any particular module tier.
+function localStockpileAt(pid) {
+  if (S.colonies && S.colonies[pid]) return S.colonies[pid].storage;
+  if (S.bases && S.bases[pid]) return S.bases[pid].storage;
+  return null;
+}
 
 function matsString(mats) {
   return Object.entries(mats).map(([c, q]) =>

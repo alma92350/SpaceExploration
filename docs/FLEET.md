@@ -22,7 +22,13 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
 - **Upkeep**: `fleetUpkeep` (non-building ships) charged each cycle in
   `processFleet`, reported to the 💰 Cycle accounts ledger as "fleet upkeep".
 - **Repair** (`repairFleetShip`) and **scrap** (`scrapShip`, ~40% metals salvage)
-  at the ship's home shipyard.
+  at the ship's home shipyard; repair metals draw from the same
+  `shipyardLocalStorage` venue as construction before touching your hold. The
+  player's own ship repairs the same way — `repairSubsys`/`repairAll`
+  (raiding.js) draw from `localStockpileAt(pid)` (colony storage over a
+  coexisting base's, no Shipyard/module required — repair just needs a
+  storeroom) before the hold. `repairShip` (the main hull heal) is
+  credits-only and untouched by any of this.
 - **Reassign home shipyard** (`reassignShipyard`) — an idle ship can re-register
   its home port to whatever colony you're currently docked at, provided that
   colony's Shipyard tier can service it (`def.tier <= yard`, same gate as
@@ -84,8 +90,10 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   `cargoBonus`/`combatBonus` are new optional per-ship fields — no migration
   needed for any of it. Exports: `orderShip`, `scrapShip`, `repairFleetShip`,
   `reassignShipyard`, `upgradeLoadout`, `shipyardTierAt`, `shipyardVenueAt`,
-  `shipyardLocalStorage`, `scrapRefundPct`, `shipCargoCap`, `shipStrEff`. Tests:
+  `shipyardLocalStorage`, `localStockpileAt` (colonization.js),
+  `scrapRefundPct`, `shipCargoCap`, `shipStrEff`. Tests:
   `fleet.js`, `reassign.test.js`, `smallshipyard.test.js`,
+  `repairmatsource.test.js`,
   `shipyardmatsource.test.js`.
 
 ## Stats

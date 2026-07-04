@@ -528,13 +528,15 @@ function repairBayHTML() {
   const hullBtn = P.hull < HULL_MAX
     ? `<button class="btn btn-good btn-sm" onclick="repairShip()">🔧 Repair hull (${fmt(Math.round((HULL_MAX - P.hull) * 30 * repairDiscount()))} 💰${repairDiscount() < 1 ? ", " + Math.round((1 - repairDiscount()) * 100) + "% off" : ""})</button>`
     : "";
+  const repairLocal = localStockpileAt(S.location);
   const subRows = SUBSYS.map(k => {
     const c = shipCond(k), col = c >= 60 ? "var(--good)" : c >= 30 ? "var(--warn)" : "var(--bad)", m = SUBSYS_META[k], q = subsysRepairCost(k);
     return `<div class="ship-stat"><span class="k">${m.ico} ${m.name}</span><span class="v" style="color:${col}">${c}%</span></div>
       <div class="bar"><span style="width:${c}%;background:${col}"></span></div>
-      ${q ? `<button class="btn btn-sm" style="margin:2px 0 4px" ${(S.res.credits >= q.credits && (S.res[q.mat] || 0) >= q.matQ) ? "" : "disabled"} title="Repair ${m.name}: ${fmt(q.credits)} cr + ${q.matQ} ${COM[q.mat].name}" onclick="repairSubsys('${k}')">🔧 ${m.name} (${fmt(q.credits)}💰+${q.matQ}${COM[q.mat].ico})</button>` : ""}`;
+      ${q ? `<button class="btn btn-sm" style="margin:2px 0 4px" ${(S.res.credits >= q.credits && canAffordMats({ [q.mat]: q.matQ }, repairLocal)) ? "" : "disabled"} title="Repair ${m.name}: ${fmt(q.credits)} cr + ${q.matQ} ${COM[q.mat].name}" onclick="repairSubsys('${k}')">🔧 ${m.name} (${fmt(q.credits)}💰+${q.matQ}${COM[q.mat].ico})</button>` : ""}`;
   }).join("");
-  return `<div class="card" style="margin-bottom:12px"><h4>🔧 Repair Bay <span class="hint">— docked at ${currentPlanet().name}</span></h4>
+  const stockpileNote = repairLocal ? ` <span class="hint">(materials draw from the local stockpile first, then your hold)</span>` : "";
+  return `<div class="card" style="margin-bottom:12px"><h4>🔧 Repair Bay <span class="hint">— docked at ${currentPlanet().name}</span>${stockpileNote}</h4>
     <div class="ship-stat"><span class="k">🛡️ Hull</span><span class="v" style="color:${hullCol}">${P.hull}/${HULL_MAX}</span></div>
     <div class="bar"><span style="width:${P.hull}%;background:${hullCol}"></span></div>
     ${hullBtn}
