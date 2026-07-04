@@ -233,6 +233,16 @@ worlds (jungle Pandora, shattered Tartarus, paradise Elysium) are prime,
 untouched colony sites. Two colonizable worlds (Aurora, Cinder) are
 charted from the start; the rest are yours to find.
 
+The Galaxy tab itself reads as a real strategic map: every world's card and
+starmap node carries a **colored border in its controlling faction's own
+color**, a warship you've sent on **🎯 mission**, **🚚 logistics**, or
+**🛡️ patrol** duty (or that's simply **⚓ docked** at home) shows up right on
+the map in a color matched to its duty — and a world under your fleet's
+watch shares its **pirate activity for free**, chart or no chart, since a
+ship sitting there has eyes of its own. A **Show:** filter row lets you
+declutter the map down to just the fleet, pirate, faction, or environmental
+layer you care about.
+
 ## 🏛️ Politics, factions & trade law (the deep end)
 
 - **Five factions** — Core Authority, Mining Guild, Agri-Combine, Tech

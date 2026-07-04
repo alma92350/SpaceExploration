@@ -309,8 +309,55 @@ updated to compute the expectation from the live (possibly-varied) value
 instead, the same category of fix as the unseeded-active-roster test bug
 found in slice 5.
 
+## Slice 7 (shipped) — the strategic map
+The Galaxy tab had quietly accumulated ~12 pill types across several earlier
+features (fleet missions, stationed convoys, pirate mandates, territory
+contests, faction war-fronts, pirate havens, hyperlanes...) with no way to
+see just one layer, no visual language for who controls a world, and no
+footprint at all for two fleet duty types. Purely additive, same low-risk
+shape as slice 5's starmap.
+- **Fleet presence, color-coded by duty**: the existing 🎯 fleet-mission and
+  🚚 stationed-convoy pills gained distinct colors (accent/warn), and two new
+  ones cover what was invisible before — 🛡️ patrolling (accent-2, the
+  vicinity-gated raid-support status) and ⚓ docked (good, idle/building
+  ships sitting at their own home port). New shared predicate
+  `fleetPresentAt(pid)` (fleet.js) backs both the map and the intel change
+  below.
+- **Fleet-sourced pirate intel**: `pirateIntelKnows(pid)` (combat.js) gained
+  one more OR-branch, `fleetPresentAt(pid)` — a world with any fleet ship on
+  it (mission, station, patrol, or simply docked) reveals its real pirate
+  activity for free, independent of a purchased chart. Since this one
+  function already gated all 5 real call sites (galaxy map, fleet-mission
+  picker, colony-logistics picker, mandate picker, Raider tab intel card),
+  the change propagates everywhere at once with no other edits.
+- **Faction control, finally visible**: `FACTIONS[f].color` (data.js) had
+  been defined since the game's early days but was never read anywhere —
+  confirmed by a full-codebase grep before writing a line of this slice. A
+  4px colored left-border stripe on each owned world's card, and a matching
+  colored ring around its starmap node, now make "who controls this world"
+  legible at a glance instead of a plain gray text label. Colonizable/
+  unowned worlds get neither, matching every other faction-gated pill.
+- **Display filters**: the map's first-ever multi-toggle filter row —
+  `S.galaxyFilters` (`ensureGalaxyFilters()`, lazily initialized like
+  `S.escort`/`S.territoryControl`, no save migration needed), four
+  independent booleans (`fleet`/`pirates`/`factions`/`environment`) each
+  gating a cluster of the existing pills, toggled via `toggleGalaxyFilter(key)`
+  and a button row mirroring the existing posture/sub-tab button-strip
+  convention used elsewhere in the game.
+
+Tests: `galaxymap.test.js` (14 checks) — including a technique worth noting
+for future render-function tests: the test sandbox's `document.getElementById`
+stub returns a *fresh* element on every call, so a function that writes
+`el.innerHTML = ...` (as `renderGalaxy` does, rather than returning a string)
+is otherwise unobservable after the fact. Caching the element the first time
+a test requests it (monkey-patching `getElementById` inside the sandbox for
+just that test) makes the real rendered output readable, matching how an
+actual browser DOM already behaves.
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-None — all six brainstormed slices are shipped. Bigger, replayable maps
+None — all seven brainstormed slices are shipped. Bigger, replayable maps
 (frontier ring, core variance), real geography (lane graph, starmap),
-deeper exploration (probe/richer signals) and a shareable Sector Code are
-all in. Anything past this would be new brainstorming, not backlog.
+deeper exploration (probe/richer signals), a shareable Sector Code, and a
+legible strategic layer (fleet presence, fleet-sourced intel, faction
+control, display filters) are all in. Anything past this would be new
+brainstorming, not backlog.

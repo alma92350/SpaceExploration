@@ -217,6 +217,20 @@ function repBar(f) {
    draws when BOTH ends are already `galaxyKnown` — a hidden world's
    hyperlanes never leak as a line pointing off into the dark.
 */
+/* ---------- Galaxy map display filters ----------
+   The map now carries fleet presence, faction control and pirate/political
+   pills alongside the original world-flavor ones — enough that a player who
+   only cares about one layer needs a way to declutter. Four independent,
+   simultaneously-toggleable booleans, lazily initialized like S.escort/
+   S.territoryControl so old saves need no migration. */
+function ensureGalaxyFilters() {
+  if (!S.galaxyFilters) S.galaxyFilters = { fleet: true, pirates: true, factions: true, environment: true };
+  return S.galaxyFilters;
+}
+function toggleGalaxyFilter(key) {
+  const f = ensureGalaxyFilters(); if (!(key in f)) return;
+  f[key] = !f[key]; saveGame(); renderAll();
+}
 function renderStarmap(known) {
   if (known.length < 2) return '';
   const W = 760, H = 220, pad = 36;
@@ -239,11 +253,16 @@ function renderStarmap(known) {
       edges += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${hot ? "var(--good)" : "#334155"}" stroke-width="${hot ? 2 : 1}" opacity="${hot ? 0.9 : 0.45}"/>`;
     });
   });
+  const showFactions = ensureGalaxyFilters().factions;
   let nodes = '';
   known.forEach(p => {
     const here = p.id === S.location, q = pos[p.id];
+    // a faction-colored ring around each owned world's node — the SAME control-at-a-glance
+    // treatment as the card's border stripe below, extended to the geographic view
+    const factionColor = (showFactions && !p.colonizable && p.faction) ? FACTIONS[p.faction].color : null;
+    const stroke = here ? "#fff" : (factionColor || "#0f172a");
     nodes += `<g${here ? "" : ` style="cursor:pointer" onclick="travel('${p.id}')"`}>
-      <circle cx="${q.x}" cy="${q.y}" r="${here ? 9 : 5}" fill="${p.color}" stroke="${here ? "#fff" : "#0f172a"}" stroke-width="${here ? 2 : 1}"><title>${p.name}${here ? " — you are here" : ` — ${fuelCost(p.id)}⛽`}</title></circle>
+      <circle cx="${q.x}" cy="${q.y}" r="${here ? 9 : 5}" fill="${p.color}" stroke="${stroke}" stroke-width="${here ? 2 : (factionColor ? 2 : 1)}"><title>${p.name}${here ? " — you are here" : ` — ${fuelCost(p.id)}⛽`}</title></circle>
     </g>`;
   });
   return `<div class="card" style="overflow:auto">
@@ -255,49 +274,61 @@ function renderStarmap(known) {
 function renderGalaxy() {
   const el = document.getElementById("panel-galaxy");
   const known = PLANETS.filter(galaxyKnown);
+  const filters = ensureGalaxyFilters();
   const cards = known.map(p => {
     const here = p.id === S.location;
     const fc = here ? 0 : fuelCost(p.id);
     const canGo = !here && S.res.fuel >= fc;
     const deps = Object.keys(p.deposits || {}).map(c => COM[c].ico).join(" ")
       + (p.salvage ? " 🧲" : "") + (p.bounty ? " 🎯" : "");
-    const enf = p.enforce > 0.7 ? '<span class="pill bad">strict law</span>'
-      : p.enforce < 0.25 ? '<span class="pill good">lawless</span>' : '<span class="pill">patrolled</span>';
+    const enf = filters.environment ? (p.enforce > 0.7 ? '<span class="pill bad">strict law</span>'
+      : p.enforce < 0.25 ? '<span class="pill good">lawless</span>' : '<span class="pill">patrolled</span>') : '';
     const pol = pollutionOf(p.id);
-    const polPill = pol >= 60 ? '<span class="pill bad" title="Heavy industrial pollution">☁️ fouled</span>'
-      : pol >= 25 ? '<span class="pill" title="Rising industrial pollution">☁️ smoggy</span>' : '';
+    const polPill = filters.environment ? (pol >= 60 ? '<span class="pill bad" title="Heavy industrial pollution">☁️ fouled</span>'
+      : pol >= 25 ? '<span class="pill" title="Rising industrial pollution">☁️ smoggy</span>' : '') : '';
     const _cr = S.crises && S.crises[p.id];
-    const crisisPill = _cr ? `<span class="pill bad" title="${CRISES[_cr.type].name} — prices spiking, ${_cr.cyclesLeft} cyc left">${CRISES[_cr.type].ico} ${CRISES[_cr.type].name}</span>` : '';
+    const crisisPill = (filters.environment && _cr) ? `<span class="pill bad" title="${CRISES[_cr.type].name} — prices spiking, ${_cr.cyclesLeft} cyc left">${CRISES[_cr.type].ico} ${CRISES[_cr.type].name}</span>` : '';
     const _plv = pirateLevel(p.id);
-    const piratePill = pirateIntelKnows(p.id)
-      ? (_plv > 0 ? `<span class="pill ${_plv >= 2 ? "bad" : ""}" title="Pirate activity level ${_plv} (from your charts)">🏴 pirates ${_plv}</span>` : `<span class="pill good" title="No pirate activity (from your charts)">🏴 clear</span>`)
+    const piratePill = (filters.pirates && pirateIntelKnows(p.id))
+      ? (_plv > 0 ? `<span class="pill ${_plv >= 2 ? "bad" : ""}" title="Pirate activity level ${_plv} (from your charts or fleet presence)">🏴 pirates ${_plv}</span>` : `<span class="pill good" title="No pirate activity (from your charts or fleet presence)">🏴 clear</span>`)
       : '';
     const tag = p.colonizable
       ? `<span class="pill good">${S.colonies[p.id] ? "your colony 🌍" : "colonizable"}</span>`
       : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
-    const escortPill = (S.escort && S.escort.active && S.escort.mission && S.escort.mission.to === p.id)
+    const escortPill = (filters.fleet && S.escort && S.escort.active && S.escort.mission && S.escort.mission.to === p.id)
       ? `<span class="pill" title="Your active convoy is bound here (${S.escort.mission.legsLeft} leg(s) left)">🛡️ convoy bound</span>` : '';
+    // Fleet presence, color-coded by duty — a warship on patrol (readiness) reads differently
+    // from one merely docked idle at home, or stationed on logistics/mission duty elsewhere.
     const _fMissions = fleetList().filter(s => s.status === "mission" && s.mission && s.mission.planet === p.id);
-    const fleetMissionPill = _fMissions.length
-      ? `<span class="pill" title="${_fMissions.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name} — ${MANDATE_TASKS[s.mission.task].name} (${s.mission.cyclesLeft} cyc)`).join(" · ")}">🎯 fleet mission ×${_fMissions.length}</span>` : '';
+    const fleetMissionPill = (filters.fleet && _fMissions.length)
+      ? `<span class="pill" style="border-color:var(--accent);color:var(--accent)" title="${_fMissions.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name} — ${MANDATE_TASKS[s.mission.task].name} (${s.mission.cyclesLeft} cyc)`).join(" · ")}">🎯 fleet mission ×${_fMissions.length}</span>` : '';
     const _fLogi = fleetList().filter(s => s.status === "logistics" && s.station === p.id);
-    const fleetLogiPill = _fLogi.length
-      ? `<span class="pill" title="${_fLogi.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name} (${FLEET_SHIPS[s.key].role === "freighter" ? "hauler" : "guard"})`).join(" · ")}">🚚 convoy stationed</span>` : '';
+    const fleetLogiPill = (filters.fleet && _fLogi.length)
+      ? `<span class="pill" style="border-color:var(--warn);color:var(--warn)" title="${_fLogi.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name} (${FLEET_SHIPS[s.key].role === "freighter" ? "hauler" : "guard"})`).join(" · ")}">🚚 convoy stationed</span>` : '';
+    const _fPatrol = fleetList().filter(s => s.status === "patrol" && s.station === p.id);
+    const fleetPatrolPill = (filters.fleet && _fPatrol.length)
+      ? `<span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)" title="${_fPatrol.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name}`).join(" · ")} — on call for raids here">🛡️ ${_fPatrol.length} patrolling</span>` : '';
+    const _fDocked = fleetList().filter(s => (s.status === "idle" || s.status === "building") && s.home === p.id);
+    const fleetDockedPill = (filters.fleet && _fDocked.length)
+      ? `<span class="pill" style="border-color:var(--good);color:var(--good)" title="${_fDocked.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name}${s.status === "building" ? " (building)" : ""}`).join(" · ")}">⚓ ${_fDocked.length} docked</span>` : '';
     const _mandatesHere = (S.mandates || []).filter(m => m.planet === p.id);
-    const mandatePill = _mandatesHere.length
+    const mandatePill = (filters.pirates && _mandatesHere.length)
       ? `<span class="pill" title="${_mandatesHere.map(m => `${(bandById(m.bandId) || {}).name || "crew"} — ${MANDATE_TASKS[m.task].name} (${m.cyclesLeft} cyc)`).join(" · ")}">📜 mandate ×${_mandatesHere.length}</span>` : '';
     const _sig = (S.signals || []).find(s => s.planet === p.id);
-    const signalPill = _sig ? `<span class="pill good" title="${SIGNAL_KINDS[_sig.kind].blurb} — ${_sig.ttl} cyc to investigate">${SIGNAL_KINDS[_sig.kind].ico} ${["", "faint", "strong", "rare"][_sig.tier]} signal</span>` : '';
-    const sectorPill = (!p.colonizable && p.faction) ? factionWarFrontPill(p.faction) : '';
+    const signalPill = (filters.environment && _sig) ? `<span class="pill good" title="${SIGNAL_KINDS[_sig.kind].blurb} — ${_sig.ttl} cyc to investigate">${SIGNAL_KINDS[_sig.kind].ico} ${["", "faint", "strong", "rare"][_sig.tier]} signal</span>` : '';
+    const sectorPill = (filters.factions && !p.colonizable && p.faction) ? factionWarFrontPill(p.faction) : '';
     const _pirHaven = bandsWithHaven().find(hb => hb.haven.planet === p.id);
-    const pirateHavenPill = _pirHaven ? `<span class="pill bad" title="The ${_pirHaven.name} command a pirate haven here (tier ${_pirHaven.haven.tier}) — see 🏴‍☠️ Contacts">👑 ${_pirHaven.name}'s haven T${_pirHaven.haven.tier}</span>` : '';
+    const pirateHavenPill = (filters.pirates && _pirHaven) ? `<span class="pill bad" title="The ${_pirHaven.name} command a pirate haven here (tier ${_pirHaven.haven.tier}) — see 🏴‍☠️ Contacts">👑 ${_pirHaven.name}'s haven T${_pirHaven.haven.tier}</span>` : '';
     const _contest = (S.territoryControl || {})[p.id];
-    const territoryPill = _contest ? `<span class="pill bad" title="The ${FACTIONS[_contest.challenger].name} are contesting this world, ${territoryControlPct(p.id)}% of the way to seizing it">🚩 contested by ${FACTIONS[_contest.challenger].ico} ${Math.round(_contest.meter)}%</span>` : '';
-    const hyperlanePill = (!here && (currentPlanet().hyperlanes || []).includes(p.id))
+    const territoryPill = (filters.factions && _contest) ? `<span class="pill bad" title="The ${FACTIONS[_contest.challenger].name} are contesting this world, ${territoryControlPct(p.id)}% of the way to seizing it">🚩 contested by ${FACTIONS[_contest.challenger].ico} ${Math.round(_contest.meter)}%</span>` : '';
+    const hyperlanePill = (filters.environment && !here && (currentPlanet().hyperlanes || []).includes(p.id))
       ? `<span class="pill good" title="A direct hyperlane bypasses the usual route — cheaper to reach than the map might suggest">🛰️ hyperlane</span>` : '';
     const sigFuel = _sig ? (SIGNAL_FUEL[_sig.tier] || 6) : 0;
     const sigBtn = (_sig && here) ? `<button class="btn btn-sm ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "btn-good" : ""}" ${actionsLeft() > 0 && S.res.fuel >= sigFuel ? "" : "disabled"} title="${SIGNAL_KINDS[_sig.kind].blurb}" onclick="investigateSignal('${_sig.id}')">🔍 Investigate signal (${sigFuel}⛽)</button>` : '';
-    return `<div class="planet-card ${here ? "current" : ""}">
+    // controlling faction gets a real visual identity on the map at last — a colored left-
+    // border stripe, co-existing with the CSS .current class's gold border on the other 3 sides
+    const factionColor = (filters.factions && !p.colonizable && p.faction) ? FACTIONS[p.faction].color : null;
+    return `<div class="planet-card ${here ? "current" : ""}"${factionColor ? ` style="border-left:4px solid ${factionColor}"` : ""}>
       <div class="planet-orb" style="background:radial-gradient(circle at 35% 30%, ${p.color}, #000 130%)"></div>
       <div class="planet-name">${p.name} ${S.visited[p.id] ? "" : '<span class="badge">unknown</span>'}</div>
       <div class="planet-tag">${p.tag} · ${tag}</div>
@@ -305,7 +336,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}${territoryPill}${hyperlanePill}
+        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${fleetPatrolPill}${fleetDockedPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}${territoryPill}${hyperlanePill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${sigBtn ? `<div class="row" style="margin-bottom:8px">${sigBtn}</div>` : ""}
@@ -348,8 +379,11 @@ function renderGalaxy() {
     const hot = S.pirateIntel.worlds.filter(id => pirateLevel(id) >= 2).length;
     intelBadge = `<span class="pill ${hot ? "bad" : "good"}" title="Active pirate chart — ${left} cycle(s) left. Activity updates live on the map.">🏴 ${hot ? hot + " pirate hotspot" + (hot > 1 ? "s" : "") : "lanes charted"} · ${left}cyc</span>`;
   }
+  const filterBtn = (key, label) => `<button class="btn btn-sm ${filters[key] ? "btn-primary" : ""}" onclick="toggleGalaxyFilter('${key}')">${label}</button>`;
+  const filterRow = `<div class="row" style="margin:8px 0;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Show:</span> ${filterBtn("fleet", "✦ Fleet")} ${filterBtn("pirates", "🏴 Pirates")} ${filterBtn("factions", "🏛️ Factions")} ${filterBtn("environment", "🌐 Environment")}</div>`;
   el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}${intelBadge}</h2>
-    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. This sector's own Sector Code also jitters every core world's deposits, industry, tech and law level a little, so exact yields vary game to game even though names and history never do. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with a 🛰️ Survey Expedition below. Travelling costs fuel and advances a cycle. <span class="hint">Sector code: <b>${seedCodeFor(S.frontierSeed)}</b> — share it, or start a new game from one, with the 🔑 Seed button.</span></div>
+    <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. This sector's own Sector Code also jitters every core world's deposits, industry, tech and law level a little, so exact yields vary game to game even though names and history never do. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with a 🛰️ Survey Expedition below. Travelling costs fuel and advances a cycle. A world under your fleet's watch (patrolling, stationed, or simply docked) shares its pirate activity for free, chart or no chart. <span class="hint">Sector code: <b>${seedCodeFor(S.frontierSeed)}</b> — share it, or start a new game from one, with the 🔑 Seed button.</span></div>
+    ${filterRow}
     ${renderStarmap(known)}
     <div class="planet-grid">${cards}</div>
     ${(() => { const beyond = PLANETS.filter(p => isActive(p) && !p.hidden && !p.colonizable && !galaxyKnown(p)).length; return beyond ? `<div class="hint" style="margin-top:8px">🛰️ ${beyond} more world(s) lie beyond your sensor range (~${GALAXY_FUEL_HORIZON} fuel) — travel toward the frontier to chart them.</div>` : ""; })()}

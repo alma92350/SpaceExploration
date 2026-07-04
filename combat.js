@@ -345,7 +345,7 @@ const PIRATE_MAP = {
 };
 const PIRATE_INTEL_DURATION = 8;   // cycles of fresh intel per purchase
 function pirateIntelActive() { return !!(S.pirateIntel && S.turn < S.pirateIntel.until); }
-function pirateIntelKnows(pid) { return pid === S.location || (pirateIntelActive() && S.pirateIntel.worlds.indexOf(pid) >= 0); }
+function pirateIntelKnows(pid) { return pid === S.location || (pirateIntelActive() && S.pirateIntel.worlds.indexOf(pid) >= 0) || fleetPresentAt(pid); }
 function edgeIntelUnlocked() { return PLANETS.some(p => p.frontier && S.discovered && S.discovered[p.id]); }
 function buyPirateMap(scope) {
   const m = PIRATE_MAP[scope]; if (!m) return;
