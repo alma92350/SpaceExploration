@@ -312,17 +312,22 @@ function renderColonies() {
   } else {
     const housing = colonyHousing(col, planet);
     const fedNeed = col.pop, fedHave = col.storage[COLONY_FOOD] || 0;
+    const granaryBuffer = Math.floor(fedHave / GRANARY_BUFFER_CYCLES);
+    const workforceMult = colonyWorkforceMult(col), automationMult = colonyAutomationMult(planet), unrestMult = colonyUnrestMult(col);
     const govCard = `<div class="card">
       <h4>🏛️ ${planet.name} Colony ${colonyHealthPill(col)}</h4>
       <div class="ship-stat"><span class="k">👥 Population</span><span class="v">${fmt(col.pop)}k / ${fmt(housing)}k</span></div>
       <div class="bar"><span style="width:${Math.min(100, col.pop / housing * 100)}%"></span></div>
       <div class="ship-stat" style="margin-top:6px"><span class="k">😊 Happiness</span><span class="v">${col.happiness}%</span></div>
       <div class="bar"><span style="width:${col.happiness}%;background:${col.happiness>=60?'var(--good)':col.happiness>=35?'var(--warn)':'var(--bad)'}"></span></div>
-      <div class="ship-stat" style="margin-top:6px"><span class="k">🌾 Food / cycle</span><span class="v" style="color:${fedHave>=fedNeed?'var(--good)':'var(--bad)'}">${fmt(fedHave)} stored · need ${fmt(fedNeed)}</span></div>
+      <div class="ship-stat" style="margin-top:6px"><span class="k">🌾 Food / cycle</span><span class="v" style="color:${fedHave>=fedNeed?'var(--good)':'var(--bad)'}">${fmt(fedHave)} stored · need ${fmt(fedNeed)}${granaryBuffer > 0 ? ` <span class="hint">(+${fmt(granaryBuffer)} growth buffer from stockpile)</span>` : ""}</span></div>
       <div class="ship-stat"><span class="k">☁️ Pollution</span><span class="v" style="color:${pollutionOf(planet.id)>=60?'var(--bad)':pollutionOf(planet.id)>=25?'var(--warn)':'var(--good)'}">${Math.round(pollutionOf(planet.id))}</span></div>
       <div class="bar"><span style="width:${pollutionOf(planet.id)}%;background:${pollutionOf(planet.id)>=60?'var(--bad)':pollutionOf(planet.id)>=25?'var(--warn)':'var(--good)'}"></span></div>
       <div class="ship-stat" style="margin-top:6px"><span class="k">🏭 Industry</span><span class="v">${effIndustry(planet)}</span></div>
       <div class="ship-stat"><span class="k">🔬 Tech</span><span class="v">${effTech(planet)}</span></div>
+      <div class="ship-stat" style="margin-top:6px"><span class="k">👷 Workforce</span><span class="v" style="color:${workforceMult>=1?'var(--good)':workforceMult>=0.75?'var(--warn)':'var(--bad)'}">${Math.round(workforceMult*100)}% <span class="hint">(${fmt(col.pop)} pop / ${fmt(colonyLaborNeeded(col)*LABOR_PER_TIER)} needed)</span></span></div>
+      <div class="ship-stat"><span class="k">🤖 Automation</span><span class="v">+${Math.round((automationMult-1)*100)}% <span class="hint">industry chain, Tech ${effTech(planet)}</span></span></div>
+      ${unrestMult < 1 ? `<div class="ship-stat"><span class="k">😠 Unrest penalty</span><span class="v" style="color:var(--bad)">−${Math.round((1-unrestMult)*100)}% output</span></div>` : ""}
       <div class="ship-stat"><span class="k">🛡️ Defense</span><span class="v">${colonyDefense(col) ? "Level " + colonyDefense(col) : '<span style="color:var(--bad)">undefended</span>'}</span></div>
       ${(col.unrest || 0) >= 2 ? `<div class="ship-stat"><span class="k">⚠️ Unrest</span><span class="v" style="color:var(--bad)">secession risk — improve happiness!</span></div>` : ""}
       <div class="ship-stat" style="margin-top:8px"><span class="k">💰 Tax rate</span><span class="v">${col.tax}% → +${fmt(colonyTaxIncome(col))}/cyc</span></div>
