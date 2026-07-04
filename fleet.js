@@ -206,6 +206,16 @@ function recallPatrol(shipId) {
 }
 // only ships patrolling THIS world are raidable here — no longer "any idle warship, anywhere"
 function fleetRaidable() { return fleetList().filter(s => s.status === "patrol" && s.station === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
+// is ANY fleet ship physically present at this world, in any duty (on a mission there, stationed
+// there, patrolling there, or simply docked idle/building at its own home)? Used both by the
+// galaxy map's fleet pills and to grant free pirate intel wherever the fleet already has eyes.
+function fleetPresentAt(pid) {
+  return fleetList().some(s =>
+    (s.status === "mission" && s.mission && s.mission.planet === pid) ||
+    (s.status === "logistics" && s.station === pid) ||
+    (s.status === "patrol" && s.station === pid) ||
+    ((s.status === "idle" || s.status === "building") && s.home === pid));
+}
 function fleetAsAlly(s) { const def = FLEET_SHIPS[s.key]; return { isFleet: true, fleetId: s.id, allyName: s.name, name: s.name, ico: def.ico, strength: Math.round(shipStrEff(s) * 2.5), share: 0 }; }   // loyal, no loot cut
 function raidSummonFleet(shipId) {
   if (!S.prey) return toast("No engagement.", "bad");

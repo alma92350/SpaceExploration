@@ -1,5 +1,5 @@
 {
-  "version": "2.93.0",
+  "version": "2.94.0",
   "saveVersion": "v2",
-  "notes": "Raid support now needs a nearby patrol assignment, and coalition rescuers arrive together with free target selection, like the Escort tab's convoy combat."
+  "notes": "The Galaxy tab is now a real strategic map: faction-colored borders, color-coded fleet presence, fleet-sourced pirate intel, and a new display-filter row."
 }
