@@ -598,6 +598,7 @@ function renderPolitics() {
       <div class="card"><h4>🤝 Faction Standing</h4>${reps}</div>
       ${renderSectorRelations()}
       ${renderTerritoryContests()}
+      ${renderDispossessedFactions()}
       ${(!S.office && !S.orgs.party) ? `<div class="card" style="border-color:var(--accent-2)">
         <h4>🚀 Enter Public Life</h4>
         <div class="desc">Launch a political career without leaving the cockpit: found your own <b>📣 People's Movement</b>, seed a war chest of clout (+15 🏛️, +10 popularity), and start the climb — rally, then run for Councillor.</div>

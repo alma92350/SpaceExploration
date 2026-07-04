@@ -154,6 +154,26 @@ function upgradeHaven() {
   toast(`Haven → tier ${S.haven.tier}`, "good");
   afterAction();
 }
+// Relocate an established haven to wherever the player is now — a heat-driven world can go
+// from "hidden" to "hot" over a long game, and a haven welded to its founding world forever
+// would eventually strand the player with an unusable stronghold. Tier and stash carry over
+// intact; only the world (and its own lawlessness) changes.
+const HAVEN_RELOCATE_BASE = 2500;   // scales with tier — moving a bigger stronghold costs more
+function havenRelocateCost() { return HAVEN_RELOCATE_BASE * (S.haven ? S.haven.tier : 1); }
+function relocateHaven() {
+  if (!S.haven) return toast("You have no haven to relocate.", "bad");
+  const p = currentPlanet();
+  if (p.id === S.haven.planet) return toast("Your haven is already here.", "bad");
+  if (!canHaven(p)) return toast("Too exposed — relocate to the lawless deep rim.", "bad");
+  const cost = havenRelocateCost();
+  if (S.res.credits < cost) return toast(`Relocating your haven costs ${fmt(cost)} cr.`, "bad");
+  S.res.credits -= cost;
+  const oldName = (PLANETS.find(x => x.id === S.haven.planet) || {}).name || "its old den";
+  S.haven.planet = p.id;
+  log(`🏴‍☠️ You abandon your den at ${oldName} and relocate your haven to <span class="c">${p.name}</span> for ${fmt(cost)} cr — tier and stash carry over intact.`, "event");
+  toast(`Haven relocated to ${p.name}`, "good");
+  afterAction();
+}
 function layLow() {
   if (!atHaven()) return toast("Lie low only at your haven.", "bad");
   if (actionsLeft() <= 0) return toast("No actions left.", "bad");
@@ -207,6 +227,26 @@ function acceptCommission() {
   addRep(patron, 5); addRep(target, -8);
   log(`📜 ${FACTIONS[patron].name} grants you a letter of marque against the ${FACTIONS[target].name}. Hunt their shipping — and the law looks the other way.`, "event");
   toast("Letter of marque accepted!", "good");
+  afterAction();
+}
+// A faction beaten down to zero active worlds has no planet left for the player to stand on —
+// acceptCommission's currentPlanet()-based gate can never fire for it, permanently locking it
+// out of the one player-driven lever (a letter of marque directly stokes its target rivalry,
+// sector4x.js) that could help it claw back a foothold. These factions still exist politically
+// (reputation, relations, Senate seats) — they're just landless, not gone — so they deal from
+// exile instead: no location requirement, same reputation bar as an in-person commission.
+function dispossessedFactions() { return FACTION_KEYS.filter(f => activeFactionPlanetCount(f) <= 0); }
+function acceptCommissionRemote(patron) {
+  if (S.commission) return toast("You already sail under a letter of marque.", "bad");
+  if (!FACTIONS[patron]) return;
+  if (activeFactionPlanetCount(patron) > 0) return toast(`${FACTIONS[patron].name} still holds worlds — meet their agents in person.`, "bad");
+  const target = FACTION_RIVAL[patron];
+  if (!target) return toast(`${FACTIONS[patron].name} has no rival to commission you against.`, "bad");
+  if ((S.rep[patron] || 0) < COMM_REP_REQ) return toast(`${FACTIONS[patron].name} won't commission a stranger — earn their trust first.`, "bad");
+  S.commission = { patron, target, expires: S.turn + COMM_DURATION, quota: COMM_QUOTA, done: 0, bounty: COMM_BOUNTY, reward: COMM_REWARD };
+  addRep(patron, 5); addRep(target, -8);
+  log(`📜 Stripped of every world, the ${FACTIONS[patron].name} deal from exile and grant you a letter of marque against the ${FACTIONS[target].name} — a bid to claw back a foothold. Hunt their rival's shipping, and the law looks the other way.`, "event");
+  toast("Letter of marque accepted (remote)!", "good");
   afterAction();
 }
 // applied on a successful raid: pays bounty, counts quota, and waives the Wanted you'd normally earn

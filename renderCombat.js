@@ -268,7 +268,8 @@ function renderRaid() {
         <button class="btn btn-sm" onclick="havenStashAll()">🗄️ Stash hold</button>
         <button class="btn btn-sm" onclick="havenTakeAll()">📦 Take all</button>
         ${S.haven.tier < HAVEN_MAX_TIER ? `<button class="btn btn-sm" ${S.res.credits >= HAVEN_COST * S.haven.tier ? "" : "disabled"} onclick="upgradeHaven()">🏗️ Expand (${fmt(HAVEN_COST * S.haven.tier)} 💰)</button>` : ""}
-      </div>` : `<div class="hint" style="margin-top:6px">Return to ${hp.name} to lie low, stash plunder, and dry-dock cheap.</div>`}
+      </div>` : `<div class="hint" style="margin-top:6px">Return to ${hp.name} to lie low, stash plunder, and dry-dock cheap.</div>
+      ${canHaven(p) ? `<button class="btn btn-sm" style="margin-top:6px" ${S.res.credits >= havenRelocateCost() ? "" : "disabled"} title="Move your haven's tier and stash to ${p.name}" onclick="relocateHaven()">🚚 Relocate haven here (${fmt(havenRelocateCost())} 💰)</button>` : ""}`}
     </div>`;
   } else if (canHaven(p)) {
     havenCard = `<div class="card">

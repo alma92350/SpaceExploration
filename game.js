@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.91.1";
+const APP_VERSION = "2.92.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.92.0", notes: "New: your 🏴‍☠️ Haven can now be relocated to a new lawless world (tier and stash carry over) instead of being stuck wherever you founded it. New: a faction beaten all the way down to zero worlds can still deal you a Letter of Marque from exile (🏛️ Politics tab, once you've earned its trust) — its only way to fight back and reclaim a foothold." },
   { version: "2.91.1", notes: "Changed: repairs now spend materials from the local stockpile first too — a fleet hull heals off the same colony/base storage its Shipyard draws on, and your own ship's subsystem repairs pull from a colony's or base's storage before your hold (no Shipyard needed, just a storeroom). The Repair Bay notes when this applies." },
   { version: "2.91.0", notes: "Changed: laying down a hull at a Shipyard now spends materials from the local stockpile first — a colony Shipyard draws its colony's own storage, a base Small Shipyard draws its base's — and only dips into your ship's hold for whatever's left. The Fleet tab's build menu shows where the materials will come from." },
   { version: "2.90.0", notes: "Colony production overhaul. Fixed: population growth was capped by a farm's raw per-cycle output alone, ignoring any stockpiled food — a colony could sit on a full granary and still stop growing well short of its housing. Growth now draws on stored reserves too. New: colony output now tracks 👷 Workforce (population vs. what its buildings need to run), 🤖 Automation (a bonus from the world's tech level, on manufacturing), and 😠 Unrest (a real production penalty, not just a secession countdown) — all shown on the governor card." },
@@ -740,8 +741,8 @@ Object.assign(window, {
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,
-  establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll,
-  acceptCommission, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs, toggleEink,
+  establishHaven, upgradeHaven, layLow, havenStashAll, havenTakeAll, relocateHaven,
+  acceptCommission, acceptCommissionRemote, pirateLegacy, marshalLegacy, checkVersion, toggleHelp, toggleShowAllTabs, toggleEink,
   exportSave, importSave, importSaveText, parseSaveText, buildSaveText, toggleBaseTrade, setBaseTradeGood, setBaseTradeColony, baseMarketBuy, baseMarketSell, baseBuyQty, baseSellQty,
   sfx, toggleSound,
   alignColony, colonyIndependence, toggleColonyProcess,
