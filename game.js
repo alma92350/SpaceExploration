@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.90.0";
+const APP_VERSION = "2.91.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.91.0", notes: "Changed: laying down a hull at a Shipyard now spends materials from the local stockpile first — a colony Shipyard draws its colony's own storage, a base Small Shipyard draws its base's — and only dips into your ship's hold for whatever's left. The Fleet tab's build menu shows where the materials will come from." },
   { version: "2.90.0", notes: "Colony production overhaul. Fixed: population growth was capped by a farm's raw per-cycle output alone, ignoring any stockpiled food — a colony could sit on a full granary and still stop growing well short of its housing. Growth now draws on stored reserves too. New: colony output now tracks 👷 Workforce (population vs. what its buildings need to run), 🤖 Automation (a bonus from the world's tech level, on manufacturing), and 😠 Unrest (a real production penalty, not just a secession countdown) — all shown on the governor card." },
   { version: "2.89.1", notes: "Fix: the ✦ Fleet tab only unlocked once you held a colony, even though a base's Small Shipyard module lets you build ships without one. Building a Small Shipyard at a base now unlocks the tab on its own." },
   { version: "2.89.0", notes: "New: 🏛️ The Concordat Spire (🏛️ Politics tab) — once Terraforming is researched, designate a colony as the site of a sector-defining mega-project and fund it with tech points and Alloys/Electronics/Antimatter from anywhere in your empire. Spread the load and every faction drifts toward peace; funnel it through one faction and their rivals grow tenser instead — a third capstone legacy alongside the Pirate Lord and Sector Marshal. Also: four features that shipped quietly (Small Shipyard, Ship Trim, Plasma Torpedoes, the Deep-space chart) now announce themselves the first time you reach them." },

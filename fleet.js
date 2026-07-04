@@ -62,6 +62,33 @@ function shipyardVenueAt(pid) { return colonyShipyardTier(pid) > 0 ? "colony" : 
 function fleetBuildingAt(pid) { return fleetList().filter(s => s.home === pid && s.status === "building").length; }
 function fleetNameFor(def, key) { const n = fleetList().filter(s => s.key === key).length + 1; return `${def.name} ${n}`; }
 function fleetMatsOf(def) { const m = {}; Object.keys(def.cost).forEach(k => { if (k !== "credits") m[k] = def.cost[k]; }); return m; }
+// A hull under construction draws its materials from wherever it's being built first —
+// the colony's own storage for a colony Shipyard, the base's own storage for a base Small
+// Shipyard — and only dips into the player's own hold for whatever the local stockpile can't
+// cover. Same commodity-code vocabulary as colonyDeposit/transferToBase, so no new state shape.
+function shipyardLocalStorage(pid) {
+  const venue = shipyardVenueAt(pid);
+  if (venue === "colony") return S.colonies[pid].storage;
+  if (venue === "base") return S.bases[pid].storage;
+  return null;
+}
+function canAffordMats(mats, local) { return Object.entries(mats).every(([k, v]) => ((local && local[k]) || 0) + (S.res[k] || 0) >= v); }
+// build-menu preview: same red/green-by-affordability convention as colonization.js's matsString,
+// but checking local stockpile + hold combined since that's what orderShip will actually draw on.
+function fleetMatsString(mats, local) {
+  return Object.entries(mats).map(([c, q]) => {
+    const have = ((local && local[c]) || 0) + (S.res[c] || 0);
+    return `<span style="color:${have >= q ? "inherit" : "var(--bad)"}">${q}${COM[c].ico}</span>`;
+  }).join(" ");
+}
+function payMats(mats, local) {
+  Object.entries(mats).forEach(([k, v]) => {
+    const fromLocal = Math.min((local && local[k]) || 0, v);
+    if (fromLocal > 0) local[k] -= fromLocal;
+    const rest = v - fromLocal;
+    if (rest > 0) S.res[k] = (S.res[k] || 0) - rest;
+  });
+}
 function orderShip(shipKey) {
   const pid = S.location;
   const def = FLEET_SHIPS[shipKey]; if (!def) return;
@@ -70,9 +97,9 @@ function orderShip(shipKey) {
   if (def.tier > yard) return toast(`A Tier ${def.tier} Shipyard is needed to lay down a ${def.name}.`, "bad");
   if (fleetBuildingAt(pid) >= yard) return toast(`All ${yard} slipway(s) here are busy — wait for a hull to launch.`, "bad");
   if ((S.res.credits || 0) < def.cost.credits) return toast(`A ${def.name} costs ${fmt(def.cost.credits)} cr.`, "bad");
-  const mats = fleetMatsOf(def);
-  if (!canAfford(mats)) return toast("Need materials in your hold: " + Object.keys(mats).map(c => `${mats[c]} ${COM[c].name}`).join(", ") + ".", "bad");
-  S.res.credits -= def.cost.credits; pay(mats);
+  const mats = fleetMatsOf(def), local = shipyardLocalStorage(pid);
+  if (!canAffordMats(mats, local)) return toast("Need materials in " + (local ? "the local stockpile or " : "") + "your hold: " + Object.keys(mats).map(c => `${mats[c]} ${COM[c].name}`).join(", ") + ".", "bad");
+  S.res.credits -= def.cost.credits; payMats(mats, local);
   const hm = fleetShipHullMax(def);
   fleetList().push({ id: "sh" + S.turn + "_" + Math.floor(Math.random() * 1e4), key: shipKey, name: fleetNameFor(def, shipKey), home: pid, status: "building", buildLeft: def.build, hull: hm, hullMax: hm });
   log(`🏗️ Laid down a ${def.ico} ${def.name} at ${currentPlanet().name} — ${def.build} cycles to launch.`, "event");

@@ -13,9 +13,12 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   `SHIP_CLASSES`). Each has a credit+material `cost`, a `build` time in cycles,
   and a `tier`.
 - **Construction**: `orderShip` (at the docked colony) validates shipyard tier,
-  free slipway, and affordability; debits credits + materials from your hold; adds
-  a `status:"building"` ship to `S.fleet` that `processFleet` (in `endTurn`) ticks
-  down to `idle`.
+  free slipway, and affordability; debits credits from your own hold, but
+  materials draw from `shipyardLocalStorage(pid)` **first** — the colony's own
+  `storage` for a colony Shipyard, the base's own `storage` for a base Small
+  Shipyard (`canAffordMats`/`payMats`) — falling back to your hold only for
+  whatever the local stockpile can't cover. Adds a `status:"building"` ship to
+  `S.fleet` that `processFleet` (in `endTurn`) ticks down to `idle`.
 - **Upkeep**: `fleetUpkeep` (non-building ships) charged each cycle in
   `processFleet`, reported to the 💰 Cycle accounts ledger as "fleet upkeep".
 - **Repair** (`repairFleetShip`) and **scrap** (`scrapShip`, ~40% metals salvage)
@@ -81,8 +84,9 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   `cargoBonus`/`combatBonus` are new optional per-ship fields — no migration
   needed for any of it. Exports: `orderShip`, `scrapShip`, `repairFleetShip`,
   `reassignShipyard`, `upgradeLoadout`, `shipyardTierAt`, `shipyardVenueAt`,
-  `scrapRefundPct`, `shipCargoCap`, `shipStrEff`. Tests: `fleet.js`,
-  `reassign.test.js`, `smallshipyard.test.js`.
+  `shipyardLocalStorage`, `scrapRefundPct`, `shipCargoCap`, `shipStrEff`. Tests:
+  `fleet.js`, `reassign.test.js`, `smallshipyard.test.js`,
+  `shipyardmatsource.test.js`.
 
 ## Stats
 - `fleetShipHullMax` / `fleetShipStr` derive from `SHIP_CLASSES` (warships) or

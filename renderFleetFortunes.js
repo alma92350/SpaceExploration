@@ -161,17 +161,19 @@ function renderFleet() {
     } else {
       const venue = shipyardVenueAt(pid);
       const slips = fleetBuildingAt(pid);
+      const local = shipyardLocalStorage(pid);
       const rows = FLEET_SHIP_KEYS.filter(k => FLEET_SHIPS[k].tier <= yard).map(k => {
-        const d = FLEET_SHIPS[k], mats = fleetMatsOf(d), matStr = Object.keys(mats).map(x => `${mats[x]}${COM[x].ico}`).join(" ");
-        const ok = (S.res.credits || 0) >= d.cost.credits && canAfford(mats) && slips < yard;
+        const d = FLEET_SHIPS[k], mats = fleetMatsOf(d), matStr = fleetMatsString(mats, local);
+        const ok = (S.res.credits || 0) >= d.cost.credits && canAffordMats(mats, local) && slips < yard;
         const spec = d.role === "warship" ? `🔥${fleetShipStr(d)} · 🛡️${fleetShipHullMax(d)}` : `📦${d.cap}`;
         return `<div class="ship-stat" style="align-items:center"><span class="k">${d.ico} ${d.name} <span class="hint">${spec} · ⏱️${d.build} cyc · T${d.tier}</span></span>
           <span class="v"><span class="hint">${fmt(d.cost.credits)} cr ${matStr}</span> <button class="btn btn-sm ${ok ? "btn-good" : ""}" ${ok ? "" : "disabled"} title="${slips >= yard ? "All slipways busy" : ""}" onclick="orderShip('${k}')">Build</button></span></div>`;
       }).join("");
       const upgradeHint = venue === "base" ? "upgrade the Small Shipyard module in the 🏗️ Bases tab" : "upgrade it in the 🌍 Colonies tab";
       const venueNote = venue === "base" ? ` <span class="hint">(Small Shipyard — light hulls only)</span>` : "";
+      const sourceNote = venue === "colony" ? "the colony's stockpile" : "the base's stockpile";
       yardCard = `<div class="card"><h4>🏗️ ${currentPlanet().name} Shipyard <span class="hint">Tier ${yard} · slipways ${slips}/${yard}</span>${venueNote}</h4>
-        <div class="hint">Lay down hulls up to Tier ${yard}; construction takes several cycles and materials come from your hold. A bigger yard adds slipways for parallel builds (${upgradeHint}).</div>
+        <div class="hint">Lay down hulls up to Tier ${yard}; construction takes several cycles and draws materials from ${sourceNote} first, then your own hold for any shortfall. A bigger yard adds slipways for parallel builds (${upgradeHint}).</div>
         ${rows}</div>`;
     }
     body = yardCard;
