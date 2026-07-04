@@ -115,11 +115,13 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   (`pirateIntelKnows`). UI: dispatch card + per-ship mission status & recall in the
   Fleet tab. Exports added. Tests: `fleetmission.js`.
 
-## Slice 3 (shipped) — combat allies
-- **Raids**: `raidSummonFleet(shipId)` brings an idle warship in as a loyal ally
-  (`fleetAsAlly`, `share:0` — no loot cut). 100% callable (any prey, no distance/
-  odds); shares the 2-ally cap with band allies. `allyStrike` already handles a
-  band-less ally (fp 1.0). Buttons in `preyCombatCard` (pirate + faction prey).
+## Slice 3 (shipped, revised in Slice 8) — combat allies
+- **Raids**: `raidSummonFleet(shipId)` brings a patrol-assigned warship in as a
+  loyal ally (`fleetAsAlly`, `share:0` — no loot cut). Originally 100% callable
+  from anywhere in the fleet, no distance check — Slice 8 gates this to warships
+  on patrol (`assignPatrol`) at the raid's own world. Shares the 2-ally cap with
+  band allies. `allyStrike` already handles a band-less ally (fp 1.0). Buttons
+  in `preyCombatCard` (pirate + faction prey).
 - **Escorts**: `escortRallyFleet(shipId)` adds a warship as a free `support` convoy
   escort carrying `fleetId`; the ship is marked `status:"escort"`. It never deserts
   (betrayal check skips `support`). `releaseFleetEscorts(e)` (called from
@@ -143,26 +145,33 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   card (colony picker + assign hauler/guard + savings & risk readout) and station
   status in the roster. Exports added. Tests: `fleetlogi.js`.
 
-## Slice 5 (shipped) — Battle Group: fleet-vs-fleet raid combat
+## Slice 5 (shipped, revised in Slice 8) — Battle Group: fleet-vs-fleet raid combat
 Individual fleet allies (`raidSummonFleet`, slice 3) are still capped at the 2-ally
-wing. **Battle Group** is a separate, additive mechanic: deploy your **whole idle
-warship fleet at once** into a raid as a pooled formation, fought with an
-escort-style posture — reusing `ESCORT_POSTURES` (screen/balanced/press) directly.
+wing. **Battle Group** is a separate, additive mechanic: deploy every warship
+patrolling the raid's own world at once (originally: your whole idle warship
+fleet, wherever it was — revised by Slice 8's vicinity gate) into a raid as a
+pooled formation, fought with an escort-style posture — reusing `ESCORT_POSTURES`
+(screen/balanced/press) directly.
 
 - `deployBattleGroup()` — marks every `fleetRaidable()` ship `status:"battle"`.
-  `recallBattleGroup()` frees them anytime, no penalty, hull as-is.
+  `recallBattleGroup()` frees them anytime, no penalty, hull as-is — restoring
+  `status:"patrol"` (not `"idle"`) so a patrol-assigned ship stays on call for
+  the next raid at that world without needing to be reassigned again.
 - `battleGroupFirepower()` — pooled strength of the group (battered ships fire
   less, same `hull/hullMax` factor as `escShipFP`), scaled by posture `.off`.
-  Added to `combatStrike`'s damage against `prey` each round alongside ally damage.
+  Pools into `combatStrike`'s shared damage total alongside player + ally
+  damage (Slice 8 splits that total across however many hostiles are targeted).
 - `battleGroupScreenMult()` — while a group is deployed, ALL incoming fire to the
   player is scaled by posture `.def` (hooked into `foeStrikes`, same insertion
   point as the Fortunes `incomingMult` hook) — **screen** protects you, **press**
   exposes you more (mirrors escort semantics exactly).
-- `battleGroupTakeFire(prey)` — each round a group member takes real damage
-  scaled by the prey's strength and posture `.def`; a ship at 0 hull is
+- `battleGroupTakeFire(hostile)` — each round a group member takes real damage
+  scaled by the given hostile's strength and posture `.def`; a ship at 0 hull is
   **destroyed and removed from the fleet** (same `_dead` purge pattern as convoy
   ambush/fleet missions). Real stakes: fielding a fleet against a strong foe can
-  cost you ships.
+  cost you ships. Slice 8 calls this once per *living* hostile in the engagement
+  (originally: once per round, scaled only by the anchor prey's strength) — a
+  bigger pooled enemy group threatens the Battle Group proportionally more.
 - `releaseBattleGroup()` is folded into every raid-engagement end point:
   `clearEngagement()` (the canonical exit — disengage/extort/pack-cleared),
   `shipCrippled()` (towed off), and `travel()` (quarry slips away). Survivors
@@ -251,5 +260,54 @@ cadence (`maybeAmbush`, combat.js) instead of a per-cycle timer.
   `combatStrike()`) — a natural, separately-audited follow-up once this
   slice's numbers have been played. Exports added. Tests: `convoy.test.js`.
 
+## Slice 8 (shipped) — vicinity-gated raid support + pooled multi-hostile engagements
+Two changes to raid combat, requested together: fleet support (both
+`raidSummonFleet`'s 2-ally slot and `deployBattleGroup`) previously answered a
+raid from anywhere, with zero distance check — reversing Slice 3/5's original
+"100% callable, any prey, no distance/odds" design. And when a coalition raid
+target's distress call succeeded (`maybeRescue`), reinforcements trickled in
+one at a time and had to be fought in a strict FIFO queue (`promoteOrEnd`) —
+the player could never choose a target, and incoming fire (already
+simultaneous) didn't feel like a real group fight.
+
+- **Vicinity gate**: a new ship status, `"patrol"` (`assignPatrol(shipId,
+  planetId)` / `recallPatrol(shipId)`, fleet.js) — not colony-restricted like
+  `assignLogistics`, since raids happen anywhere. `fleetRaidable()` now returns
+  only `status:"patrol"` ships whose `station` matches `S.location`; both
+  `raidSummonFleet` and `deployBattleGroup` read it, so the gate covers both
+  mechanics at once. `recallBattleGroup`/`releaseBattleGroup` restore
+  `status:"patrol"` (not `"idle"`) for a ship with a station, so it stays on
+  call for the *next* raid at that world without needing reassignment.
+  `scrapShip`'s duty-block list gained `"patrol"`. UI: a "🎯 Patrol here"
+  button in the Fleet tab roster (mirrors the Logistics-assignment button),
+  and a hint in `preyCombatCard` pointing idle-but-unassigned owners at the
+  Fleet tab.
+- **All-at-once rescue arrival**: `maybeRescue` still rolls a fresh 20% chance
+  each round, but a success now pulls in *every* currently-eligible non-pirate
+  contact from `_others` at once (still capped at `RESCUE_PACK_CAP`, 2) rather
+  than splicing in one ship per successful roll.
+- **Pooled targeting**: new `S.raidTargets` (indices into `allHostiles(S.prey)`)
+  with `raidToggleTarget(idx)`/`raidFocusTarget(idx)`, mirroring Escort's own
+  `escortToggleTarget`/`escortFocus` exactly. `combatStrike` pools player +
+  ally + Battle Group damage into one total and splits it evenly across
+  whatever's selected — defaulting to every living hostile when nothing is
+  picked, same default Escort uses. `allyStrike` changed from "compute and
+  apply to one hardcoded target" to "just compute and return a number" (the
+  same shape `battleGroupFirepower()` already had) so it can feed the shared
+  pool. New `raidResolveKills(anchor, killed)` handles a salvo that kills more
+  than one hostile at once: non-anchor kills are spliced straight out of the
+  pack; if the anchor itself died, the **existing** `promoteOrEnd` is reused
+  unchanged (it already promotes a survivor or clears the engagement) — now
+  triggered only for that one case rather than on every kill.
+  `raidExtort`/`raidSpareRecruit`/`raidDisengage` are untouched — per-
+  encounter narrative actions, not per-shot combat, deliberately out of scope.
+- UI: `preyCombatCard`'s old one-line pack-count pill is replaced by a
+  per-hostile roster (mirrors `renderEscort`'s `foeCards`) with an hp bar and
+  Target/Focus buttons per hostile. Battle Group's Vanguard/Line/Reserve
+  tiering (the "assign which of *your* hulls tank vs. attack" mechanic) is
+  completely unchanged — it already operates independently of which specific
+  enemy hostile is engaged. Exports added. Tests: `raidvicinity.test.js`,
+  `raidpool.test.js`.
+
 This completes the player fleet: build → mission → ally → haul → battle group
-→ personal convoy.
+→ personal convoy → vicinity-gated, pooled raid combat.

@@ -37,20 +37,27 @@ function renderFleet() {
     const shipRow = s => {
       const def = FLEET_SHIPS[s.key]; if (!def) return "";
       const homeName = (PLANETS.find(p => p.id === s.home) || {}).name || "—", here = s.home === pid && yard > 0, rc = fleetRepairCost(s);
-      const onMission = s.status === "mission" && s.mission, onLogi = s.status === "logistics", onConvoy = s.status === "convoy";
+      const onMission = s.status === "mission" && s.mission, onLogi = s.status === "logistics", onConvoy = s.status === "convoy", onPatrol = s.status === "patrol";
       const status = s.status === "building" ? `<span style="color:var(--warn)">🏗️ building (${s.buildLeft} cyc)</span>`
         : onMission ? `<span style="color:var(--accent)">🎯 ${MANDATE_TASKS[s.mission.task].name} @ ${mdPlanetName(s.mission.planet)} (${s.mission.cyclesLeft} cyc · +${fmt(s.mission.accrued)} cr)</span>`
         : s.status === "escort" ? `<span style="color:var(--accent)">🛡️ escorting a convoy</span>`
         : onLogi ? `<span style="color:var(--accent)">${def.role === "freighter" ? "🚚 hauling for" : "🛡️ guarding"} ${mdPlanetName(s.station)}</span>`
         : onConvoy ? `<span style="color:var(--accent)">🚚 riding in your personal convoy</span>`
+        : onPatrol ? `<span style="color:var(--accent)">🎯 patrolling ${mdPlanetName(s.station)}</span>`
         : `<span style="color:var(--good)">idle</span>`;
       const repBtn = (s.status === "idle" && rc.miss > 0 && here) ? `<button class="btn btn-sm" title="Repair at home shipyard" onclick="repairFleetShip('${s.id}')">🔧 ${fmt(rc.credits)}</button>` : "";
       const canReassign = s.status === "idle" && !here && yard > 0 && def.tier <= yard;
       const reassignBtn = canReassign ? `<button class="btn btn-sm" title="Re-register this ship's home port to ${currentPlanet().name} (${fmt(shipyardReassignCost(def))} cr)" onclick="reassignShipyard('${s.id}')">⚓ Reassign here</button>` : "";
+      // a warship must patrol a world before it can answer a raid call (2-ally summon or Battle
+      // Group) there — this is the assignment action; "Reassign here" (above) only ever moves a
+      // ship's home shipyard, a separate concept.
+      const canPatrol = s.status === "idle" && def.role === "warship" && s.station !== pid;
+      const patrolBtn = canPatrol ? `<button class="btn btn-sm" title="Patrol ${currentPlanet().name} — on call for raids here (2-ally summon or Battle Group) until recalled" onclick="assignPatrol('${s.id}','${pid}')">🎯 Patrol here</button>` : "";
       const scrapPct = scrapRefundPct(), scrapBonusOn = scrapPct > SCRAP_REFUND_PCT, scrapRefund = Math.round((def.cost.metals || 0) * scrapPct);
       const ctlBtn = onMission ? `<button class="btn btn-sm" title="Recall — bank what it's earned" onclick="recallFleetMission('${s.id}')">↩ Recall</button>`
         : onLogi ? `<button class="btn btn-sm" title="Recall from logistics duty" onclick="recallLogistics('${s.id}')">↩ Recall</button>`
         : onConvoy ? `<button class="btn btn-sm" title="Recall from your convoy" onclick="recallConvoy('${s.id}')">↩ Recall</button>`
+        : onPatrol ? `<button class="btn btn-sm" title="Recall from patrol" onclick="recallPatrol('${s.id}')">↩ Recall</button>`
         : s.status === "building" || s.status === "escort" ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvages ${scrapRefund} metals${scrapBonusOn ? " — recycling bonus" : ""})" onclick="scrapShip('${s.id}')">♻️ ${scrapRefund}${scrapBonusOn ? "✦" : ""}</button>`;
       const spec = def.role === "warship" ? `🔥${shipStrEff(s)} · 🛡️${s.hullMax}` : `📦${shipCargoCap(s)} cargo`;
       // ---- Small Shipyard customization: commit an idle hull to a Cargo or Combat
@@ -70,7 +77,7 @@ function renderFleet() {
       }
       return `<div class="ship-stat" style="align-items:center">
         <span class="k">${def.ico} ${s.name} <span class="hint">${SHIP_CLASSES[def.cls].name} · ${spec} · ⚓ ${homeName}</span></span>
-        <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${reassignBtn}${ctlBtn}</span></div>${loadoutRow}`;
+        <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${reassignBtn}${patrolBtn}${ctlBtn}</span></div>${loadoutRow}`;
     };
     const warships = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
     const freighters = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");

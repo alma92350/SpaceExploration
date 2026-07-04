@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.92.0";
+const APP_VERSION = "2.93.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.93.0", notes: "Changed: raid support now needs a warship on patrol — assign one to a world (✦ Fleet tab) before it can join the 2-ally summon or a Battle Group deployment there; a fleet parked elsewhere no longer teleports in. New: when a raid target's distress call lands, every rescuer in the area answers together instead of trickling in — pick which hostile(s) to focus fire on, same as the Escort tab's convoy combat, with your own Battle Group's Vanguard/Line/Reserve tiering unchanged." },
   { version: "2.92.0", notes: "New: your 🏴‍☠️ Haven can now be relocated to a new lawless world (tier and stash carry over) instead of being stuck wherever you founded it. New: a faction beaten all the way down to zero worlds can still deal you a Letter of Marque from exile (🏛️ Politics tab, once you've earned its trust) — its only way to fight back and reclaim a foothold." },
   { version: "2.91.1", notes: "Changed: repairs now spend materials from the local stockpile first too — a fleet hull heals off the same colony/base storage its Shipyard draws on, and your own ship's subsystem repairs pull from a colony's or base's storage before your hold (no Shipyard needed, just a storeroom). The Repair Bay notes when this applies." },
   { version: "2.91.0", notes: "Changed: laying down a hull at a Shipyard now spends materials from the local stockpile first — a colony Shipyard draws its colony's own storage, a base Small Shipyard draws its base's — and only dips into your ship's hold for whatever's left. The Fleet tab's build menu shows where the materials will come from." },
@@ -730,12 +731,12 @@ Object.assign(window, {
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
-  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSummonOnCall, repairShip,
+  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSummonOnCall, repairShip, raidToggleTarget, raidFocusTarget,
   clearFx, investigateSignal, buySignalScan,
   setBandTag, callBandSupport, bandFollow, bandStandDown, escortRallyOnCall,
   commissionMandate, cancelMandate, setMandateField, reconcileBands, brokerTruce,
   orderShip, scrapShip, repairFleetShip, reassignShipyard, upgradeLoadout, assignFleetMission, recallFleetMission, setFleetMissionField, raidSummonFleet, escortRallyFleet,
-  assignLogistics, recallLogistics, setFleetLogiField,
+  assignLogistics, recallLogistics, setFleetLogiField, assignPatrol, recallPatrol,
   deployBattleGroup, recallBattleGroup, setBattleGroupPosture, setBattleGroupFormation,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand,
   giftBandCredits, giftBandCargo,
