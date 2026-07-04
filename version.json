@@ -1,5 +1,5 @@
 {
-  "version": "2.92.0",
+  "version": "2.93.0",
   "saveVersion": "v2",
-  "notes": "Haven relocation, and Letters of Marque from exile for factions beaten down to zero worlds."
+  "notes": "Raid support now needs a nearby patrol assignment, and coalition rescuers arrive together with free target selection, like the Escort tab's convoy combat."
 }

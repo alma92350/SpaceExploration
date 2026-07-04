@@ -628,7 +628,7 @@ function engageTarget(i) {
   if (!S.preyChoices || !S.preyChoices[i]) return;
   S.prey = S.preyChoices[i];
   S.prey._others = S.preyChoices.filter((c, idx) => idx !== i);   // the other ships in the area
-  S.prey.pack = []; S.allies = null;
+  S.prey.pack = []; S.allies = null; S.raidTargets = [];
   S.preyChoices = null;
   raidJoinFollowers();                                            // your riding companions join the fray at once
   const prey = S.prey;
@@ -679,4 +679,4 @@ function lootShare() {                                   // the PLAYER's cut = w
   return Math.max(0.1, 1 - taken);
 }
 function allHostiles(prey) { return [prey].concat((prey && prey.pack) || []); }
-function clearEngagement() { S.prey = null; S.encounter = null; S.allies = null; if (typeof releaseBattleGroup === "function") releaseBattleGroup(); }
+function clearEngagement() { S.prey = null; S.encounter = null; S.allies = null; S.raidTargets = null; if (typeof releaseBattleGroup === "function") releaseBattleGroup(); }

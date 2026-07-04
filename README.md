@@ -100,6 +100,15 @@ earned, it'll still deal you a **Letter of Marque from exile** (🏛️ Politics
 tab) — the only way to help a dispossessed power fight its way back onto the
 map.
 
+Your own fleet can back you up in a raid, but only where you've put it: assign
+an idle warship to **🎯 Patrol** a world (✦ Fleet tab) and it's on call there —
+either as one of your 2 loyal allies, or pooled into a whole **Battle Group**
+(with **Vanguard/Line/Reserve** tiering deciding which hulls tank hits and
+which do the damage). A fleet sitting elsewhere won't show up. And if a
+coalition target calls for help, every rescuer in the area answers together —
+pick which hostile(s) to focus fire on, same as the Escort tab's convoy combat,
+instead of being forced to kill them one at a time in a fixed order.
+
 ## 🪐 The core worlds — a rotating roster
 
 There are **15 core trade worlds**, but **each new game features a random 9 of

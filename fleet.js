@@ -113,7 +113,7 @@ function scrapRefundPct() { return baseShipyardTier(S.location) >= 2 ? SCRAP_REC
 function scrapShip(id) {
   const i = fleetList().findIndex(s => s.id === id); if (i < 0) return;
   const s = fleetList()[i], def = FLEET_SHIPS[s.key];
-  if (s.status === "mission" || s.status === "escort" || s.status === "logistics" || s.status === "convoy") return toast("That ship is on duty — recall it first.", "bad");
+  if (s.status === "mission" || s.status === "escort" || s.status === "logistics" || s.status === "convoy" || s.status === "patrol") return toast("That ship is on duty — recall it first.", "bad");
   const pct = scrapRefundPct(), bonus = pct > SCRAP_REFUND_PCT;
   const refund = def ? Math.round((def.cost.metals || 0) * pct) : 0;
   if (typeof confirm === "function"
@@ -186,14 +186,33 @@ function upgradeLoadout(shipId, lean) {
   toast(`${s.name}: ${LOADOUT_LEANS[lean].name} Lv${s.loadoutLevel}`, "good"); sfx("repair"); saveGame(); renderAll();
 }
 // ---- fleet warships as loyal, free combat allies (raids & escorts) ----
-function fleetRaidable() { return fleetList().filter(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }   // your warships are 100% callable
+// A warship must be assigned to PATROL a world before it can answer a raid call there — mirrors
+// assignLogistics' station concept, but for any world (not colony-only) and warships only, since
+// raid/Battle Group support only ever needs warships. Recalling frees it back to idle, same shape
+// as recallLogistics.
+function assignPatrol(shipId, planetId) {
+  const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
+  if (!s || !def || def.role !== "warship") return toast("Only warships can patrol.", "bad");
+  if (s.status !== "idle") return toast(`The ${s.name} isn't free.`, "bad");
+  s.status = "patrol"; s.station = planetId;
+  log(`🎯 Your ${def.ico} ${s.name} takes up patrol at ${mdPlanetName(planetId)} — on call for any raid there.`, "event");
+  toast(`${s.name} patrolling ${mdPlanetName(planetId)}`, "good"); sfx("event"); saveGame(); renderAll();
+}
+function recallPatrol(shipId) {
+  const s = fleetList().find(x => x.id === shipId); if (!s || s.status !== "patrol") return;
+  s.status = "idle"; s.station = null;
+  log(`🎯 Recalled your ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name} from patrol.`, "");
+  toast(`${s.name} recalled`, ""); saveGame(); renderAll();
+}
+// only ships patrolling THIS world are raidable here — no longer "any idle warship, anywhere"
+function fleetRaidable() { return fleetList().filter(s => s.status === "patrol" && s.station === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
 function fleetAsAlly(s) { const def = FLEET_SHIPS[s.key]; return { isFleet: true, fleetId: s.id, allyName: s.name, name: s.name, ico: def.ico, strength: Math.round(shipStrEff(s) * 2.5), share: 0 }; }   // loyal, no loot cut
 function raidSummonFleet(shipId) {
   if (!S.prey) return toast("No engagement.", "bad");
   S.allies = S.allies || [];
   if (S.allies.length >= 2) return toast("Your wing is full (2 allies).", "bad");
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
-  if (!s || !def || def.role !== "warship" || s.status !== "idle") return toast("That ship isn't available.", "bad");
+  if (!s || !def || def.role !== "warship" || s.status !== "patrol" || s.station !== S.location) return toast("That ship isn't on patrol here.", "bad");
   if (S.allies.some(a => a.fleetId === shipId)) return toast(`The ${s.name} is already at your side.`, "bad");
   const a = fleetAsAlly(s); S.allies.push(a); foeHp(a);
   log(`✦ Your ${def.ico} ${s.name} answers the call and opens fire — loyal, your whole cut intact.`, "event");
@@ -255,21 +274,24 @@ function battleGroupFrontTier() {   // the tier currently taking the brunt of in
 }
 function deployBattleGroup() {
   if (!S.prey) return toast("No engagement.", "bad");
-  const idle = fleetRaidable(); if (!idle.length) return toast("No idle warships to deploy.", "bad");
+  const idle = fleetRaidable(); if (!idle.length) return toast("No warships patrolling here to deploy.", "bad");
   idle.forEach(s => { s.status = "battle"; });
   autoAssignFormation(idle.filter(s => !FORMATION_SLOTS[s.formation]));   // first-time deploys get a sensible default; prior manual picks stick
   log(`✦ Your battle fleet (${idle.length} ship${idle.length === 1 ? "" : "s"}) forms up around you — pooled firepower, no loot cut.`, "event");
   toast(`Battle fleet deployed (${idle.length})`, "event"); sfx("event"); afterAction();
 }
+// a deployed ship returns to patrol at its own station (not fully idle) — it stays on call
+// for the next raid here without needing to be re-assigned every time.
+function battleGroupStandDown(s) { s.status = s.station ? "patrol" : "idle"; }
 function recallBattleGroup() {
   const grp = battleGroupShips(); if (!grp.length) return;
-  grp.forEach(s => { s.status = "idle"; });
+  grp.forEach(battleGroupStandDown);
   log(`✦ Your battle fleet peels off and returns to standby.`, "");
   toast("Battle fleet recalled", ""); saveGame(); renderAll();
 }
 function releaseBattleGroup() {   // combat ended: stand the group down (survivors keep their wear, repairable at a shipyard)
   const grp = battleGroupShips(); if (!grp.length) return;
-  grp.forEach(s => { s.status = "idle"; });
+  grp.forEach(battleGroupStandDown);
 }
 function battleGroupScreenMult() {   // your formation screens (or exposes) you — a standing Vanguard shields you further
   const grp = battleGroupShips(); if (!grp.length) return 1;

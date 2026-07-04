@@ -29,26 +29,32 @@ function raidJoinFollowers() {
     log(`🛰️ The ${b.ico} ${b.name}, riding with you, swing in to your side (${Math.round(a.share * 100)}% cut).`, "event");
   });
 }
-// an allied pirate pours fire onto your current target
-function allyStrike(target, ally) {
+// an allied pirate's raw damage contribution to a salvo — returns a number rather than applying
+// it directly, same shape battleGroupFirepower already has, so it can pool into a shared total
+// that combatStrike then splits across however many hostiles are being targeted this round.
+function allyStrike(ally) {
   const fp = bandPers(bandById(ally.bandId)).fp;          // bold crews hit harder
-  const dmg = Math.max(1, Math.round((ally.strength * 0.45 + Math.random() * 6) * fp));
-  target.hp = foeHp(target) - dmg;
-  return dmg;
+  return Math.max(1, Math.round((ally.strength * 0.45 + Math.random() * 6) * fp));
 }
-// a coalition victim may summon a same-faction vessel from the area
+const RESCUE_PACK_CAP = 2;
+// a coalition victim may summon EVERY same-faction vessel in the area to its rescue at once —
+// not a trickle. Each round still rolls a fresh 20% chance for the call to land, but once it
+// does, the whole available response joins together (capped, for balance), matching the Escort
+// tab's wave spawning (spawnEscortWave) rather than a one-per-round reveal.
 function maybeRescue(prey) {
   if (!prey || prey.isPirate) return;
   prey.pack = prey.pack || [];
-  if (prey.pack.length >= 2) return;
+  const room = RESCUE_PACK_CAP - prey.pack.length;
+  if (room <= 0) return;
   const others = prey._others || [];
-  const idx = others.findIndex(o => !o.isPirate);
-  if (idx < 0) return;
+  const eligible = others.filter(o => !o.isPirate);
+  if (!eligible.length) return;
   if (Math.random() < 0.20) {
-    const r = others.splice(idx, 1)[0];
-    prey.pack.push(r); foeHp(r);
-    log(`🆘 The ${prey.name} sent a distress call — a ${classLabel(r)} ${FACTIONS[r.faction] ? "(" + FACTIONS[r.faction].name + ")" : ""} answers! You now face ${prey.pack.length + 1} vessels, each firing on its own.`, "bad");
-    toast(`Reinforcement: ${r.name}!`, "bad");
+    const reinforcements = eligible.slice(0, room);
+    reinforcements.forEach(r => { prey._others = prey._others.filter(o => o !== r); prey.pack.push(r); foeHp(r); });
+    const names = reinforcements.map(r => `${classLabel(r)}${FACTIONS[r.faction] ? " (" + FACTIONS[r.faction].name + ")" : ""}`).join(", ");
+    log(`🆘 The ${prey.name} sent a distress call — ${names} answer${reinforcements.length === 1 ? "s" : ""} together! You now face ${prey.pack.length + 1} vessels, all defending as one.`, "bad");
+    toast(`Reinforcements: ${reinforcements.map(r => r.name).join(", ")}!`, "bad");
   }
 }
 function raidCallAllies() {
@@ -147,40 +153,83 @@ function promoteOrEnd(prey) {
     log(`Now engaging the ${classLabel(next)} <span class="c">${next.name}</span> — ${next.pack.length + 1} hostile(s) remain.`, "bad");
   } else { clearEngagement(); }
 }
+// ---- target selection for a pooled engagement: pick any subset of allHostiles(S.prey) to
+// focus fire on this round (indices into that array). Picking none spreads pooled damage
+// across every living hostile by default — same convention Escort's own wave combat uses
+// (escortToggleTarget/escortFocus, escort.js). ----
+function raidToggleTarget(idx) {
+  if (!S.prey) return;
+  const hostiles = allHostiles(S.prey);
+  if (!hostiles[idx] || hostiles[idx].hp <= 0) return;
+  S.raidTargets = S.raidTargets || [];
+  const at = S.raidTargets.indexOf(idx);
+  if (at >= 0) S.raidTargets.splice(at, 1); else S.raidTargets.push(idx);
+  saveGame(); renderAll();
+}
+function raidFocusTarget(idx) {
+  if (!S.prey) return;
+  const hostiles = allHostiles(S.prey);
+  if (!hostiles[idx] || hostiles[idx].hp <= 0) return;
+  S.raidTargets = [idx];
+  saveGame(); renderAll();
+}
+// a salvo can kill more than one hostile at once now (pooled fire split across several targets).
+// Non-anchor kills are just spliced out of the pack; if the anchor itself died, reuse the
+// existing promoteOrEnd (promotes a surviving pack member, or clears the engagement if none
+// remain) — the only case that still needs it.
+function raidResolveKills(anchor, killed) {
+  const anchorDied = killed.includes(anchor);
+  killed.filter(h => h !== anchor).forEach(h => { anchor.pack = (anchor.pack || []).filter(x => x !== h); });
+  if (anchorDied) promoteOrEnd(anchor);
+  S.raidTargets = [];   // the group composition changed — start the next round with a clean default
+}
 function combatStrike(noQuarter, wkey) {
   const prey = S.prey; if (!prey) return;
   wkey = wkey && WEAPONS[wkey] && weaponAvailable(wkey) && weaponAffordable(wkey) ? wkey : "kinetic";
   if (!weaponAffordable(wkey)) return toast(`No ammo for ${WEAPONS[wkey].name}.`, "bad");
   if (!prey._engaged) { prey._engaged = true; S.pirate.raids++; }
-  foeHp(prey); payAmmo(wkey); noteWeaponUse(wkey); combatState().lastWeapon = wkey;
+  const hostiles = allHostiles(prey);
+  hostiles.forEach(h => foeHp(h));
+  payAmmo(wkey); noteWeaponUse(wkey); combatState().lastWeapon = wkey;
+  let targetIdxs = (S.raidTargets || []).filter(i => hostiles[i] && hostiles[i].hp > 0);
+  if (!targetIdxs.length) targetIdxs = hostiles.map((h, i) => (h.hp > 0 ? i : -1)).filter(i => i >= 0);
   const ps = playerStrikes(prey, wkey);
-  const tgt = applyTargetedDamage(prey, ps.dmg);
   let allyDmg = 0;
-  (S.allies || []).forEach(a => { allyDmg += allyStrike(prey, a); });
+  (S.allies || []).forEach(a => { allyDmg += allyStrike(a); });
   const bgDmg = battleGroupFirepower();
-  if (bgDmg > 0) { prey.hp = foeHp(prey) - bgDmg; }
-  if (prey.hp <= 0) {
+  const per = (ps.dmg + allyDmg + bgDmg) / targetIdxs.length;
+  const killed = [];
+  const hits = targetIdxs.map(i => {
+    const h = hostiles[i];
+    const tgt = applyTargetedDamage(h, per);
+    if (h.hp <= 0) killed.push(h);
+    const pct = Math.max(0, Math.round(Math.max(0, h.hp) / h.maxhp * 100));
+    return `${h.ico} ${h.name} for ${tgt.hullDmg} hull (now ${pct}%)${tgt.note}`;
+  });
+  const dmgNote = `${allyDmg > 0 ? ` · 🤝 allies +${Math.round(allyDmg)}` : ""}${bgDmg > 0 ? ` · ✦ battle fleet +${Math.round(bgDmg)}` : ""}`;
+  if (killed.length) {
     sfx("explode");
-    if (prey.isPirate) raidWinPirate(prey); else raidWinMerchant(prey, noQuarter);
-    promoteOrEnd(prey);
+    killed.forEach(h => { if (h.isPirate) raidWinPirate(h); else raidWinMerchant(h, noQuarter); });
+    raidResolveKills(prey, killed);
+    log(`⚔️ You hit ${hits.join("; ")}${dmgNote} — destroyed ${killed.map(h => h.name).join(", ")}!`, "good");
     return afterAction();
   }
   sfx("fire");
-  const hpPct = Math.max(0, Math.round(prey.hp / prey.maxhp * 100));
   const incoming = [];
-  const hostiles = allHostiles(prey);
   for (let idx = 0; idx < hostiles.length; idx++) {
     const fs = foeStrikes(hostiles[idx], idx === 0 ? (noQuarter ? 0.27 : 0.22) : 0.20);
     incoming.push(`${idx === 0 ? "" : hostiles[idx].ico + " "}−${fs.dmg}${subsysHitLog(fs.subHit)}`);
     if (!S.prey) break;   // shipCrippled ended the engagement
   }
   if (battleGroupShips().length) {
-    const bgTaken = battleGroupTakeFire(prey);
+    let bgTaken = 0;
+    hostiles.forEach(h => { bgTaken += battleGroupTakeFire(h); });   // the whole hostile group threatens the battle fleet, not just the anchor
     if (bgTaken) incoming.push(`✦ battle fleet −${bgTaken}`);
     if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
   }
-  log(`⚔️ You hit the ${prey.ico} ${prey.name} for ${tgt.hullDmg} hull (now ${hpPct}%)${tgt.note}${allyDmg > 0 ? ` · 🤝 allies +${allyDmg}` : ""}${bgDmg > 0 ? ` · ✦ battle fleet +${bgDmg}` : ""}; return fire — Hull ${incoming.join(", ")}.`, "");
-  toast(`Foe hull ${hpPct}%${prey.pack && prey.pack.length ? ` · +${prey.pack.length} more` : ""}`, "");
+  log(`⚔️ You hit ${hits.join("; ")}${dmgNote}; return fire — Hull ${incoming.join(", ")}.`, "");
+  const frontPct = Math.max(0, Math.round(Math.max(0, prey.hp) / prey.maxhp * 100));
+  toast(`Foe hull ${frontPct}%${prey.pack && prey.pack.length ? ` · +${prey.pack.length} more` : ""}`, "");
   if (!S.prey) return afterAction();
   maybeRescue(prey);
   if (foeFleeCheck(prey)) {
