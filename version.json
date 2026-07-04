@@ -1,5 +1,5 @@
 {
-  "version": "2.90.0",
+  "version": "2.91.1",
   "saveVersion": "v2",
-  "notes": "Colony production overhaul: fixed a population-growth cap bug (stockpiled food now counts), and output now tracks Workforce, Automation and Unrest."
+  "notes": "Repairs (fleet hulls and your own ship's subsystems) now spend local colony/base stockpile materials before your hold, matching ship construction."
 }
