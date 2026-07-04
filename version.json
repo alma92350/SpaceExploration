@@ -1,5 +1,5 @@
 {
-  "version": "2.91.1",
+  "version": "2.92.0",
   "saveVersion": "v2",
-  "notes": "Repairs (fleet hulls and your own ship's subsystems) now spend local colony/base stockpile materials before your hold, matching ship construction."
+  "notes": "Haven relocation, and Letters of Marque from exile for factions beaten down to zero worlds."
 }

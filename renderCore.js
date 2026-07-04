@@ -175,6 +175,22 @@ function renderTerritoryContests() {
     <div class="hint">Worlds whose owner is at open War can actually change hands — the meter shows how close the challenger is to seizing it. A faction is never conquered down to its last world.</div>
     ${rows}</div>`;
 }
+function renderDispossessedFactions() {
+  const stranded = dispossessedFactions();
+  if (!stranded.length) return "";
+  const rows = stranded.map(f => {
+    const target = FACTION_RIVAL[f];
+    if (!target) return `<div class="ship-stat"><span class="k">${FACTIONS[f].ico} ${FACTIONS[f].name}</span><span class="v hint">no rival to strike back at</span></div>`;
+    const rep = S.rep[f] || 0, ready = rep >= COMM_REP_REQ;
+    const action = S.commission ? '<span class="hint">already sailing under a marque</span>'
+      : ready ? `<button class="btn btn-sm btn-primary" onclick="acceptCommissionRemote('${f}')">📜 Accept marque vs ${FACTIONS[target].name}</button>`
+      : `<span class="hint">needs ${COMM_REP_REQ}+ rep (have ${rep})</span>`;
+    return `<div class="ship-stat"><span class="k">${FACTIONS[f].ico} ${FACTIONS[f].name}</span><span class="v">${action}</span></div>`;
+  }).join("");
+  return `<div class="card" style="border-color:var(--bad)"><h4>🏳️ Dispossessed Powers</h4>
+    <div class="hint">These factions hold no worlds at all right now — with nowhere left to grant a commission from in person, they'll deal from exile if you've earned their trust. Accept, and you're sanctioned to raid their rival's shipping and help them claw back a foothold.</div>
+    ${rows}</div>`;
+}
 function repBar(f) {
   const r = S.rep[f] || 0;
   const pct = (r + 100) / 2;

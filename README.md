@@ -92,6 +92,14 @@ Three meters define the outlaw:
 
 Crime pays well — until the whole sector wants you dead.
 
+A hidden **🏴‍☠️ Haven** can be **relocated** as the sector's heat map shifts —
+its tier and stash carry over intact to a new lawless world, so a den that's
+grown too hot doesn't have to be abandoned outright. And a faction beaten all
+the way down to **zero worlds** isn't gone for good: with your trust already
+earned, it'll still deal you a **Letter of Marque from exile** (🏛️ Politics
+tab) — the only way to help a dispossessed power fight its way back onto the
+map.
+
 ## 🪐 The core worlds — a rotating roster
 
 There are **15 core trade worlds**, but **each new game features a random 9 of

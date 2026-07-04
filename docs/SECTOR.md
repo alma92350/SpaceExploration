@@ -121,6 +121,32 @@ mutation to `PLANETS[i].faction` propagates correctly everywhere with
 
 Tests: `territory.js` (30 checks, including the 400-cycle stress test).
 
+## Slice 5 (shipped) — a comeback for the dispossessed
+`TERRITORY_MIN_WORLDS` protects a faction's *last* world from Slice 4's
+contest — but `chooseActivePlanets` (galaxygen.js) seeds each game with only
+9 of 15 core worlds active, so a small faction (Agri-Combine, Tech Syndicate:
+2 static worlds each) has a real, non-negligible chance of starting a game
+already holding **zero active worlds**, well before any conquest. A faction
+in that state still exists politically (reputation, relations, Senate seats)
+but was previously locked out of the one player-driven comeback lever: a
+letter of marque directly stokes its target rivalry (Slice 1), and
+`acceptCommission`'s gate requires standing on one of the patron's own
+worlds — which a dispossessed faction, by definition, has none of.
+- **`dispossessedFactions()`** (outlaw.js): `FACTION_KEYS` filtered to
+  `activeFactionPlanetCount(f) <= 0`.
+- **`acceptCommissionRemote(patron)`** (outlaw.js): the same reputation bar
+  and commission shape as `acceptCommission`, but with no location
+  requirement — refuses if the named faction actually still holds a world
+  (that case stays gated to standing on it, in person, as before).
+- **UI**: a Politics-tab "🏳️ Dispossessed Powers" card (`renderDispossessedFactions`,
+  renderCore.js) lists every currently-landless faction with an Accept
+  button once reputation clears the bar, or a hint of how much more is
+  needed otherwise.
+
+Tests: `dispossessed.js` (10 checks, including an explicit invariant check
+against the random active-world draw rather than assuming a fresh game is
+always clean).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
 5. **Player leverage** — tie letters of marque to a *live* war (fulfilling
    quota measurably swings a contested world), amplify fleet mission effect
