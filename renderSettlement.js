@@ -236,7 +236,7 @@ function toggleColonyProcess(bid) {
 const COLONY_BUILD_CAT = {
   habitat: "survival", farm: "survival", solar: "survival", scrubber: "survival",
   biomass_gen: "industry", gas_turbine: "industry", reactor: "industry", smelter: "industry",
-  chem_plant: "industry", foundry: "industry", fabricator: "industry", factory: "industry",
+  chem_plant: "industry", fuelrefinery: "industry", foundry: "industry", fabricator: "industry", factory: "industry",
   machine_works: "industry", luxury_atelier: "industry", pharma_lab: "industry",
   arms_factory: "industry", drone_works: "industry", antimatter_forge: "industry",
   lab: "civic", datacenter: "civic", spaceport: "civic", garrison: "civic",

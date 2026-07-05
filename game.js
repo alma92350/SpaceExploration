@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.94.0";
+const APP_VERSION = "2.94.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.94.1", notes: "Fix: the colony 🏭 Fuel Refinery (cracks Ice into Fuel — it's been buildable all along) was mis-filed under Survival & Economy instead of Industry alongside its fellow refining/manufacturing buildings. Purely a build-menu tab fix; the building and its output are unchanged." },
   { version: "2.94.0", notes: "New: the 🪐 Galaxy tab reads as a real strategic map now — every world's card and starmap node borders in its controlling faction's own color, your fleet shows up right on the map color-coded by duty (🎯 mission, 🚚 logistics, 🛡️ patrol, ⚓ docked), and a world under your fleet's watch shares its pirate activity for free, no chart needed. New: a Show: filter row lets you declutter the map to just the fleet, pirate, faction, or environmental layer you care about." },
   { version: "2.93.0", notes: "Changed: raid support now needs a warship on patrol — assign one to a world (✦ Fleet tab) before it can join the 2-ally summon or a Battle Group deployment there; a fleet parked elsewhere no longer teleports in. New: when a raid target's distress call lands, every rescuer in the area answers together instead of trickling in — pick which hostile(s) to focus fire on, same as the Escort tab's convoy combat, with your own Battle Group's Vanguard/Line/Reserve tiering unchanged." },
   { version: "2.92.0", notes: "New: your 🏴‍☠️ Haven can now be relocated to a new lawless world (tier and stash carry over) instead of being stuck wherever you founded it. New: a faction beaten all the way down to zero worlds can still deal you a Letter of Marque from exile (🏛️ Politics tab, once you've earned its trust) — its only way to fight back and reclaim a foothold." },

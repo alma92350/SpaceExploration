@@ -1,5 +1,5 @@
 {
-  "version": "2.94.0",
+  "version": "2.94.1",
   "saveVersion": "v2",
-  "notes": "The Galaxy tab is now a real strategic map: faction-colored borders, color-coded fleet presence, fleet-sourced pirate intel, and a new display-filter row."
+  "notes": "Fix: the colony Fuel Refinery now sits in the Industry build tab alongside its fellow refining buildings, instead of Survival & Economy."
 }
