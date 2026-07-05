@@ -1,5 +1,5 @@
 {
-  "version": "2.94.1",
+  "version": "2.95.0",
   "saveVersion": "v2",
-  "notes": "Fix: the colony Fuel Refinery now sits in the Industry build tab alongside its fellow refining buildings, instead of Survival & Economy."
+  "notes": "New: Labor Relief on the Colonies tab — fund a temporary Production Surge to cover a workforce shortfall, or hold a Community Relief event for an on-demand happiness/unrest boost."
 }

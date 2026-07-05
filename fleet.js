@@ -75,10 +75,12 @@ function shipyardLocalStorage(pid) {
 function canAffordMats(mats, local) { return Object.entries(mats).every(([k, v]) => ((local && local[k]) || 0) + (S.res[k] || 0) >= v); }
 // build-menu preview: same red/green-by-affordability convention as colonization.js's matsString,
 // but checking local stockpile + hold combined since that's what orderShip will actually draw on.
+// COM[c] || META[c]: a cost dict can also name a meta resource (e.g. "tech") that lives in
+// S.res alongside cargo but is never in COM's commodity catalog — Labor Relief's surge cost is.
 function fleetMatsString(mats, local) {
   return Object.entries(mats).map(([c, q]) => {
     const have = ((local && local[c]) || 0) + (S.res[c] || 0);
-    return `<span style="color:${have >= q ? "inherit" : "var(--bad)"}">${q}${COM[c].ico}</span>`;
+    return `<span style="color:${have >= q ? "inherit" : "var(--bad)"}">${q}${(COM[c] || META[c]).ico}</span>`;
   }).join(" ");
 }
 function payMats(mats, local) {

@@ -185,6 +185,13 @@ economies. Found a colony, then develop it:
   specifically) and **Unrest** (a penalty once discontent sets in) all show
   on the governor card, so a colony that looks "stuck" always has a visible
   reason and a lever to pull.
+- **👷 Labor Relief** — under-crewed for what you've built? Fund a temporary
+  **Production Surge** (Tech, Electronics, Machinery, AI Cores & Alloys buy
+  10-15 cycles of +15/30/50% output across the whole colony) instead of
+  waiting on population. **Community Relief** is a separate, on-demand
+  happiness boost and unrest relief paid in Consumer Goods, on a cooldown —
+  alongside, not instead of, the passive comfort a stocked larder of goods,
+  luxury and medicine already provides.
 
 Colonies live and grow **every cycle, even while you're away**. A populous
 colony is a major asset toward your net worth.

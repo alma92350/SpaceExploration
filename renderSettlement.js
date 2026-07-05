@@ -334,6 +334,22 @@ function renderColonies() {
       <div class="row"><button class="btn btn-sm" onclick="setTax(-5)">− Tax</button><button class="btn btn-sm" onclick="setTax(5)">+ Tax</button>
         <span class="hint">High tax lowers happiness.</span></div>
     </div>`;
+    const laborLocal = localStockpileAt(pid);
+    const laborCard = `<div class="card">
+      <h4>👷 Labor Relief</h4>
+      ${col.surge
+        ? `<div class="ship-stat"><span class="k">⚡ ${PRODUCTION_SURGE_TIERS[col.surge.tier - 1].name}</span><span class="v">+${Math.round((col.surge.mult - 1) * 100)}% output</span></div>
+           <div class="bar"><span style="width:${col.surge.cyclesLeft / col.surge.total * 100}%"></span></div>
+           <div class="hint">${col.surge.cyclesLeft} cycle(s) left</div>`
+        : `<div class="hint">Under-crewed for what's built? Pay for temporary specialists &amp; automation gear instead of waiting on population.</div>` +
+          PRODUCTION_SURGE_TIERS.map(t => `<div class="meta"><span>${t.name}<br><span class="hint">+${Math.round((t.mult - 1) * 100)}% output · ${t.cycles} cyc · ${fleetMatsString(t.cost, laborLocal)}</span></span>
+            <button class="btn btn-sm" ${canAffordMats(t.cost, laborLocal) ? "" : "disabled"} onclick="startProductionSurge(${t.tier})">Fund</button></div>`).join("")}
+      <hr style="margin:8px 0;border-color:var(--border)">
+      ${(col.perkCooldown || 0) > 0
+        ? `<div class="hint">🎉 Community Relief — cooldown ${col.perkCooldown} cycle(s)</div>`
+        : `<div class="meta"><span>🎉 Community Relief<br><span class="hint">+${MORALE_PERK_HAPPINESS} happiness, −${MORALE_PERK_UNREST_RELIEF} unrest · ${fleetMatsString(moralePerkCost(col), laborLocal)}</span></span>
+           <button class="btn btn-sm" ${canAffordMats(moralePerkCost(col), laborLocal) ? "" : "disabled"} onclick="giveMoralePerk()">Hold</button></div>`}
+    </div>`;
     const buildCard = (b) => {
       const tier = col.buildings[b.id] || 0, maxed = tier >= b.tiers;
       const cost = Math.round(b.baseCost * Math.pow(b.costMul, tier));
@@ -446,7 +462,7 @@ function renderColonies() {
       const expNote = sp ? `<div class="hint" style="margin-top:8px">🛰️ The spaceport also auto-exports surplus finished goods each cycle (throughput ${sp * 6})${col.faction ? `, and ${FACTIONS[col.faction].name} merchants pay a 15% premium` : ""}.</div>` : "";
       body = `${logi}${expNote}`;
     } else {
-      body = `<div class="cards">${govCard}${factionCard}</div>`;
+      body = `<div class="cards">${govCard}${laborCard}${factionCard}</div>`;
     }
     here = `<div class="section-title">🏛️ Govern — ${planet.name} ${col.faction ? `<span class="pill" title="${FACTIONS[col.faction].name}">${FACTIONS[col.faction].ico} ${FACTIONS[col.faction].name}</span>` : ""}</div>
       ${subBar}${body}`;
