@@ -1,5 +1,5 @@
 {
-  "version": "2.94.0",
+  "version": "2.95.0",
   "saveVersion": "v2",
-  "notes": "The Galaxy tab is now a real strategic map: faction-colored borders, color-coded fleet presence, fleet-sourced pirate intel, and a new display-filter row."
+  "notes": "New: Labor Relief on the Colonies tab — fund a temporary Production Surge to cover a workforce shortfall, or hold a Community Relief event for an on-demand happiness/unrest boost."
 }

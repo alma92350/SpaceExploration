@@ -126,6 +126,9 @@ test("a paused building still produces and consumes nothing, regardless of the n
   const { run } = createSandbox();
   run(`S = freshState(); rollPrices(); S.techs.metallurgy = true;`);
   freshColony(run, { pop: 200, happiness: 90, unrest: 0, buildings: { foundry: 5, lab: 10 }, storage: { metals: 1000, energy: 1000 }, idle: { foundry: true } });
+  // pin out the random per-cycle colony event (pirate raid/disaster/boom, colonyEventRoll)
+  // so an unrelated raid can't loot storage and break this exact-equality assertion
+  run(`Math.random = () => 0.99;`);
   run(`processColonies();`);
   assert.equal(run(`S.colonies[S.location].storage.alloys || 0`), 0, "a paused foundry should make nothing");
   assert.equal(run(`S.colonies[S.location].storage.metals`), 1000, "a paused foundry should consume nothing either");

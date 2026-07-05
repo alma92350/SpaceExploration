@@ -25,8 +25,10 @@
    applyMarketMove, buyPrice, sellPrice, isIllegalAt, bustRisk, pirateCalm,
    nonFrontierPlanets, colonyFreightMult, spaceportTier, drawReserve,
    depletionMult, pollutionOf/addPollution/pollutionYieldMult/
-   pollutionFarmMult, digestProd, digestNote, announce and afterAction
-   still live in other files/game.js at this point in the split — safe,
+   pollutionFarmMult, digestProd, digestNote, announce, afterAction and
+   fleet.js's canAffordMats/payMats/fleetMatsString (reused as-is for the
+   production surge / community relief costs below) still live in other
+   files/game.js at this point in the split — safe,
    since every function here is only CALLED later, once every script has
    finished loading, same pattern as every prior slice.
    ============================================================ */
@@ -427,6 +429,55 @@ const AUTOMATION_PER_TECH = 0.03, AUTOMATION_CAP = 0.5;   // +3%/tech point, cap
 function colonyAutomationMult(planet) { return 1 + Math.min(AUTOMATION_CAP, effTech(planet) * AUTOMATION_PER_TECH); }
 const UNREST_PENALTY_PER_POINT = 0.06, UNREST_FLOOR = 0.6;
 function colonyUnrestMult(col) { return Math.max(UNREST_FLOOR, 1 - (col.unrest || 0) * UNREST_PENALTY_PER_POINT); }
+
+/* ---------- Labor relief: a paid production surge + an on-demand morale perk ----------
+   Workforce can crush a growing colony's output to WORKFORCE_MIN long before its
+   population catches up. A surge is a paid, temporary patch for that gap — contracted
+   specialists and rented automation gear, not a permanent fix — costed in the same
+   high-tier goods that gap would otherwise starve (Tech, Electronics, Machinery, AI
+   Cores, Alloys). Community Relief is a separate, on-demand happiness/unrest lever
+   alongside the existing passive stockpile bonuses (goods/luxury/medicine sitting in
+   storage, just above) rather than a replacement for them. Both source materials the
+   same local-storage-first way Shipyard builds and repairs already do this session
+   (canAffordMats/payMats/fleetMatsString, fleet.js) against localStockpileAt(pid) —
+   S.res already holds Tech Pts in the same bag as cargo (state.js), so a cost dict
+   naming "tech" resolves straight to S.res.tech since colonies never store it. */
+const PRODUCTION_SURGE_TIERS = [
+  { tier: 1, name: "Overtime Shift",         mult: 1.15, cycles: 10, cost: { tech: 15, electronics: 10, machinery: 5,  ai: 2,  alloys: 15 } },
+  { tier: 2, name: "Contracted Specialists", mult: 1.30, cycles: 12, cost: { tech: 35, electronics: 25, machinery: 15, ai: 5,  alloys: 35 } },
+  { tier: 3, name: "Automation Surge",       mult: 1.50, cycles: 15, cost: { tech: 70, electronics: 50, machinery: 30, ai: 12, alloys: 60 } },
+];
+function colonySurgeMult(col) { return col.surge ? col.surge.mult : 1; }
+function startProductionSurge(tier) {
+  const pid = S.location, col = S.colonies[pid];
+  if (!col) return;
+  if (col.surge) return toast("A production surge is already running here — wait for it to finish.", "bad");
+  const def = PRODUCTION_SURGE_TIERS.find(t => t.tier === tier);
+  if (!def) return;
+  const local = localStockpileAt(pid);
+  if (!canAffordMats(def.cost, local)) return toast("Not enough materials for this surge tier.", "bad");
+  payMats(def.cost, local);
+  col.surge = { tier, mult: def.mult, cyclesLeft: def.cycles, total: def.cycles };
+  log(`⚡ ${def.name} begins on <span class="c">${currentPlanet().name}</span> — +${Math.round((def.mult - 1) * 100)}% output for ${def.cycles} cycles.`, "event");
+  toast(`${def.name} underway`, "event");
+  afterAction();
+}
+const MORALE_PERK_HAPPINESS = 12, MORALE_PERK_UNREST_RELIEF = 1, MORALE_PERK_COOLDOWN = 5;
+function moralePerkCost(col) { return { goods: Math.max(10, Math.round(col.pop * 0.5)) }; }
+function giveMoralePerk() {
+  const pid = S.location, col = S.colonies[pid];
+  if (!col) return;
+  if ((col.perkCooldown || 0) > 0) return toast(`Cool down another ${col.perkCooldown} cycle(s) before the next relief event.`, "bad");
+  const cost = moralePerkCost(col), local = localStockpileAt(pid);
+  if (!canAffordMats(cost, local)) return toast("Not enough Consumer Goods for a relief event.", "bad");
+  payMats(cost, local);
+  col.happiness = Math.min(100, col.happiness + MORALE_PERK_HAPPINESS);
+  col.unrest = Math.max(0, (col.unrest || 0) - MORALE_PERK_UNREST_RELIEF);
+  col.perkCooldown = MORALE_PERK_COOLDOWN;
+  log(`🎉 A subsidized goods fair lifts spirits on <span class="c">${currentPlanet().name}</span>.`, "event");
+  toast("Community relief held", "event");
+  afterAction();
+}
 const GRANARY_BUFFER_CYCLES = 40;   // how many cycles of the food stockpile count toward growth's carrying capacity
 function colonyTaxIncome(col) {
   const factionMul = col.faction ? 1.25 : 1;   // bloc trade network lifts commerce
@@ -635,9 +686,9 @@ function processColonies() {
       if (b.recipe) return;                                               // industry chain handled in 1b
       if (b.produces) {
         let out;
-        if (b.id === "farm") out = Math.round(t * 8 * pollutionFarmMult(pid) * (col.faction === "agri" ? 1.25 : 1) * colonyWorkforceMult(col) * colonyUnrestMult(col));   // smog withers crops; Agri-Combine agronomists boost them
+        if (b.id === "farm") out = Math.round(t * 8 * pollutionFarmMult(pid) * (col.faction === "agri" ? 1.25 : 1) * colonyWorkforceMult(col) * colonyUnrestMult(col) * colonySurgeMult(col));   // smog withers crops; Agri-Combine agronomists boost them
         else {
-          out = Math.round(t * 5 * (planet.deposits[b.produces] || 1) * depletionMult(pid, b.produces) * pollutionYieldMult(pid) * colonyWorkforceMult(col) * colonyUnrestMult(col));
+          out = Math.round(t * 5 * (planet.deposits[b.produces] || 1) * depletionMult(pid, b.produces) * pollutionYieldMult(pid) * colonyWorkforceMult(col) * colonyUnrestMult(col) * colonySurgeMult(col));
           drawReserve(pid, b.produces, out);
           if (out > 0 && b.pollute) addPollution(pid, b.pollute * t);
         }
@@ -657,7 +708,7 @@ function processColonies() {
       // Math.round, not floor: a tier-1/rate-1 building's single nominal batch shouldn't
       // vanish to 0 from a moderate workforce/unrest dip — larger multi-batch lines still
       // feel the multiplier proportionally (e.g. 15 nominal * 0.625 workforce -> 9, not 15)
-      let batches = Math.round(t * r.rate * colonyWorkforceMult(col) * colonyUnrestMult(col) * colonyAutomationMult(planet));
+      let batches = Math.round(t * r.rate * colonyWorkforceMult(col) * colonyUnrestMult(col) * colonyAutomationMult(planet) * colonySurgeMult(col));
       Object.entries(r.in).forEach(([c, q]) => { batches = Math.min(batches, Math.floor((col.storage[c] || 0) / q)); });
       const net = r.outQty - Object.values(r.in).reduce((s, q) => s + q, 0); // only net growth needs free space
       if (net > 0) batches = Math.min(batches, Math.floor((cap - colonyStorageUsed(col)) / net));
@@ -677,6 +728,13 @@ function processColonies() {
     // surplus Energy is vented to the grid, never hoarded — keeps storage clear for materials
     const ENERGY_BUFFER = 120;
     if ((col.storage.energy || 0) > ENERGY_BUFFER) col.storage.energy = ENERGY_BUFFER;
+
+    // 1c) labor relief effects tick down on their own clocks
+    if (col.surge && --col.surge.cyclesLeft <= 0) {
+      log(`⏱️ The production surge on <span class="c">${planet.name}</span> has ended.`, "");
+      col.surge = null;
+    }
+    if (col.perkCooldown > 0) col.perkCooldown--;
 
     // 2) population eats food (biomass)
     const need = col.pop;
