@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.97.0";
+const APP_VERSION = "2.97.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.97.1", notes: "Fix: the ✦ Fleet tab's Escort roster showed a warship following you as callable (it always refused when clicked) while hiding an idle warship actually docked here. Assigning your own hulls to a convoy now correctly lists idle local warships instead." },
   { version: "2.97.0", notes: "New: raiding a coalition's shipping now quietly earns rep with whichever faction considers them a rival — striking a real blow against someone's enemy is a risk their own agents notice and reward, letter of marque or not. Stacks with an active matching commission's own patron reward." },
   { version: "2.96.0", notes: "Changed: raid-support ships now 🛰️ Follow Me instead of patrolling a fixed world — assign an idle warship once (✦ Fleet tab) and it's on call for a raid summon or Battle Group wherever you travel, no more manual reassignment every time you change worlds." },
   { version: "2.95.0", notes: "New: 👷 Labor Relief on the Colonies Overview tab. Under-crewed for what you've built? Fund a temporary Production Surge (Tech, Electronics, Machinery, AI Cores & Alloys buy 10-15 cycles of +15/30/50% output) instead of waiting on population. Also new: Community Relief, an on-demand happiness boost and unrest relief paid in Consumer Goods, on a cooldown — separate from the passive comfort your stockpiled goods/luxury/medicine already provide." },

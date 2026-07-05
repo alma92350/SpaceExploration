@@ -209,6 +209,11 @@ function recallPatrol(shipId) {
 }
 // every following warship is raidable everywhere, always — no longer pinned to one world
 function fleetRaidable() { return fleetList().filter(s => s.status === "patrol" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
+// idle warships docked at the player's own current location — eligible to rally into the convoy
+// escort (escortRallyFleet). A distinct pool from fleetRaidable(): "following" duty is for raid
+// support wherever the player roams, but rallying into an escort run departing from here only
+// makes sense for a hull that's actually docked here right now, not one already off on call.
+function fleetEscortable() { return fleetList().filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
 // is ANY fleet ship physically present at this world, in any duty (on a mission there, stationed
 // there, following the player who's there, or simply docked idle/building at its own home)? Used
 // both by the galaxy map's fleet pills and to grant free pirate intel wherever the fleet has eyes.
@@ -236,6 +241,7 @@ function escortRallyFleet(shipId) {
   if (escortInCombat()) return toast("Wait for a lull to bring them in.", "bad");
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
   if (!s || !def || def.role !== "warship" || s.status !== "idle") return toast("That ship isn't available.", "bad");
+  if (s.home !== S.location) return toast(`The ${s.name} is docked at ${mdPlanetName(s.home)} — rally it from there.`, "bad");
   if (e.fleet.some(sh => sh.fleetId === shipId)) return toast(`The ${s.name} already flies with the convoy.`, "bad");
   e.fleet.push({ role: "escort", hired: true, support: true, fleetId: shipId, name: s.name, ico: def.ico, hullMax: s.hullMax, hull: Math.round(s.hull), str: Math.round(shipStrEff(s) * 1.3), alive: true, stance: "balanced", fit: { aggressive: 0, balanced: 0, defensive: 0 } });
   s.status = "escort";
