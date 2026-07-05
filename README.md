@@ -100,14 +100,15 @@ earned, it'll still deal you a **Letter of Marque from exile** (🏛️ Politics
 tab) — the only way to help a dispossessed power fight its way back onto the
 map.
 
-Your own fleet can back you up in a raid, but only where you've put it: assign
-an idle warship to **🎯 Patrol** a world (✦ Fleet tab) and it's on call there —
+Your own fleet can back you up in a raid: assign an idle warship to
+**🛰️ Follow Me** (✦ Fleet tab) and it's on call wherever you travel —
 either as one of your 2 loyal allies, or pooled into a whole **Battle Group**
 (with **Vanguard/Line/Reserve** tiering deciding which hulls tank hits and
-which do the damage). A fleet sitting elsewhere won't show up. And if a
-coalition target calls for help, every rescuer in the area answers together —
-pick which hostile(s) to focus fire on, same as the Escort tab's convoy combat,
-instead of being forced to kill them one at a time in a fixed order.
+which do the damage). No manual reassignment as you move between worlds. And
+if a coalition target calls for help, every rescuer in the area answers
+together — pick which hostile(s) to focus fire on, same as the Escort tab's
+convoy combat, instead of being forced to kill them one at a time in a fixed
+order.
 
 ## 🪐 The core worlds — a rotating roster
 
@@ -243,12 +244,13 @@ charted from the start; the rest are yours to find.
 The Galaxy tab itself reads as a real strategic map: every world's card and
 starmap node carries a **colored border in its controlling faction's own
 color**, a warship you've sent on **🎯 mission**, **🚚 logistics**, or
-**🛡️ patrol** duty (or that's simply **⚓ docked** at home) shows up right on
-the map in a color matched to its duty — and a world under your fleet's
-watch shares its **pirate activity for free**, chart or no chart, since a
-ship sitting there has eyes of its own. A **Show:** filter row lets you
-declutter the map down to just the fleet, pirate, faction, or environmental
-layer you care about.
+**🛰️ follow-me** duty (or that's simply **⚓ docked** at home) shows up right
+on the map in a color matched to its duty — a following ship's pill lights up
+wherever you currently are, since it travels with you — and a world under
+your fleet's watch shares its **pirate activity for free**, chart or no
+chart, since a ship sitting there has eyes of its own. A **Show:** filter row
+lets you declutter the map down to just the fleet, pirate, faction, or
+environmental layer you care about.
 
 ## 🏛️ Politics, factions & trade law (the deep end)
 

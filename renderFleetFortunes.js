@@ -43,21 +43,21 @@ function renderFleet() {
         : s.status === "escort" ? `<span style="color:var(--accent)">🛡️ escorting a convoy</span>`
         : onLogi ? `<span style="color:var(--accent)">${def.role === "freighter" ? "🚚 hauling for" : "🛡️ guarding"} ${mdPlanetName(s.station)}</span>`
         : onConvoy ? `<span style="color:var(--accent)">🚚 riding in your personal convoy</span>`
-        : onPatrol ? `<span style="color:var(--accent)">🎯 patrolling ${mdPlanetName(s.station)}</span>`
+        : onPatrol ? `<span style="color:var(--accent-2)">🛰️ following you</span>`
         : `<span style="color:var(--good)">idle</span>`;
       const repBtn = (s.status === "idle" && rc.miss > 0 && here) ? `<button class="btn btn-sm" title="Repair at home shipyard" onclick="repairFleetShip('${s.id}')">🔧 ${fmt(rc.credits)}</button>` : "";
       const canReassign = s.status === "idle" && !here && yard > 0 && def.tier <= yard;
       const reassignBtn = canReassign ? `<button class="btn btn-sm" title="Re-register this ship's home port to ${currentPlanet().name} (${fmt(shipyardReassignCost(def))} cr)" onclick="reassignShipyard('${s.id}')">⚓ Reassign here</button>` : "";
-      // a warship must patrol a world before it can answer a raid call (2-ally summon or Battle
-      // Group) there — this is the assignment action; "Reassign here" (above) only ever moves a
+      // a warship must follow you before it can answer a raid call (2-ally summon or Battle
+      // Group) — this is the assignment action; "Reassign here" (above) only ever moves a
       // ship's home shipyard, a separate concept.
-      const canPatrol = s.status === "idle" && def.role === "warship" && s.station !== pid;
-      const patrolBtn = canPatrol ? `<button class="btn btn-sm" title="Patrol ${currentPlanet().name} — on call for raids here (2-ally summon or Battle Group) until recalled" onclick="assignPatrol('${s.id}','${pid}')">🎯 Patrol here</button>` : "";
+      const canPatrol = s.status === "idle" && def.role === "warship";
+      const patrolBtn = canPatrol ? `<button class="btn btn-sm" title="Follow you — on call for raids anywhere (2-ally summon or Battle Group) until recalled" onclick="assignPatrol('${s.id}')">🛰️ Follow me</button>` : "";
       const scrapPct = scrapRefundPct(), scrapBonusOn = scrapPct > SCRAP_REFUND_PCT, scrapRefund = Math.round((def.cost.metals || 0) * scrapPct);
       const ctlBtn = onMission ? `<button class="btn btn-sm" title="Recall — bank what it's earned" onclick="recallFleetMission('${s.id}')">↩ Recall</button>`
         : onLogi ? `<button class="btn btn-sm" title="Recall from logistics duty" onclick="recallLogistics('${s.id}')">↩ Recall</button>`
         : onConvoy ? `<button class="btn btn-sm" title="Recall from your convoy" onclick="recallConvoy('${s.id}')">↩ Recall</button>`
-        : onPatrol ? `<button class="btn btn-sm" title="Recall from patrol" onclick="recallPatrol('${s.id}')">↩ Recall</button>`
+        : onPatrol ? `<button class="btn btn-sm" title="Stop following you" onclick="recallPatrol('${s.id}')">↩ Recall</button>`
         : s.status === "building" || s.status === "escort" ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvages ${scrapRefund} metals${scrapBonusOn ? " — recycling bonus" : ""})" onclick="scrapShip('${s.id}')">♻️ ${scrapRefund}${scrapBonusOn ? "✦" : ""}</button>`;
       const spec = def.role === "warship" ? `🔥${shipStrEff(s)} · 🛡️${s.hullMax}` : `📦${shipCargoCap(s)} cargo`;
       // ---- Small Shipyard customization: commit an idle hull to a Cargo or Combat

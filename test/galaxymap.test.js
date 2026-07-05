@@ -31,12 +31,14 @@ test("fleetPresentAt is true for a ship stationed on logistics duty", () => {
   assert.equal(run(`fleetPresentAt(S.location)`), true);
 });
 
-test("fleetPresentAt is true for a ship on patrol", () => {
+test("fleetPresentAt is true for a following ship only wherever the player currently is", () => {
   const { run } = createSandbox();
   const wr = tier1WarshipKey(run);
   run(`S = freshState();`);
-  run(`S.fleet = [{ id: "s1", key: "${wr}", name: "Sentry", home: S.location, status: "patrol", station: S.location, hull: 50, hullMax: 50 }];`);
+  run(`S.fleet = [{ id: "s1", key: "${wr}", name: "Sentry", home: S.location, status: "patrol", hull: 50, hullMax: 50 }];`);
   assert.equal(run(`fleetPresentAt(S.location)`), true);
+  const other = run(`Object.keys(currentPlanet().distances)[0]`);
+  assert.equal(run(`fleetPresentAt("${other}")`), false, "a following ship travels with the player, not present anywhere else");
 });
 
 test("fleetPresentAt is true for an idle or building ship docked at its own home", () => {
@@ -66,8 +68,11 @@ test("pirateIntelKnows is true at a fleet-present world with no chart and not th
   run(`S = freshState();`);
   const other = run(`Object.keys(currentPlanet().distances)[0]`);
   assert.equal(run(`pirateIntelKnows("${other}")`), false, "no chart, no fleet — should not know yet");
-  run(`S.fleet = [{ id: "s1", key: "${wr}", name: "Sentry", home: S.location, status: "patrol", station: "${other}", hull: 50, hullMax: 50 }];`);
-  assert.equal(run(`pirateIntelKnows("${other}")`), true, "a patrolling ship there should grant intel independent of any chart");
+  // a following ship travels with the player now, so it can no longer grant intel about a world
+  // other than the current one — logistics duty is still legitimately pinned to a fixed station,
+  // so it's what proves fleetPresentAt's non-current-location clauses still grant remote intel.
+  run(`S.fleet = [{ id: "s1", key: "${wr}", name: "Guard", home: S.location, status: "logistics", station: "${other}", hull: 50, hullMax: 50 }];`);
+  assert.equal(run(`pirateIntelKnows("${other}")`), true, "a stationed ship there should grant intel independent of any chart");
 });
 
 test("pirateIntelKnows is still true at your own current location with no fleet or chart", () => {
@@ -99,13 +104,13 @@ test("renderGalaxy shows a colored patrol pill and a colored docked pill for fle
   const wr = tier1WarshipKey(run);
   run(`S = freshState(); rollPrices(); S.showAllTabs = true;`);
   run(`S.fleet = [
-    { id: "p1", key: "${wr}", name: "Sentry", home: S.location, status: "patrol", station: S.location, hull: 50, hullMax: 50 },
+    { id: "p1", key: "${wr}", name: "Sentry", home: S.location, status: "patrol", hull: 50, hullMax: 50 },
     { id: "d1", key: "${wr}", name: "Docked", home: S.location, status: "idle", hull: 50, hullMax: 50 },
   ];`);
   cacheGetElementById(run);
   run(`renderGalaxy();`);
   const html = run(`document.getElementById("panel-galaxy").innerHTML`);
-  assert.match(html, /border-color:var\(--accent-2\)[^"]*"[^>]*>🛡️ 1 patrolling/);
+  assert.match(html, /border-color:var\(--accent-2\)[^"]*"[^>]*>🛡️ 1 following/);
   assert.match(html, /border-color:var\(--good\)[^"]*"[^>]*>⚓ 1 docked/);
 });
 
@@ -113,11 +118,11 @@ test("turning off the fleet filter hides every fleet-related pill while leaving 
   const { run } = createSandbox();
   const wr = tier1WarshipKey(run);
   run(`S = freshState(); rollPrices(); S.showAllTabs = true;`);
-  run(`S.fleet = [{ id: "p1", key: "${wr}", name: "Sentry", home: S.location, status: "patrol", station: S.location, hull: 50, hullMax: 50 }];`);
+  run(`S.fleet = [{ id: "p1", key: "${wr}", name: "Sentry", home: S.location, status: "patrol", hull: 50, hullMax: 50 }];`);
   cacheGetElementById(run);
   run(`toggleGalaxyFilter("fleet");`);
   const html = run(`document.getElementById("panel-galaxy").innerHTML`);
-  assert.doesNotMatch(html, /🛡️ \d+ patrolling/);
+  assert.doesNotMatch(html, /🛡️ \d+ following/);
   assert.match(html, /Galactic Map/, "the rest of the panel should still render");
 });
 

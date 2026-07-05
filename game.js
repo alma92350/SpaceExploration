@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.95.0";
+const APP_VERSION = "2.96.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.96.0", notes: "Changed: raid-support ships now 🛰️ Follow Me instead of patrolling a fixed world — assign an idle warship once (✦ Fleet tab) and it's on call for a raid summon or Battle Group wherever you travel, no more manual reassignment every time you change worlds." },
   { version: "2.95.0", notes: "New: 👷 Labor Relief on the Colonies Overview tab. Under-crewed for what you've built? Fund a temporary Production Surge (Tech, Electronics, Machinery, AI Cores & Alloys buy 10-15 cycles of +15/30/50% output) instead of waiting on population. Also new: Community Relief, an on-demand happiness boost and unrest relief paid in Consumer Goods, on a cooldown — separate from the passive comfort your stockpiled goods/luxury/medicine already provide." },
   { version: "2.94.1", notes: "Fix: the colony 🏭 Fuel Refinery (cracks Ice into Fuel — it's been buildable all along) was mis-filed under Survival & Economy instead of Industry alongside its fellow refining/manufacturing buildings. Purely a build-menu tab fix; the building and its output are unchanged." },
   { version: "2.94.0", notes: "New: the 🪐 Galaxy tab reads as a real strategic map now — every world's card and starmap node borders in its controlling faction's own color, your fleet shows up right on the map color-coded by duty (🎯 mission, 🚚 logistics, 🛡️ patrol, ⚓ docked), and a world under your fleet's watch shares its pirate activity for free, no chart needed. New: a Show: filter row lets you declutter the map to just the fleet, pirate, faction, or environmental layer you care about." },

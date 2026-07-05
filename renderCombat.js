@@ -104,12 +104,12 @@ function preyCombatCard(prey, al) {
     : "";
   const onCallBtns = (allyN < 2 ? bandsRaidable().filter(b => b.id !== prey.bandId && !bandRivalServing(b) && !(S.allies || []).some(a => a.bandId === b.id)) : [])
     .map(b => `<button class="btn btn-sm btn-good" title="${bandTagMark(b)} ${b.name} ${bandFollowing(b) ? "are riding with you" : bandOnCall(b) ? "are standing by" : "are based here"} — bring them in (${Math.round(bandLootShare(b) * 100)}% cut)" onclick="raidSummonOnCall('${b.id}')">📣 ${bandTagMark(b)}${b.ico} ${b.name}</button>`).join("");
-  // your own loyal warships — callable into any fight, no loot cut, but only those on patrol here
+  // your own loyal warships — callable into any fight, no loot cut, but only those following you
   const fleetBtns = (allyN < 2 ? fleetRaidable().filter(s => !(S.allies || []).some(a => a.fleetId === s.id)) : [])
     .map(s => `<button class="btn btn-sm btn-good" title="Your ${FLEET_SHIPS[s.key].name} — joins loyally, no loot cut" onclick="raidSummonFleet('${s.id}')">✦ ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join("");
-  // no warship on patrol here, but the player owns idle warships elsewhere — point them at the Fleet tab
+  // no warship following the player, but idle warships exist elsewhere — point them at the Fleet tab
   const patrolHint = (allyN < 2 && fleetRaidable().length === 0 && fleetList().some(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"))
-    ? `<div class="hint">✦ You have idle warships, but none patrolling <b>${currentPlanet().name}</b> — assign one from the ✦ <b>Fleet</b> tab to call it into fights here.</div>` : "";
+    ? `<div class="hint">✦ You have idle warships, but none following you — assign one from the ✦ <b>Fleet</b> tab to call it into fights.</div>` : "";
   const allyLine = allyN > 0 ? `<div class="hint"><span class="pill good">🤝 ${allyN} ally${allyN > 1 ? "ies" : ""} · loot split ${allyN + 1} ways</span></div>` : "";
   // multiple hostiles now fight as one pooled group — a roster with Target/Focus buttons per
   // hostile, mirroring the Escort tab's wave combat, replaces the old one-line pack pill.
@@ -146,7 +146,7 @@ function preyCombatCard(prey, al) {
     ? `<div class="hint">🤝 No allied crew on the scene. Summon one from the 🏴‍☠️ <b>Contacts</b> tab (📣 Call for support) or set a crew to 🛰️ <b>Follow</b> you — standing-by, following, and locally-based crews fight at your side here, even under a letter of marque.</div>` : "";
   const preyBand = prey.bandId ? bandById(prey.bandId) : null;
   const bandLine = preyBand ? `<div class="hint">${bandTagMark(preyBand)} of the <b>${preyBand.name}</b> · ${bandPers(preyBand).ico} ${bandPers(preyBand).name} · ${bandTier(preyBand).label} (${preyBand.rep}) · based at ${bandLocName(preyBand)}</div>` : "";
-  // Battle Group: every warship patrolling HERE, pooled into a formation, separate from the 2-ally cap
+  // Battle Group: every warship following the player, pooled into a formation, separate from the 2-ally cap
   const bgShips = battleGroupShips(), bgIdle = fleetRaidable();
   let bgBlock = "";
   if (bgShips.length) {
@@ -172,7 +172,7 @@ function preyCombatCard(prey, al) {
       <div class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px"><span class="hint">Posture:</span> ${postBtns} <button class="btn btn-sm" onclick="recallBattleGroup()">↩ Recall fleet</button></div>
       ${tierRows}`;
   } else if (bgIdle.length) {
-    bgBlock = `<div class="row" style="margin-top:6px"><button class="btn btn-sm btn-good" title="Deploy every warship patrolling here (${bgIdle.length}) as a pooled formation — no loot cut, escort-style posture, but they take real damage and can be lost" onclick="deployBattleGroup()">✦ Deploy Battle Fleet (${bgIdle.length})</button></div>`;
+    bgBlock = `<div class="row" style="margin-top:6px"><button class="btn btn-sm btn-good" title="Deploy every warship following you (${bgIdle.length}) as a pooled formation — no loot cut, escort-style posture, but they take real damage and can be lost" onclick="deployBattleGroup()">✦ Deploy Battle Fleet (${bgIdle.length})</button></div>`;
   }
   return `<div class="card" style="border-color:${isPirate ? "var(--good)" : "var(--warn)"}">
     <h4>${preyBand ? bandTagMark(preyBand) : ""}${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>

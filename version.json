@@ -1,5 +1,5 @@
 {
-  "version": "2.95.0",
+  "version": "2.96.0",
   "saveVersion": "v2",
-  "notes": "New: Labor Relief on the Colonies tab — fund a temporary Production Surge to cover a workforce shortfall, or hold a Community Relief event for an on-demand happiness/unrest boost."
+  "notes": "Changed: raid-support warships now Follow Me instead of patrolling a fixed world — assign one and it's on call wherever you travel, no reassignment needed."
 }

@@ -81,6 +81,7 @@ function renderOps() {
     else if (s.status === "escort") row("🛡️", `${def.ico} ${s.name} · escorting`, null, "escort", "var(--accent)");
     else if (s.status === "battle") row(FORMATION_SLOTS[shipFormation(s)].ico, `${def.ico} ${s.name} · ${FORMATION_SLOTS[shipFormation(s)].name} (${Math.round(s.hull)}/${s.hullMax})`, null, "raid", "var(--bad)");
     else if (s.status === "convoy") row("🚚", `${def.ico} ${s.name} · riding in your convoy (${Math.round(s.hull)}/${s.hullMax})`, null, "fleet", "var(--accent)");
+    else if (s.status === "patrol") row("🛰️", `${def.ico} ${s.name} · following you`, null, "fleet", "var(--accent-2)");
   });
   // pirate mandates
   (S.mandates || []).forEach(m => { const b = bandById(m.bandId), t = MANDATE_TASKS[m.task]; if (!t) return;
@@ -305,9 +306,9 @@ function renderGalaxy() {
     const _fLogi = fleetList().filter(s => s.status === "logistics" && s.station === p.id);
     const fleetLogiPill = (filters.fleet && _fLogi.length)
       ? `<span class="pill" style="border-color:var(--warn);color:var(--warn)" title="${_fLogi.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name} (${FLEET_SHIPS[s.key].role === "freighter" ? "hauler" : "guard"})`).join(" · ")}">🚚 convoy stationed</span>` : '';
-    const _fPatrol = fleetList().filter(s => s.status === "patrol" && s.station === p.id);
+    const _fPatrol = fleetList().filter(s => s.status === "patrol" && p.id === S.location);
     const fleetPatrolPill = (filters.fleet && _fPatrol.length)
-      ? `<span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)" title="${_fPatrol.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name}`).join(" · ")} — on call for raids here">🛡️ ${_fPatrol.length} patrolling</span>` : '';
+      ? `<span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)" title="${_fPatrol.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name}`).join(" · ")} — following you, on call anywhere you travel">🛡️ ${_fPatrol.length} following</span>` : '';
     const _fDocked = fleetList().filter(s => (s.status === "idle" || s.status === "building") && s.home === p.id);
     const fleetDockedPill = (filters.fleet && _fDocked.length)
       ? `<span class="pill" style="border-color:var(--good);color:var(--good)" title="${_fDocked.map(s => `${FLEET_SHIPS[s.key].ico} ${s.name}${s.status === "building" ? " (building)" : ""}`).join(" · ")}">⚓ ${_fDocked.length} docked</span>` : '';

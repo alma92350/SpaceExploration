@@ -188,34 +188,35 @@ function upgradeLoadout(shipId, lean) {
   toast(`${s.name}: ${LOADOUT_LEANS[lean].name} Lv${s.loadoutLevel}`, "good"); sfx("repair"); saveGame(); renderAll();
 }
 // ---- fleet warships as loyal, free combat allies (raids & escorts) ----
-// A warship must be assigned to PATROL a world before it can answer a raid call there — mirrors
-// assignLogistics' station concept, but for any world (not colony-only) and warships only, since
+// A warship set to FOLLOW travels with the player rather than being pinned to one world — mirrors
+// assignLogistics' idle-warship gate, but for any world (not colony-only) and warships only, since
 // raid/Battle Group support only ever needs warships. Recalling frees it back to idle, same shape
-// as recallLogistics.
-function assignPatrol(shipId, planetId) {
+// as recallLogistics. (Still stored as status:"patrol" — the on-call duty itself, not the old
+// per-world pin, which is what "station" used to encode; a following ship never sets it.)
+function assignPatrol(shipId) {
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
-  if (!s || !def || def.role !== "warship") return toast("Only warships can patrol.", "bad");
+  if (!s || !def || def.role !== "warship") return toast("Only warships can follow you.", "bad");
   if (s.status !== "idle") return toast(`The ${s.name} isn't free.`, "bad");
-  s.status = "patrol"; s.station = planetId;
-  log(`🎯 Your ${def.ico} ${s.name} takes up patrol at ${mdPlanetName(planetId)} — on call for any raid there.`, "event");
-  toast(`${s.name} patrolling ${mdPlanetName(planetId)}`, "good"); sfx("event"); saveGame(); renderAll();
+  s.status = "patrol"; s.station = null;
+  log(`🛰️ Your ${def.ico} ${s.name} will follow you now — on call for any raid, wherever you travel.`, "event");
+  toast(`${s.name} is now following you`, "good"); sfx("event"); saveGame(); renderAll();
 }
 function recallPatrol(shipId) {
   const s = fleetList().find(x => x.id === shipId); if (!s || s.status !== "patrol") return;
   s.status = "idle"; s.station = null;
-  log(`🎯 Recalled your ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name} from patrol.`, "");
+  log(`🛰️ Your ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name} stopped following you.`, "");
   toast(`${s.name} recalled`, ""); saveGame(); renderAll();
 }
-// only ships patrolling THIS world are raidable here — no longer "any idle warship, anywhere"
-function fleetRaidable() { return fleetList().filter(s => s.status === "patrol" && s.station === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
+// every following warship is raidable everywhere, always — no longer pinned to one world
+function fleetRaidable() { return fleetList().filter(s => s.status === "patrol" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
 // is ANY fleet ship physically present at this world, in any duty (on a mission there, stationed
-// there, patrolling there, or simply docked idle/building at its own home)? Used both by the
-// galaxy map's fleet pills and to grant free pirate intel wherever the fleet already has eyes.
+// there, following the player who's there, or simply docked idle/building at its own home)? Used
+// both by the galaxy map's fleet pills and to grant free pirate intel wherever the fleet has eyes.
 function fleetPresentAt(pid) {
   return fleetList().some(s =>
     (s.status === "mission" && s.mission && s.mission.planet === pid) ||
     (s.status === "logistics" && s.station === pid) ||
-    (s.status === "patrol" && s.station === pid) ||
+    (s.status === "patrol" && pid === S.location) ||
     ((s.status === "idle" || s.status === "building") && s.home === pid));
 }
 function fleetAsAlly(s) { const def = FLEET_SHIPS[s.key]; return { isFleet: true, fleetId: s.id, allyName: s.name, name: s.name, ico: def.ico, strength: Math.round(shipStrEff(s) * 2.5), share: 0 }; }   // loyal, no loot cut
@@ -224,7 +225,7 @@ function raidSummonFleet(shipId) {
   S.allies = S.allies || [];
   if (S.allies.length >= 2) return toast("Your wing is full (2 allies).", "bad");
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
-  if (!s || !def || def.role !== "warship" || s.status !== "patrol" || s.station !== S.location) return toast("That ship isn't on patrol here.", "bad");
+  if (!s || !def || def.role !== "warship" || s.status !== "patrol") return toast("That ship isn't following you.", "bad");
   if (S.allies.some(a => a.fleetId === shipId)) return toast(`The ${s.name} is already at your side.`, "bad");
   const a = fleetAsAlly(s); S.allies.push(a); foeHp(a);
   log(`✦ Your ${def.ico} ${s.name} answers the call and opens fire — loyal, your whole cut intact.`, "event");
@@ -286,15 +287,17 @@ function battleGroupFrontTier() {   // the tier currently taking the brunt of in
 }
 function deployBattleGroup() {
   if (!S.prey) return toast("No engagement.", "bad");
-  const idle = fleetRaidable(); if (!idle.length) return toast("No warships patrolling here to deploy.", "bad");
+  const idle = fleetRaidable(); if (!idle.length) return toast("No warships following you to deploy.", "bad");
   idle.forEach(s => { s.status = "battle"; });
   autoAssignFormation(idle.filter(s => !FORMATION_SLOTS[s.formation]));   // first-time deploys get a sensible default; prior manual picks stick
   log(`✦ Your battle fleet (${idle.length} ship${idle.length === 1 ? "" : "s"}) forms up around you — pooled firepower, no loot cut.`, "event");
   toast(`Battle fleet deployed (${idle.length})`, "event"); sfx("event"); afterAction();
 }
-// a deployed ship returns to patrol at its own station (not fully idle) — it stays on call
-// for the next raid here without needing to be re-assigned every time.
-function battleGroupStandDown(s) { s.status = s.station ? "patrol" : "idle"; }
+// a deployed ship returns to following the player (not fully idle) — it stays on call for
+// the next raid, wherever that is, without needing to be re-assigned every time. Every ship
+// that can reach "battle" status came from fleetRaidable(), which only ever contains
+// following ships, so stand-down always has a follow duty to return to.
+function battleGroupStandDown(s) { s.status = "patrol"; }
 function recallBattleGroup() {
   const grp = battleGroupShips(); if (!grp.length) return;
   grp.forEach(battleGroupStandDown);

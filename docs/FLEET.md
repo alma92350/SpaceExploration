@@ -311,3 +311,37 @@ simultaneous) didn't feel like a real group fight.
 
 This completes the player fleet: build → mission → ally → haul → battle group
 → personal convoy → vicinity-gated, pooled raid combat.
+
+## Slice 9 (shipped) — patrol becomes "Follow me"
+Reverses the "pin to one world" half of Slice 8's vicinity gate, on request:
+pinning a warship to a single world meant it was invisible to a raid at any
+other world, requiring a manual recall + reassign every time the player
+changed operating areas.
+
+- `assignPatrol(shipId)` (fleet.js) drops its `planetId` parameter entirely —
+  `s.station` is simply never set (`null`) for this duty anymore. The ship
+  status is still `"patrol"` internally (the on-call duty itself hasn't
+  changed, only what used to pin it to one world), but it now means "follows
+  the player everywhere."
+- `fleetRaidable()` drops its `s.station === S.location` clause — every
+  `status:"patrol"` warship is raidable everywhere, always. `raidSummonFleet`
+  drops its own copy of the same check. `battleGroupStandDown` simplifies
+  from `s.status = s.station ? "patrol" : "idle"` to unconditionally
+  `"patrol"`, since every ship reaching `"battle"` status came from
+  `fleetRaidable()`, which now only ever contains following ships.
+- `fleetPresentAt(pid)` (shared with Slice 7's fleet-sourced pirate intel)
+  changes its patrol clause from `s.station === pid` to `pid === S.location`
+  — a following ship is present only where the player currently is. This is
+  the one real narrowing: a following ship can no longer grant intel about a
+  world other than the player's current one (the logistics/idle-at-home
+  clauses right next to it are untouched and still cover that for their own
+  duties).
+- UI: "🎯 Patrol here" → "🛰️ Follow me" (`renderFleetFortunes.js`, no `pid`
+  argument anymore); the galaxy map's patrol pill (`renderCore.js`) now keys
+  off `p.id === S.location` instead of `s.station`, so it only ever lights up
+  on the card for wherever the player currently stands; the Operations board
+  (`renderOps`) gained a row for `"patrol"` status ships (it previously had
+  none) since that's now the more useful place to see "who's following me"
+  from any world. No `SAVE_VERSION` bump — an existing save's
+  `status:"patrol"` ships keep working; their stale `station` value is simply
+  never read again. Tests: `raidvicinity.test.js` (rewritten), `galaxymap.test.js`.
