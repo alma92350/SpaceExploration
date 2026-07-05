@@ -1,5 +1,5 @@
 {
-  "version": "2.99.1",
+  "version": "2.100.0",
   "saveVersion": "v2",
-  "notes": "New: your colonies, bases, and Shipyards now show up as their own pills and Starmap glyphs, with a new Settlements filter."
+  "notes": "New: the Starmap is now interactive — zoom and pan with on-screen controls or the mouse wheel."
 }

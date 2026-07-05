@@ -268,7 +268,10 @@ own warships/freighters, and the whole layout **drifts slowly, cycle over
 cycle** — no orbital mechanics, just dark matter, probably. An active convoy
 run draws its own dashed route between origin and destination (multi-leg
 progress shown as a 🚚 marker sliding along it), which flips to a bright,
-alarmed 💥 the moment an ambush actually lands.
+alarmed 💥 the moment an ambush actually lands. It's interactive too: 🔍+/🔍−
+and directional pan buttons (or just the mouse wheel over the map) let you
+zoom into a crowded cluster or a single world's neighborhood, with a
+↺ Reset view button to snap straight back to the full sector.
 
 ## 🏛️ Politics, factions & trade law (the deep end)
 
