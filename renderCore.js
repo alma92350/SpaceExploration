@@ -232,6 +232,18 @@ function toggleGalaxyFilter(key) {
   const f = ensureGalaxyFilters(); if (!(key in f)) return;
   f[key] = !f[key]; saveGame(); renderAll();
 }
+// ---------- Slow drift ("dark matter") ----------
+// Node positions used to be a pure function of rank + array index, identical every render.
+// This adds a small, deterministic-per-world wobble driven by S.turn (already persisted, already
+// ticks every cycle) so the sector's layout creeps over time with no new saved state at all, and
+// no orbital mechanics to get wrong — a low, per-world-unique frequency reads as organic drift
+// rather than uniform lockstep or jitter.
+function starmapSeed(pid) { let h = 0; for (let i = 0; i < pid.length; i++) h = (h * 31 + pid.charCodeAt(i)) >>> 0; return h; }
+function starmapDrift(pid, axis) {
+  const seed = starmapSeed(pid) + (axis === "y" ? 7919 : 0);   // decorrelate the two axes
+  const freq = 0.006 + (seed % 97) / 90000;                    // a slightly different slow period per world
+  return Math.sin(S.turn * freq + (seed % 1000));
+}
 function renderStarmap(known) {
   if (known.length < 2) return '';
   const W = 760, H = 220, pad = 36;
@@ -240,7 +252,10 @@ function renderStarmap(known) {
   const pos = {};
   sorted.forEach((p, i) => {
     const t = n > 1 ? i / (n - 1) : 0.5;
-    pos[p.id] = { x: pad + t * (W - 2 * pad), y: H / 2 + Math.sin(i * 1.7) * (H / 2 - pad) * 0.65 };
+    pos[p.id] = {
+      x: pad + t * (W - 2 * pad) + starmapDrift(p.id, "x") * 18,
+      y: H / 2 + Math.sin(i * 1.7) * (H / 2 - pad) * 0.65 + starmapDrift(p.id, "y") * 14,
+    };
   });
   const knownIds = new Set(known.map(p => p.id));
   const drawn = new Set();
@@ -254,7 +269,24 @@ function renderStarmap(known) {
       edges += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${hot ? "var(--good)" : "#334155"}" stroke-width="${hot ? 2 : 1}" opacity="${hot ? 0.9 : 0.45}"/>`;
     });
   });
-  const showFactions = ensureGalaxyFilters().factions;
+  // convoy route: only the Escort tab's convoy has a concrete "journey between two worlds with
+  // progress and possible mid-route combat" shape (S.escort.mission) — from/to aren't required to
+  // share a direct hyperlane (genEscortContract, escort.js), so this is its own line, not reused
+  // from the hyperlane graph above.
+  const filters = ensureGalaxyFilters();
+  let convoy = '';
+  if (filters.fleet && S.escort && S.escort.active && S.escort.mission) {
+    const m = S.escort.mission, a = pos[m.from], b = pos[m.to];
+    if (a && b) {
+      const t = Math.max(0, Math.min(1, (m.legs - m.legsLeft) / m.legs));
+      const mx = a.x + (b.x - a.x) * t, my = a.y + (b.y - a.y) * t;
+      const ambush = typeof escortInCombat === "function" && escortInCombat();
+      const col = ambush ? "var(--bad)" : "var(--gold)";
+      convoy += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="${col}" stroke-width="2" stroke-dasharray="4,4" opacity="0.8"/>`;
+      convoy += `<text x="${mx}" y="${my + 4}" text-anchor="middle" font-size="${ambush ? 15 : 11}"><title>${ambush ? "Ambush! The convoy is under attack" : `Convoy under way — leg ${m.legs - m.legsLeft}/${m.legs}`}</title>${ambush ? "💥" : "🚚"}</text>`;
+    }
+  }
+  const showFactions = filters.factions;
   let nodes = '';
   known.forEach(p => {
     const here = p.id === S.location, q = pos[p.id];
@@ -262,14 +294,27 @@ function renderStarmap(known) {
     // treatment as the card's border stripe below, extended to the geographic view
     const factionColor = (showFactions && !p.colonizable && p.faction) ? FACTIONS[p.faction].color : null;
     const stroke = here ? "#fff" : (factionColor || "#0f172a");
+    // fleet/pirate glyphs — same predicates the card grid's own pills use, so the map and the
+    // cards below it never disagree about what's present where
+    const hasWarship = filters.fleet && fleetList().some(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship" &&
+      ((s.status === "mission" && s.mission && s.mission.planet === p.id) || (s.status === "logistics" && s.station === p.id) ||
+       (s.status === "patrol" && p.id === S.location) || ((s.status === "idle" || s.status === "building") && s.home === p.id)));
+    const hasFreighter = filters.fleet && fleetList().some(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter" &&
+      ((s.status === "mission" && s.mission && s.mission.planet === p.id) || (s.status === "logistics" && s.station === p.id) ||
+       ((s.status === "idle" || s.status === "building") && s.home === p.id)));
+    const hasPirates = filters.pirates && pirateIntelKnows(p.id) && pirateLevel(p.id) > 0;
+    const glyphs = `${hasPirates ? "🏴" : ""}${hasWarship ? "⚔️" : ""}${hasFreighter ? "📦" : ""}`;
+    const glyphRow = glyphs ? `<text x="${q.x}" y="${q.y - (here ? 14 : 10)}" text-anchor="middle" font-size="10">${glyphs}</text>` : '';
+    const label = `<text x="${q.x}" y="${q.y + (here ? 20 : 16)}" text-anchor="middle" font-size="9" fill="#94a3b8">${p.name}</text>`;
     nodes += `<g${here ? "" : ` style="cursor:pointer" onclick="travel('${p.id}')"`}>
       <circle cx="${q.x}" cy="${q.y}" r="${here ? 9 : 5}" fill="${p.color}" stroke="${stroke}" stroke-width="${here ? 2 : (factionColor ? 2 : 1)}"><title>${p.name}${here ? " — you are here" : ` — ${fuelCost(p.id)}⛽`}</title></circle>
+      ${glyphRow}${label}
     </g>`;
   });
   return `<div class="card" style="overflow:auto">
     <h4>🗺️ Starmap</h4>
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-height:160px" preserveAspectRatio="xMidYMid meet">${edges}${nodes}</svg>
-    <div class="hint">Lines are the direct hyperlanes/routes on your ship's own charts — the bright ones touch wherever you're standing. Click a world to travel.</div>
+    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-height:160px" preserveAspectRatio="xMidYMid meet">${edges}${convoy}${nodes}</svg>
+    <div class="hint">Lines are the direct hyperlanes/routes on your ship's own charts — the bright ones touch wherever you're standing. Click a world to travel. The sector drifts a little every cycle — dark matter, probably.</div>
   </div>`;
 }
 function renderGalaxy() {
