@@ -1,5 +1,5 @@
 {
-  "version": "2.96.0",
+  "version": "2.97.0",
   "saveVersion": "v2",
-  "notes": "Changed: raid-support warships now Follow Me instead of patrolling a fixed world — assign one and it's on call wherever you travel, no reassignment needed."
+  "notes": "New: raiding a coalition's shipping now earns rep with whichever faction considers them a rival, letter of marque or not."
 }

@@ -10,10 +10,11 @@
 
    Loaded after pirateBands.js, before game.js. applyCommissionRaid,
    revokeCommission, COMM_BOUNTY, battleGroupFirepower/Ships/TakeFire,
-   fleetList, atHaven, atBase, repairDiscount, repairVenueNote and
-   matsString still live in game.js at this point in the split — safe,
-   since every function here is only CALLED later, once every script has
-   finished loading, same pattern as every prior slice.
+   fleetList, atHaven, atBase, repairDiscount, repairVenueNote, matsString,
+   FACTION_KEYS and factionsAreRivals still live in game.js/sector4x.js at
+   this point in the split — safe, since every function here is only CALLED
+   later, once every script has finished loading, same pattern as every
+   prior slice.
    ============================================================ */
 
 "use strict";
@@ -140,7 +141,12 @@ function raidWinMerchant(prey, noQuarter) {
   S.pirate.dread += dread; S.pirate.wanted += wanted;
   addRep(prey.faction, noQuarter ? -14 : -8);
   if (!sanctioned) addRep("core", -(prey.faction === "core" ? 8 : 5));
-  addRep("frontier", 3); clampPirate();
+  addRep("frontier", 3);
+  // bloodying a coalition's rival is a real risk (Wanted, dread) their own agents notice and
+  // reward, whether or not you're formally commissioned against that target — applyCommissionRaid
+  // (above) still separately pays a matching commission's own patron, so this stacks with that.
+  FACTION_KEYS.filter(f => f !== prey.faction && factionsAreRivals(f, prey.faction)).forEach(f => addRep(f, 2));
+  clampPirate();
   log(`🏴‍☠️ You took the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"}${lootShare() < 1 ? ` <span class="hint">(split ${1 / lootShare()} ways)</span>` : ""}.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Dread +${dread}, Wanted +${wanted})`, "good");
   toast(`Plundered ${prey.name}!`, "good");
   if (betray) revokeCommission(true);

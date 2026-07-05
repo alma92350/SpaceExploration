@@ -147,6 +147,28 @@ Tests: `dispossessed.js` (10 checks, including an explicit invariant check
 against the random active-world draw rather than assuming a fresh game is
 always clean).
 
+## Slice 6 (shipped) — reward for hitting a rival, marque or not
+Before this, raiding a coalition's shipping only ever moved rep with the
+victim itself (down), core (down, if unsanctioned) and a flat, unconditional
++3 to frontier — a formal letter of marque's patron got its own explicit +2
+per raid (`applyCommissionRaid`, outlaw.js), but a faction with no such
+commission got nothing for its rival being bloodied, even though the player
+took the same real risk (Wanted) doing it.
+- **`raidWinMerchant(prey, noQuarter)`** (raiding.js) now also runs
+  `FACTION_KEYS.filter(f => f !== prey.faction && factionsAreRivals(f,
+  prey.faction)).forEach(f => addRep(f, 2))` — every faction Slice 1's
+  `factionsAreRivals` considers a rival of the raided faction (checked both
+  directions, so e.g. raiding Core rewards both Frontier, Core's own listed
+  rival, *and* Tech Syndicate, whose one-way entry points at Core) gets +2
+  rep, unconditionally — no commission required.
+- Stacks cleanly with an active matching commission: `applyCommissionRaid`'s
+  own +2-to-patron still fires separately, since a commission's patron is by
+  definition the raided target's rival.
+- A `faction: null` prey (an independent merchant/patrol archetype,
+  combat.js) naturally yields an empty rival list — no crash, no bogus rep.
+
+Tests: `rivalrep.test.js` (5 checks).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
 5. **Player leverage** — tie letters of marque to a *live* war (fulfilling
    quota measurably swings a contested world), amplify fleet mission effect

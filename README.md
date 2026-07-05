@@ -92,6 +92,13 @@ Three meters define the outlaw:
 
 Crime pays well — until the whole sector wants you dead.
 
+Every raid also plays into sector politics: sacking a coalition's shipping
+always docks your rep with them, but it quietly earns rep with **whichever
+faction considers them a rival** — striking their enemy is a real, Wanted-
+earning risk that faction's own agents notice and reward, letter of marque
+or not. Hold a matching commission against that same target and its patron
+reward stacks right on top.
+
 A hidden **🏴‍☠️ Haven** can be **relocated** as the sector's heat map shifts —
 its tier and stash carry over intact to a new lawless world, so a den that's
 grown too hot doesn't have to be abandoned outright. And a faction beaten all
