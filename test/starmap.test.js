@@ -73,6 +73,23 @@ test("warship and freighter glyphs render independently and are gated by the fle
   assert.ok(!html.includes("⚔️") && !html.includes("📦"), "turning off the fleet filter should hide both glyphs");
 });
 
+test("colony, base and shipyard glyphs render independently and are gated by the settlements filter", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  const cid = run(`(PLANETS.find(p => p.colonizable && galaxyKnown(p)) || {}).id`);
+  const bid = run(`(PLANETS.find(p => !p.colonizable && galaxyKnown(p)) || {}).id`);
+  if (!cid || !bid) return;   // this game's random draw didn't surface both world types — nothing to assert
+  run(`S.colonies["${cid}"] = { pop: 5, happiness: 70, tax: 10, buildings: { shipyard: 3 }, storage: {}, orders: {}, unrest: 0, faction: null, idle: {} };
+       S.bases["${bid}"] = { modules: { shipyard_small: 2 }, storage: {}, trade: { on: false, exp: {}, imp: {}, cols: {} } };`);
+  let html = renderMap(run);
+  assert.ok(html.includes("🌍"), "the colony glyph should render on the colonized world");
+  assert.ok(html.includes("🏰"), "the base glyph should render on the based world");
+  assert.ok(html.includes("🏗️"), "a shipyard glyph should render for both the colony Shipyard and the base Small Shipyard");
+  run(`toggleGalaxyFilter("settlements");`);
+  html = renderMap(run);
+  assert.ok(!html.includes("🌍") && !html.includes("🏰") && !html.includes("🏗️"), "turning off the settlements filter should hide all three glyphs");
+});
+
 test("no convoy route renders with no active escort mission", () => {
   const { run } = createSandbox();
   run(`S = freshState(); rollPrices();`);

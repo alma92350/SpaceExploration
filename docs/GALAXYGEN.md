@@ -393,11 +393,40 @@ writing a line.
 
 Tests: `starmap.test.js` (10 checks).
 
+## Slice 9 (shipped) — your own infrastructure, on the map
+Slice 7 gave faction ownership a real visual language, but the player's
+*own* infrastructure had none: a colony only ever showed up as a plain
+"your colony 🌍" swap inside the colonizable-world tag (always visible, no
+filter), a base had **no map indication anywhere** — confirmed by grep,
+`renderGalaxy`/`renderStarmap` never once read `S.bases` before this — and
+a Shipyard (colony building or base Small Shipyard module) had no
+footprint either, despite `shipyardTierAt(pid)`/`shipyardVenueAt(pid)`
+(fleet.js) already resolving exactly that fact for any world, colony-vs-
+base precedence included.
+- **New `settlements` filter** (`ensureGalaxyFilters`) — a 5th boolean,
+  backfilled for saves from before it existed (`S.galaxyFilters.settlements
+  === undefined` check) so no `SAVE_VERSION` bump was needed.
+- **Card grid** (`renderGalaxy`): the existing "your colony 🌍" vs
+  "colonizable" tag distinction is now itself gated by the new filter
+  (previously unconditional) — turning it off genuinely hides the
+  ownership fact, matching how the faction-color gating already works,
+  rather than just hiding a redundant duplicate pill. Two new pills: 🏰
+  "your base" (`S.bases[pid]`, any world — a base isn't restricted to
+  colonizable worlds the way a colony is) and 🏗️ "Shipyard T*n*"
+  (`shipyardTierAt(pid) > 0`, whichever venue is actually present).
+- **Starmap**: matching 🌍/🏰/🏗️ glyphs, same row as Slice 8's fleet/pirate
+  glyphs, same `settlements` gate.
+
+Tests: `starmap.test.js` (+1 check), `galaxymap.test.js` (+1 check, plus
+the two pre-existing `ensureGalaxyFilters`/`toggleGalaxyFilter` checks
+updated for the 5th key).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-None — all eight brainstormed slices are shipped. Bigger, replayable maps
+None — all nine brainstormed slices are shipped. Bigger, replayable maps
 (frontier ring, core variance), real geography (lane graph, starmap),
 deeper exploration (probe/richer signals), a shareable Sector Code, a
 legible strategic layer (fleet presence, fleet-sourced intel, faction
-control, display filters), and a starmap that reads as a living view
-(names, fleet/pirate glyphs, slow drift, convoy routes) are all in.
-Anything past this would be new brainstorming, not backlog.
+control, display filters), a starmap that reads as a living view (names,
+fleet/pirate glyphs, slow drift, convoy routes), and the player's own
+infrastructure made visible and filterable are all in. Anything past this
+would be new brainstorming, not backlog.

@@ -255,9 +255,12 @@ color**, a warship you've sent on **🎯 mission**, **🚚 logistics**, or
 on the map in a color matched to its duty — a following ship's pill lights up
 wherever you currently are, since it travels with you — and a world under
 your fleet's watch shares its **pirate activity for free**, chart or no
-chart, since a ship sitting there has eyes of its own. A **Show:** filter row
-lets you declutter the map down to just the fleet, pirate, faction, or
-environmental layer you care about.
+chart, since a ship sitting there has eyes of its own. Your own **🌍
+colonies**, **🏰 bases**, and **🏗️ Shipyards** (colony or base, whichever's
+built) get their own pills and map glyphs too — no longer just an unmarked
+world among the rest. A **Show:** filter row lets you declutter the map down
+to just the fleet, pirate, faction, settlement, or environmental layer you
+care about.
 
 The **starmap** itself reads as a living view, not a frozen snapshot: every
 node is labeled by name, carries 🏴/⚔️/📦 glyphs for pirate activity and your

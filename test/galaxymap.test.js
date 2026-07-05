@@ -84,7 +84,7 @@ test("pirateIntelKnows is still true at your own current location with no fleet 
 test("ensureGalaxyFilters defaults every category to true, and toggleGalaxyFilter flips exactly the named key", () => {
   const { run } = createSandbox();
   run(`S = freshState(); rollPrices();`);
-  assert.equal(run(`JSON.stringify(ensureGalaxyFilters())`), JSON.stringify({ fleet: true, pirates: true, factions: true, environment: true }));
+  assert.equal(run(`JSON.stringify(ensureGalaxyFilters())`), JSON.stringify({ fleet: true, pirates: true, factions: true, environment: true, settlements: true }));
   run(`toggleGalaxyFilter("pirates");`);
   assert.equal(run(`S.galaxyFilters.pirates`), false);
   assert.equal(run(`S.galaxyFilters.fleet`), true, "other categories should be untouched");
@@ -96,7 +96,7 @@ test("toggleGalaxyFilter ignores an unknown key", () => {
   const { run } = createSandbox();
   run(`S = freshState(); rollPrices();`);
   run(`toggleGalaxyFilter("nonsense");`);
-  assert.equal(run(`JSON.stringify(S.galaxyFilters)`), JSON.stringify({ fleet: true, pirates: true, factions: true, environment: true }));
+  assert.equal(run(`JSON.stringify(S.galaxyFilters)`), JSON.stringify({ fleet: true, pirates: true, factions: true, environment: true, settlements: true }));
 });
 
 test("renderGalaxy shows a colored patrol pill and a colored docked pill for fleet ships", () => {
@@ -124,6 +124,28 @@ test("turning off the fleet filter hides every fleet-related pill while leaving 
   const html = run(`document.getElementById("panel-galaxy").innerHTML`);
   assert.doesNotMatch(html, /🛡️ \d+ following/);
   assert.match(html, /Galactic Map/, "the rest of the panel should still render");
+});
+
+test("renderGalaxy shows your colony, your base, and a Shipyard tier pill, gated by the settlements filter", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices(); S.showAllTabs = true;`);
+  const cid = run(`(PLANETS.find(p => p.colonizable && galaxyKnown(p)) || {}).id`);
+  const bid = run(`(PLANETS.find(p => !p.colonizable && galaxyKnown(p)) || {}).id`);
+  if (!cid || !bid) return;   // this game's random draw didn't surface both world types — nothing to assert
+  run(`S.colonies["${cid}"] = { pop: 5, happiness: 70, tax: 10, buildings: { shipyard: 3 }, storage: {}, orders: {}, unrest: 0, faction: null, idle: {} };
+       S.bases["${bid}"] = { modules: { shipyard_small: 2 }, storage: {}, trade: { on: false, exp: {}, imp: {}, cols: {} } };`);
+  cacheGetElementById(run);
+  run(`renderGalaxy();`);
+  let html = run(`document.getElementById("panel-galaxy").innerHTML`);
+  assert.match(html, />your colony 🌍</, "the colonized world's tag should read as owned");
+  assert.match(html, />🏰 your base</, "the based world should show a base pill");
+  assert.match(html, />🏗️ Shipyard T3</, "the colony's Shipyard tier should show");
+  assert.match(html, />🏗️ Shipyard T2</, "the base's Small Shipyard tier should show too");
+  run(`toggleGalaxyFilter("settlements");`);
+  html = run(`document.getElementById("panel-galaxy").innerHTML`);
+  assert.match(html, />colonizable</, "with the filter off, an owned colonizable world reverts to the plain colonizable tag");
+  assert.doesNotMatch(html, /your base/, "the base pill should be hidden");
+  assert.doesNotMatch(html, /Shipyard T\d/, "the shipyard pills should be hidden");
 });
 
 test("turning off the pirates filter hides the pirate pill even when pirateIntelKnows is true", () => {

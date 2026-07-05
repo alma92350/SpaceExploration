@@ -225,7 +225,8 @@ function repBar(f) {
    simultaneously-toggleable booleans, lazily initialized like S.escort/
    S.territoryControl so old saves need no migration. */
 function ensureGalaxyFilters() {
-  if (!S.galaxyFilters) S.galaxyFilters = { fleet: true, pirates: true, factions: true, environment: true };
+  if (!S.galaxyFilters) S.galaxyFilters = { fleet: true, pirates: true, factions: true, environment: true, settlements: true };
+  if (S.galaxyFilters.settlements === undefined) S.galaxyFilters.settlements = true;   // backfill for saves from before this filter existed
   return S.galaxyFilters;
 }
 function toggleGalaxyFilter(key) {
@@ -303,7 +304,10 @@ function renderStarmap(known) {
       ((s.status === "mission" && s.mission && s.mission.planet === p.id) || (s.status === "logistics" && s.station === p.id) ||
        ((s.status === "idle" || s.status === "building") && s.home === p.id)));
     const hasPirates = filters.pirates && pirateIntelKnows(p.id) && pirateLevel(p.id) > 0;
-    const glyphs = `${hasPirates ? "🏴" : ""}${hasWarship ? "⚔️" : ""}${hasFreighter ? "📦" : ""}`;
+    const hasColony = filters.settlements && !!S.colonies[p.id];
+    const hasBase = filters.settlements && !!S.bases[p.id];
+    const hasShipyard = filters.settlements && shipyardTierAt(p.id) > 0;
+    const glyphs = `${hasPirates ? "🏴" : ""}${hasWarship ? "⚔️" : ""}${hasFreighter ? "📦" : ""}${hasColony ? "🌍" : ""}${hasBase ? "🏰" : ""}${hasShipyard ? "🏗️" : ""}`;
     const glyphRow = glyphs ? `<text x="${q.x}" y="${q.y - (here ? 14 : 10)}" text-anchor="middle" font-size="10">${glyphs}</text>` : '';
     const label = `<text x="${q.x}" y="${q.y + (here ? 20 : 16)}" text-anchor="middle" font-size="9" fill="#94a3b8">${p.name}</text>`;
     nodes += `<g${here ? "" : ` style="cursor:pointer" onclick="travel('${p.id}')"`}>
@@ -339,8 +343,17 @@ function renderGalaxy() {
       ? (_plv > 0 ? `<span class="pill ${_plv >= 2 ? "bad" : ""}" title="Pirate activity level ${_plv} (from your charts or fleet presence)">🏴 pirates ${_plv}</span>` : `<span class="pill good" title="No pirate activity (from your charts or fleet presence)">🏴 clear</span>`)
       : '';
     const tag = p.colonizable
-      ? `<span class="pill good">${S.colonies[p.id] ? "your colony 🌍" : "colonizable"}</span>`
+      ? `<span class="pill good">${(filters.settlements && S.colonies[p.id]) ? "your colony 🌍" : "colonizable"}</span>`
       : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
+    // your own infrastructure — a colony can only ever sit on a colonizable world (tag above
+    // already covers that), but a base can be founded on ANY world, colonizable or established,
+    // and had no map indication at all before this; a shipyard (colony Shipyard or base Small
+    // Shipyard, whichever's present — shipyardTierAt already resolves that precedence) is a
+    // separate fact worth its own pill since a settled world doesn't necessarily have one yet.
+    const basePill = (filters.settlements && S.bases[p.id]) ? `<span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)" title="You operate a base here">🏰 your base</span>` : '';
+    const shipyardTierHere = shipyardTierAt(p.id);
+    const shipyardPill = (filters.settlements && shipyardTierHere > 0)
+      ? `<span class="pill" style="border-color:var(--gold);color:var(--gold)" title="Shipyard tier ${shipyardTierHere} (${shipyardVenueAt(p.id)}) — lay down hulls in the ✦ Fleet tab">🏗️ Shipyard T${shipyardTierHere}</span>` : '';
     const escortPill = (filters.fleet && S.escort && S.escort.active && S.escort.mission && S.escort.mission.to === p.id)
       ? `<span class="pill" title="Your active convoy is bound here (${S.escort.mission.legsLeft} leg(s) left)">🛡️ convoy bound</span>` : '';
     // Fleet presence, color-coded by duty — a warship on patrol (readiness) reads differently
@@ -382,7 +395,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${fleetPatrolPill}${fleetDockedPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}${territoryPill}${hyperlanePill}
+        ${enf}${polPill}${crisisPill}${piratePill}${basePill}${shipyardPill}${escortPill}${fleetMissionPill}${fleetLogiPill}${fleetPatrolPill}${fleetDockedPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}${territoryPill}${hyperlanePill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${sigBtn ? `<div class="row" style="margin-bottom:8px">${sigBtn}</div>` : ""}
@@ -426,7 +439,7 @@ function renderGalaxy() {
     intelBadge = `<span class="pill ${hot ? "bad" : "good"}" title="Active pirate chart — ${left} cycle(s) left. Activity updates live on the map.">🏴 ${hot ? hot + " pirate hotspot" + (hot > 1 ? "s" : "") : "lanes charted"} · ${left}cyc</span>`;
   }
   const filterBtn = (key, label) => `<button class="btn btn-sm ${filters[key] ? "btn-primary" : ""}" onclick="toggleGalaxyFilter('${key}')">${label}</button>`;
-  const filterRow = `<div class="row" style="margin:8px 0;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Show:</span> ${filterBtn("fleet", "✦ Fleet")} ${filterBtn("pirates", "🏴 Pirates")} ${filterBtn("factions", "🏛️ Factions")} ${filterBtn("environment", "🌐 Environment")}</div>`;
+  const filterRow = `<div class="row" style="margin:8px 0;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Show:</span> ${filterBtn("fleet", "✦ Fleet")} ${filterBtn("pirates", "🏴 Pirates")} ${filterBtn("factions", "🏛️ Factions")} ${filterBtn("settlements", "🏰 Settlements")} ${filterBtn("environment", "🌐 Environment")}</div>`;
   el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}${intelBadge}</h2>
     <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. This sector's own Sector Code also jitters every core world's deposits, industry, tech and law level a little, so exact yields vary game to game even though names and history never do. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with a 🛰️ Survey Expedition below. Travelling costs fuel and advances a cycle. A world under your fleet's watch (patrolling, stationed, or simply docked) shares its pirate activity for free, chart or no chart. <span class="hint">Sector code: <b>${seedCodeFor(S.frontierSeed)}</b> — share it, or start a new game from one, with the 🔑 Seed button.</span></div>
     ${filterRow}
