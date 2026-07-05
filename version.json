@@ -1,5 +1,5 @@
 {
-  "version": "2.97.1",
+  "version": "2.98.0",
   "saveVersion": "v2",
-  "notes": "Fix: the Escort tab's own-warship rally list now correctly shows idle local hulls instead of ships following you (which always refused when clicked)."
+  "notes": "New: convoy Escort combat gets Vanguard/Line/Reserve formation — decide which hulls tank, which attack, and which (like your freighters) stay safely protected."
 }

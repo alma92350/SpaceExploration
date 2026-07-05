@@ -523,6 +523,12 @@ function renderEscort() {
   // who is being targeted this round (telegraphed intent)
   const threatenedBy = {};
   if (escortInCombat()) e.wave.foes.forEach(f => { if (f.hp > 0 && f.intent != null && f.intent >= 0) (threatenedBy[f.intent] = threatenedBy[f.intent] || []).push(escortFoeRole(f).ico); });
+  // formation: which tier is currently exposed, so it can be planned before an ambush ever
+  // telegraphs a concrete per-ship target (the ⤳ incoming mark below, once a wave is live)
+  const frontTierName = FORMATION_TIERS.find(t => escortFleet().filter(escShipAlive).some(s => shipFormation(s) === t));
+  const formationHint = frontTierName
+    ? `<div class="hint" style="margin-bottom:4px">${FORMATION_SLOTS[frontTierName].ico} <b>${FORMATION_SLOTS[frontTierName].name}</b> is exposed — ${FORMATION_TIERS.filter(t => t !== frontTierName).map(t => FORMATION_SLOTS[t].name).join(" and ")} are safer.</div>`
+    : "";
   // fleet roster
   const roster = e.fleet.map((sh, fi) => {
     const alive = escShipAlive(sh), h = escShipHull(sh), hm = escShipHullMax(sh);
@@ -533,9 +539,14 @@ function renderEscort() {
     const mark = alive && inc ? ` <span title="incoming fire from ${inc.length}" style="color:var(--bad)">⤳${inc.join("")}</span>` : "";
     const _prof = stanceProfile(sh), _st = VESSEL_STANCES[sh.stance || "balanced"], _lv = shipFit(sh)[sh.stance || "balanced"] || 0;
     const obadge = alive ? ` <span class="hint">${_st.ico}${_lv ? " Lv" + _lv : ""}${_prof.atk ? " 🔥+" + Math.round(_prof.atk * 100) + "%" : ""}${_prof.mit ? " 🛡️" + Math.round(_prof.mit * 100) + "%" : ""}</span>` : "";
+    const fTier = FORMATION_SLOTS[shipFormation(sh)];
+    const formationBadge = ` <span class="hint" title="${fTier.hint}">${fTier.ico} ${fTier.name}</span>`;
+    const formationBtns = alive ? FORMATION_TIERS.filter(t => t !== shipFormation(sh)).map(t =>
+      `<button class="btn btn-sm" title="Move to ${FORMATION_SLOTS[t].name}" onclick="setEscortFormation(${fi},'${t}')">${FORMATION_SLOTS[t].ico}</button>`).join("") : "";
     return `<div class="ship-stat" style="align-items:center;${alive ? "" : "opacity:.45"}">
-      <span class="k">${sh.ico} ${sh.name} <span class="hint">${tag}</span>${mark}${obadge}</span>
-      <span class="v" style="min-width:120px">${alive ? hullBar(h, hm) + `<span class="hint">${h}/${hm} · 🔥${fp}</span>` : '<span style="color:var(--bad)">— lost —</span>'}</span></div>`;
+      <span class="k">${sh.ico} ${sh.name} <span class="hint">${tag}</span>${formationBadge}${mark}${obadge}</span>
+      <span class="v" style="min-width:120px">${alive ? hullBar(h, hm) + `<span class="hint">${h}/${hm} · 🔥${fp}</span>` : '<span style="color:var(--bad)">— lost —</span>'}</span></div>
+      ${formationBtns ? `<div class="ship-stat" style="margin-top:-4px;margin-bottom:4px"><span class="hint">Formation:</span><span class="v">${formationBtns}</span></div>` : ""}`;
   }).join("");
   const postBtns = Object.entries(ESCORT_POSTURES).map(([k, p]) =>
     `<button class="btn btn-sm ${e.posture === k ? "btn-primary" : ""}" title="${p.hint}" onclick="setEscortPosture('${k}')">${p.label}</button>`).join(" ");
@@ -652,7 +663,7 @@ function renderEscort() {
   el.innerHTML = `<div class="panel-head"><h2>${m.pirate ? "🏴‍☠️ Smuggling run" : "🛡️ Escort — convoy"} to ${dn ? dn.name : "?"}</h2>
     <div class="subtitle">${m.pirate ? `Running ${m.contraband.ico} ${m.contraband.name} for the ${m.pirateName} · ` : ""}Leg ${m.legs - m.legsLeft}/${m.legs} · threat ${liveThreat}%${cyclesLeft != null ? ` · <span style="color:${cyclesLeft <= 1 ? "var(--bad)" : cyclesLeft <= 3 ? "var(--warn)" : "inherit"}">⏳ ${cyclesLeft} cycle${cyclesLeft === 1 ? "" : "s"} left</span>` : ""} · freighters ${aliveFr}/${totalFr} intact · reward ${fmt(m.reward)} cr${m.losses === 0 ? ` <span class="hint">(+${fmt(m.bonus)} flawless)</span>` : ""}</div></div>
     ${combat}
-    <div class="card"><h4>🚢 Fleet — pooled firepower 🔥 ${fmt(F)}</h4>${roster}</div>
+    <div class="card"><h4>🚢 Fleet — pooled firepower 🔥 ${fmt(F)}</h4>${formationHint}${roster}</div>
     ${outfit}
     ${recruit}
     <div class="row" style="margin-top:8px">${escortInCombat() ? '<span class="hint">Drive off the attackers to continue.</span>' : `<button class="btn btn-sm btn-bad" onclick="abortEscort()">🚪 Abandon escort (−20% fee)</button>`}</div>`;

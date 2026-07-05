@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.97.1";
+const APP_VERSION = "2.98.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.98.0", notes: "New: convoy combat gets the Raid tab's Vanguard/Line/Reserve formation — assign each of your Escort ships (flagship, escorts, even freighters) to a tier: Vanguard tanks the brunt of incoming fire, Line does the most damage, Reserve sits it out safely. Freighters default to Reserve. The old 🛡️ Screen posture's freighter body-block is replaced by this direct control." },
   { version: "2.97.1", notes: "Fix: the ✦ Fleet tab's Escort roster showed a warship following you as callable (it always refused when clicked) while hiding an idle warship actually docked here. Assigning your own hulls to a convoy now correctly lists idle local warships instead." },
   { version: "2.97.0", notes: "New: raiding a coalition's shipping now quietly earns rep with whichever faction considers them a rival — striking a real blow against someone's enemy is a risk their own agents notice and reward, letter of marque or not. Stacks with an active matching commission's own patron reward." },
   { version: "2.96.0", notes: "Changed: raid-support ships now 🛰️ Follow Me instead of patrolling a fixed world — assign an idle warship once (✦ Fleet tab) and it's on call for a raid summon or Battle Group wherever you travel, no more manual reassignment every time you change worlds." },
@@ -745,7 +746,7 @@ Object.assign(window, {
   orderShip, scrapShip, repairFleetShip, reassignShipyard, upgradeLoadout, assignFleetMission, recallFleetMission, setFleetMissionField, raidSummonFleet, escortRallyFleet,
   assignLogistics, recallLogistics, setFleetLogiField, assignPatrol, recallPatrol,
   deployBattleGroup, recallBattleGroup, setBattleGroupPosture, setBattleGroupFormation,
-  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand,
+  acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand, setEscortFormation,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,
   fence, fenceAll, fenceQty, fenceAllPlunder,

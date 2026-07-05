@@ -40,12 +40,30 @@ Pooled firepower `escortFirepower()` = Σ each living ship's FP × posture offen
   its bounty + credits (to your purse) and cargo (into the hold) — the rest is
   slag. On top of the contract fee, but deliberately tempered so escorting isn't
   a money fountain.
-- **Postures**: 🛡️ Screen (escorts body-block freighters via intent redirection,
-  −offense), ⚖️ Balanced, ⚔️ Press (+offense, +incoming).
+- **Postures**: 🛡️ Screen (−offense, noticeably less damage taken overall),
+  ⚖️ Balanced, ⚔️ Press (+offense, +incoming).
+- **Formation** (`FORMATION_SLOTS`/`FORMATION_TIERS`/`shipFormation`, reused
+  as-is from the Raid tab's Battle Group, fleet.js): every convoy ship —
+  flagship, escorts, freighters — sits in 🛡️ Vanguard, ⚔️ Line or 🌌 Reserve
+  (`setEscortFormation(fi, slot)`, fleet-index based like `setVesselStance`).
+  `escortFrontTier()` (mirrors `battleGroupFrontTier`) is whichever tier,
+  checked front-to-back, currently has living ships — 85% of each round's
+  targeting draws only from that tier, 15% is stray fire reaching the whole
+  fleet, so Reserve is very safe but never perfectly so. Tier also weights
+  `escShipFP`: Line hits hardest (`fpMult` 1.20), Vanguard tanks but hits
+  softer (0.85), Reserve hits softest (0.70). `buildEscortFleet` defaults
+  freighters to Reserve and the flagship/escorts to Line; Vanguard starts
+  empty, so nothing is forced into the riskiest slot without the player's
+  own choice.
 - **Enemy archetypes & telegraphed intent**: 🏴‍☠️ Raider→freighters,
   ⚡ Interceptor→highest-FP escort, 💢 Gunship→flagship; a ☠️ Marauder Lead
-  anchors high-threat waves. Each foe announces its next target so the player can
-  prioritise. Enemies fire on that declared intent; intents recompute each round.
+  anchors high-threat waves. This role preference is now a *secondary* filter
+  applied within whichever pool Formation exposes that round (`chooseIntent`)
+  — a raider can't reach a freighter tucked into Reserve behind a holding
+  Vanguard except on the rare stray-fire roll. Each foe still announces its
+  resolved target so the player can prioritise; intents recompute each round
+  (moving a ship mid-round doesn't retroactively dodge an already-telegraphed
+  hit — only the *next* round's `assignIntents()` sees the new formation).
 - **Boss abilities** (elite, ~50%/round): 💥 Alpha Strike (doubled hit),
   📣 Rally (whole wave +40% this round), 📡 Jammer (next salvo → 70%).
 - **Field repair** patches only the flagship and costs that round's salvo.
@@ -115,8 +133,8 @@ A simple AI (focus weakest, repair flagship when low) across tiers gives
 ~**81–87% win**, ~**5 rounds/run**, ~**6–7k cr** per successful multi-leg run,
 with ~20–30% failure. Enemy waves scale with `veterancy()` and contract threat,
 so it stays challenging and is not a money fountain. A thinking player does
-better by reading intent, screening freighters, and killing the foe about to
-hit cargo first.
+better by reading intent, keeping freighters in Reserve, and killing the foe
+about to hit cargo first.
 
 ## Tests
 - `escort.js` — MVP: gate, fleet build, firepower pooling, equal split, enemy
@@ -126,3 +144,7 @@ hit cargo first.
   low-fuel block, reputation + promotion, elite abilities, jammer debuff.
 - `escort4.js` — between-leg yard repair (cost, full heal, out-of-combat guard),
   sound-cue names, galaxy destination marker.
+- `escortformation.test.js` — default formation (freighters Reserve,
+  flagship/escorts Line), `setEscortFormation` validation, `escortFrontTier`
+  fallthrough as tiers empty, tier-gated-then-role-preference targeting,
+  `escShipFP`'s tier scaling, and the roster's formation badges/move buttons.

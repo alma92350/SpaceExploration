@@ -17,7 +17,10 @@
    saveGame, renderAll and renderEscort still live in other
    files/game.js at this point in the split — safe, since every
    function here is only CALLED later, once every script has finished
-   loading, same pattern as every prior slice.
+   loading, same pattern as every prior slice. Convoy formation
+   (Vanguard/Line/Reserve) reuses fleet.js's FORMATION_SLOTS/
+   FORMATION_TIERS/shipFormation as-is, not a copy — fleet.js loads
+   even earlier than mandates.js, so these are already defined.
    ============================================================ */
 
 "use strict";
@@ -29,7 +32,7 @@ const ESCORT_ESCORT_HULL = 55;      // base hull per escort (× ship class)
 const ESCORT_FREIGHTER_HULL = 42;
 const ESCORT_FOE_DMG = 9;           // base per-round damage a foe deals a fleet ship
 const ESCORT_POSTURES = {
-  screen:   { off: 0.85, def: 0.70, label: "🛡️ Screen",  hint: "escorts body-block the freighters — less firepower, far less cargo lost" },
+  screen:   { off: 0.85, def: 0.70, label: "🛡️ Screen",  hint: "cautious footing — less firepower, but the convoy takes noticeably less damage" },
   balanced: { off: 1.00, def: 1.00, label: "⚖️ Balanced", hint: "even footing" },
   press:    { off: 1.18, def: 1.30, label: "⚔️ Press",    hint: "pour on fire — but the convoy takes more hits" },
 };
@@ -43,28 +46,42 @@ const ESCORT_FOE_ROLES = {
 };
 function escortFoeRole(f) { return ESCORT_FOE_ROLES[f && f.role] || ESCORT_FOE_ROLES.raider; }
 function escortTargetValue(sh) { return sh.role === "freighter" ? 5 : sh.role === "escort" ? 3 : 2; }   // what an attacker covets
-function chooseIntent(f, screen) {
+// the frontmost non-empty formation tier among LIVING convoy ships — mirrors battleGroupFrontTier
+// (fleet.js) exactly, reusing the same FORMATION_TIERS/shipFormation the Raid tab's Battle Group
+// already uses, so Vanguard/Line/Reserve read identically in both places.
+function escortFrontTier() {
+  const alive = escortFleet().filter(escShipAlive);
+  for (const t of FORMATION_TIERS) { const grp = alive.filter(s => shipFormation(s) === t); if (grp.length) return grp; }
+  return [];
+}
+function setEscortFormation(fi, slot) {
+  const e = ensureEscort(); const sh = e.fleet[fi]; if (!sh || !FORMATION_SLOTS[slot]) return;
+  sh.formation = slot; saveGame(); renderAll();
+}
+// Formation gates WHO can be hit at all (85% of the time the frontmost non-empty tier, same
+// split battleGroupTakeFire uses; 15% stray fire reaches the whole fleet) — then the existing
+// per-foe role preference (raider wants a freighter, interceptor wants your biggest gun, elite
+// wants the highest-"value" hull) picks a specific ship WITHIN whatever pool tiering exposed
+// this round. A Reserve freighter behind a holding Vanguard is rarely reachable at all; explicit
+// placement replaces the old Screen-posture body-block (an 80%-chance freighter redirect).
+function chooseIntent(f) {
   const fleet = escortFleet();
   const alive = fleet.map((s, i) => ({ s, i })).filter(o => escShipAlive(o.s));
   if (!alive.length) return -1;
+  const front = escortFrontTier();
+  const exposed = (front.length && Math.random() < 0.85) ? alive.filter(o => front.includes(o.s)) : alive;
   const want = escortFoeRole(f).pref;
   let cands;
-  if (want === "value") cands = alive.slice().sort((a, b) => escortTargetValue(b.s) - escortTargetValue(a.s)).slice(0, Math.max(1, Math.ceil(alive.length / 2)));
-  else { cands = alive.filter(o => o.s.role === want); if (!cands.length) cands = alive; }
-  let chosen = want === "escort"
+  if (want === "value") cands = exposed.slice().sort((a, b) => escortTargetValue(b.s) - escortTargetValue(a.s)).slice(0, Math.max(1, Math.ceil(exposed.length / 2)));
+  else { cands = exposed.filter(o => o.s.role === want); if (!cands.length) cands = exposed; }
+  const chosen = want === "escort"
     ? cands.slice().sort((a, b) => escShipFP(b.s) - escShipFP(a.s))[0]   // interceptors hit your biggest guns
     : cands[Math.floor(Math.random() * cands.length)];
-  // body-block: under a Screen posture, fire bound for a freighter is intercepted by an escort
-  if (screen && chosen.s.role === "freighter") {
-    const escorts = alive.filter(o => o.s.role === "escort");
-    if (escorts.length && Math.random() < 0.8) chosen = escorts[Math.floor(Math.random() * escorts.length)];
-  }
   return chosen.i;
 }
 function assignIntents() {
   const e = ensureEscort(), w = e.wave; if (!w) return;
-  const screen = e.posture === "screen";
-  w.foes.forEach(f => { if (f.hp > 0) f.intent = chooseIntent(f, screen); else f.intent = -1; });
+  w.foes.forEach(f => { if (f.hp > 0) f.intent = chooseIntent(f); else f.intent = -1; });
 }
 // Phase 3: an Escort Guild reputation track — completed runs raise your rank,
 // which pays better and lets you field a larger fleet.
@@ -166,7 +183,7 @@ function escFlagshipFP() {
 function escShipFP(sh) {
   if (!escShipAlive(sh)) return 0;
   const base = sh.role === "flagship" ? escFlagshipFP() : sh.str * (0.5 + 0.5 * (sh.hull / sh.hullMax));   // a battered ship shoots less
-  return base * (1 + stanceProfile(sh).atk);               // an aggressive/balanced stance adds firepower
+  return base * (1 + stanceProfile(sh).atk) * FORMATION_SLOTS[shipFormation(sh)].fpMult;   // Line hits hardest, Reserve softest — same tiering Battle Group uses
 }
 function escortFirepower() { return Math.round(escortFleet().reduce((s, sh) => s + escShipFP(sh), 0) * escortPosture().off); }
 function escortAliveFoes() { const w = S.escort && S.escort.wave; return w ? w.foes.filter(f => f.hp > 0) : []; }
@@ -241,16 +258,17 @@ function genPirateEscortContract(b) {
   return m;
 }
 function buildEscortFleet() {
-  const fleet = [{ role: "flagship", name: "Your Flagship", ico: "🚀" }];
+  const fleet = [{ role: "flagship", name: "Your Flagship", ico: "🚀", formation: "line" }];
   const nEscorts = escortRank().escorts;                  // your guild rank fields a bigger fleet
   for (let i = 0; i < nEscorts; i++) {
     const clsId = pick(["corvette", "frigate", "frigate", "cruiser"]); const cls = SHIP_CLASSES[clsId];
     fleet.push({ role: "escort", cls: clsId, name: `${cls.name} ${String.fromCharCode(65 + i)}`, ico: cls.ico,
-      hullMax: Math.round(ESCORT_ESCORT_HULL * cls.hull), str: Math.round(ESCORT_ESCORT_FP * cls.str), alive: true });
+      hullMax: Math.round(ESCORT_ESCORT_HULL * cls.hull), str: Math.round(ESCORT_ESCORT_FP * cls.str), alive: true, formation: "line" });
   }
+  // freighters default to Reserve — the payload, not the fight; the player can move one forward deliberately
   for (let i = 0; i < ESCORT_FLEET.freighters; i++) {
     fleet.push({ role: "freighter", name: `Freighter ${i + 1}`, ico: "📦",
-      hullMax: ESCORT_FREIGHTER_HULL, str: ESCORT_FREIGHTER_FP, alive: true });
+      hullMax: ESCORT_FREIGHTER_HULL, str: ESCORT_FREIGHTER_FP, alive: true, formation: "reserve" });
   }
   fleet.forEach(sh => { if (sh.role !== "flagship") sh.hull = sh.hullMax; sh.stance = "balanced"; sh.fit = { aggressive: 0, balanced: 0, defensive: 0 }; });
   return fleet;
@@ -410,7 +428,7 @@ function escortEnemyTurn() {
     if (!e.active) return;                                  // fleet already lost — stop
     const fleet = escortFleet();
     let sh = (f.intent != null && f.intent >= 0 && fleet[f.intent] && escShipAlive(fleet[f.intent])) ? fleet[f.intent] : null;
-    if (!sh) sh = fleet[chooseIntent(f, e.posture === "screen")];   // intended target gone — re-pick now
+    if (!sh) sh = fleet[chooseIntent(f)];   // intended target gone — re-pick now
     if (!sh) return;
     let dmg = Math.max(1, Math.round(f.dmg * (f.dmgMul || 1) * (0.7 + Math.random() * 0.6) * defMod * rally));
     if (f._alpha) { dmg = Math.round(dmg * 2); f._alpha = false; log(`💥 ${f.ico} ${f.name} unloads an alpha strike!`, "bad"); }
