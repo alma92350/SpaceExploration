@@ -225,7 +225,8 @@ function repBar(f) {
    simultaneously-toggleable booleans, lazily initialized like S.escort/
    S.territoryControl so old saves need no migration. */
 function ensureGalaxyFilters() {
-  if (!S.galaxyFilters) S.galaxyFilters = { fleet: true, pirates: true, factions: true, environment: true };
+  if (!S.galaxyFilters) S.galaxyFilters = { fleet: true, pirates: true, factions: true, environment: true, settlements: true };
+  if (S.galaxyFilters.settlements === undefined) S.galaxyFilters.settlements = true;   // backfill for saves from before this filter existed
   return S.galaxyFilters;
 }
 function toggleGalaxyFilter(key) {
@@ -244,9 +245,64 @@ function starmapDrift(pid, axis) {
   const freq = 0.006 + (seed % 97) / 90000;                    // a slightly different slow period per world
   return Math.sin(S.turn * freq + (seed % 1000));
 }
+// ---------- Pan & zoom ----------
+// A camera rect in the map's own 760×220 coordinate space (same session-only, UI-only state
+// shape as subViews, renderCombat.js — never part of the save file, resets on reload). null
+// means "default, fully zoomed out" so a player who never touches the controls sees exactly
+// the old, unchanging view.
+const STARMAP_W = 760, STARMAP_H = 220, STARMAP_PAD = 36;
+const STARMAP_MAX_SCALE = 6;   // deepest zoom-in: 1/6th of the full map's width/height
+let starmapView = null;
+function starmapViewRect() { return starmapView || { x: 0, y: 0, w: STARMAP_W, h: STARMAP_H }; }
+function starmapClampView(v) {
+  v.w = Math.max(STARMAP_W / STARMAP_MAX_SCALE, Math.min(STARMAP_W, v.w));
+  v.h = Math.max(STARMAP_H / STARMAP_MAX_SCALE, Math.min(STARMAP_H, v.h));
+  // overscroll room shrinks to exactly 0 as the view returns to the full canvas, so "zoomed all
+  // the way out" always lands back on precisely the original, unshifted view rather than a
+  // shifted variant; it's also capped to half the CURRENT viewport, so an edge world can be
+  // panned as far as dead center but the map can never be scrolled entirely out of view, at any
+  // zoom level.
+  const rangeX = STARMAP_W - v.w, overX = Math.min(rangeX * 0.5, v.w * 0.5);
+  const rangeY = STARMAP_H - v.h, overY = Math.min(rangeY * 0.5, v.h * 0.5);
+  v.x = Math.max(-overX, Math.min(rangeX + overX, v.x));
+  v.y = Math.max(-overY, Math.min(rangeY + overY, v.y));
+  return v;
+}
+// zoom around a fixed point (cx, cy), map-space — the point under it stays put as the rect scales,
+// same "zoom toward the cursor/center" feel any map viewer gives you
+function starmapZoom(factor, cx, cy) {
+  const v = Object.assign({}, starmapViewRect());
+  const nw = v.w * factor, nh = v.h * factor;
+  v.x = cx - (cx - v.x) * (nw / v.w);
+  v.y = cy - (cy - v.y) * (nh / v.h);
+  v.w = nw; v.h = nh;
+  starmapView = starmapClampView(v);
+  renderGalaxy();
+}
+function starmapZoomBtn(factor) {
+  const v = starmapViewRect();
+  starmapZoom(factor, v.x + v.w / 2, v.y + v.h / 2);   // zoom toward the current view's own center
+}
+// scroll-wheel zoom, toward wherever the cursor actually sits over the map — translate its pixel
+// position within the rendered <svg> into the map's own coordinate space first
+function starmapWheel(ev) {
+  ev.preventDefault();
+  const rect = ev.currentTarget.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const v = starmapViewRect();
+  const px = (ev.clientX - rect.left) / rect.width, py = (ev.clientY - rect.top) / rect.height;
+  starmapZoom(ev.deltaY < 0 ? 0.88 : 1.136, v.x + px * v.w, v.y + py * v.h);
+}
+function starmapPan(dx, dy) {
+  const v = Object.assign({}, starmapViewRect());
+  v.x += dx * v.w; v.y += dy * v.h;   // a step is a fraction of the current view — feels the same at any zoom level
+  starmapView = starmapClampView(v);
+  renderGalaxy();
+}
+function starmapResetView() { starmapView = null; renderGalaxy(); }
 function renderStarmap(known) {
   if (known.length < 2) return '';
-  const W = 760, H = 220, pad = 36;
+  const W = STARMAP_W, H = STARMAP_H, pad = STARMAP_PAD;
   const sorted = known.slice().sort((a, b) => a.x - b.x);
   const n = sorted.length;
   const pos = {};
@@ -303,7 +359,10 @@ function renderStarmap(known) {
       ((s.status === "mission" && s.mission && s.mission.planet === p.id) || (s.status === "logistics" && s.station === p.id) ||
        ((s.status === "idle" || s.status === "building") && s.home === p.id)));
     const hasPirates = filters.pirates && pirateIntelKnows(p.id) && pirateLevel(p.id) > 0;
-    const glyphs = `${hasPirates ? "🏴" : ""}${hasWarship ? "⚔️" : ""}${hasFreighter ? "📦" : ""}`;
+    const hasColony = filters.settlements && !!S.colonies[p.id];
+    const hasBase = filters.settlements && !!S.bases[p.id];
+    const hasShipyard = filters.settlements && shipyardTierAt(p.id) > 0;
+    const glyphs = `${hasPirates ? "🏴" : ""}${hasWarship ? "⚔️" : ""}${hasFreighter ? "📦" : ""}${hasColony ? "🌍" : ""}${hasBase ? "🏰" : ""}${hasShipyard ? "🏗️" : ""}`;
     const glyphRow = glyphs ? `<text x="${q.x}" y="${q.y - (here ? 14 : 10)}" text-anchor="middle" font-size="10">${glyphs}</text>` : '';
     const label = `<text x="${q.x}" y="${q.y + (here ? 20 : 16)}" text-anchor="middle" font-size="9" fill="#94a3b8">${p.name}</text>`;
     nodes += `<g${here ? "" : ` style="cursor:pointer" onclick="travel('${p.id}')"`}>
@@ -311,10 +370,23 @@ function renderStarmap(known) {
       ${glyphRow}${label}
     </g>`;
   });
+  const view = starmapViewRect();
+  const zoomed = !!starmapView;
+  const ctl = (title, onclick, label) => `<button class="btn btn-sm" title="${title}" onclick="${onclick}">${label}</button>`;
+  const controls = `<div class="row" style="margin:6px 0;flex-wrap:wrap;gap:4px;align-items:center">
+    ${ctl("Zoom in", "starmapZoomBtn(0.7)", "🔍+")}
+    ${ctl("Zoom out", "starmapZoomBtn(1.43)", "🔍−")}
+    ${ctl("Pan left", "starmapPan(-0.25,0)", "⬅️")}
+    ${ctl("Pan right", "starmapPan(0.25,0)", "➡️")}
+    ${ctl("Pan up", "starmapPan(0,-0.25)", "⬆️")}
+    ${ctl("Pan down", "starmapPan(0,0.25)", "⬇️")}
+    ${zoomed ? ctl("Reset the view", "starmapResetView()", "↺ Reset view") : ''}
+  </div>`;
   return `<div class="card" style="overflow:auto">
     <h4>🗺️ Starmap</h4>
-    <svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;min-height:160px" preserveAspectRatio="xMidYMid meet">${edges}${convoy}${nodes}</svg>
-    <div class="hint">Lines are the direct hyperlanes/routes on your ship's own charts — the bright ones touch wherever you're standing. Click a world to travel. The sector drifts a little every cycle — dark matter, probably.</div>
+    ${controls}
+    <svg viewBox="${view.x} ${view.y} ${view.w} ${view.h}" style="width:100%;height:auto;min-height:160px" preserveAspectRatio="xMidYMid meet" onwheel="starmapWheel(event)">${edges}${convoy}${nodes}</svg>
+    <div class="hint">Lines are the direct hyperlanes/routes on your ship's own charts — the bright ones touch wherever you're standing. Click a world to travel, or scroll/use the controls above to zoom &amp; pan. The sector drifts a little every cycle — dark matter, probably.</div>
   </div>`;
 }
 function renderGalaxy() {
@@ -339,8 +411,17 @@ function renderGalaxy() {
       ? (_plv > 0 ? `<span class="pill ${_plv >= 2 ? "bad" : ""}" title="Pirate activity level ${_plv} (from your charts or fleet presence)">🏴 pirates ${_plv}</span>` : `<span class="pill good" title="No pirate activity (from your charts or fleet presence)">🏴 clear</span>`)
       : '';
     const tag = p.colonizable
-      ? `<span class="pill good">${S.colonies[p.id] ? "your colony 🌍" : "colonizable"}</span>`
+      ? `<span class="pill good">${(filters.settlements && S.colonies[p.id]) ? "your colony 🌍" : "colonizable"}</span>`
       : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
+    // your own infrastructure — a colony can only ever sit on a colonizable world (tag above
+    // already covers that), but a base can be founded on ANY world, colonizable or established,
+    // and had no map indication at all before this; a shipyard (colony Shipyard or base Small
+    // Shipyard, whichever's present — shipyardTierAt already resolves that precedence) is a
+    // separate fact worth its own pill since a settled world doesn't necessarily have one yet.
+    const basePill = (filters.settlements && S.bases[p.id]) ? `<span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)" title="You operate a base here">🏰 your base</span>` : '';
+    const shipyardTierHere = shipyardTierAt(p.id);
+    const shipyardPill = (filters.settlements && shipyardTierHere > 0)
+      ? `<span class="pill" style="border-color:var(--gold);color:var(--gold)" title="Shipyard tier ${shipyardTierHere} (${shipyardVenueAt(p.id)}) — lay down hulls in the ✦ Fleet tab">🏗️ Shipyard T${shipyardTierHere}</span>` : '';
     const escortPill = (filters.fleet && S.escort && S.escort.active && S.escort.mission && S.escort.mission.to === p.id)
       ? `<span class="pill" title="Your active convoy is bound here (${S.escort.mission.legsLeft} leg(s) left)">🛡️ convoy bound</span>` : '';
     // Fleet presence, color-coded by duty — a warship on patrol (readiness) reads differently
@@ -382,7 +463,7 @@ function renderGalaxy() {
       <div class="planet-levels">
         <span class="lvl-chip">🏭 Ind ${effIndustry(p)}</span>
         <span class="lvl-chip">🔬 Tech ${effTech(p)}</span>
-        ${enf}${polPill}${crisisPill}${piratePill}${escortPill}${fleetMissionPill}${fleetLogiPill}${fleetPatrolPill}${fleetDockedPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}${territoryPill}${hyperlanePill}
+        ${enf}${polPill}${crisisPill}${piratePill}${basePill}${shipyardPill}${escortPill}${fleetMissionPill}${fleetLogiPill}${fleetPatrolPill}${fleetDockedPill}${mandatePill}${signalPill}${sectorPill}${pirateHavenPill}${territoryPill}${hyperlanePill}
       </div>
       <div class="hint" style="margin-bottom:8px">Extract: ${deps || "—"}</div>
       ${sigBtn ? `<div class="row" style="margin-bottom:8px">${sigBtn}</div>` : ""}
@@ -426,7 +507,7 @@ function renderGalaxy() {
     intelBadge = `<span class="pill ${hot ? "bad" : "good"}" title="Active pirate chart — ${left} cycle(s) left. Activity updates live on the map.">🏴 ${hot ? hot + " pirate hotspot" + (hot > 1 ? "s" : "") : "lanes charted"} · ${left}cyc</span>`;
   }
   const filterBtn = (key, label) => `<button class="btn btn-sm ${filters[key] ? "btn-primary" : ""}" onclick="toggleGalaxyFilter('${key}')">${label}</button>`;
-  const filterRow = `<div class="row" style="margin:8px 0;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Show:</span> ${filterBtn("fleet", "✦ Fleet")} ${filterBtn("pirates", "🏴 Pirates")} ${filterBtn("factions", "🏛️ Factions")} ${filterBtn("environment", "🌐 Environment")}</div>`;
+  const filterRow = `<div class="row" style="margin:8px 0;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Show:</span> ${filterBtn("fleet", "✦ Fleet")} ${filterBtn("pirates", "🏴 Pirates")} ${filterBtn("factions", "🏛️ Factions")} ${filterBtn("settlements", "🏰 Settlements")} ${filterBtn("environment", "🌐 Environment")}</div>`;
   el.innerHTML = `<h2>Galactic Map ${crisisBadge}${climateBadge}${intelBadge}</h2>
     <div class="subtitle">A random ${activeCoreTotal()} of 15 core worlds feature this game, so every run charts a different sector. Each world has its own resources, industry, laws and faction; extraction is bound to where the resource exists — and every deposit is finite: strip a world and yields fall, prices climb, and the region feels it. This sector's own Sector Code also jitters every core world's deposits, industry, tech and law level a little, so exact yields vary game to game even though names and history never do. Industry breeds <b>pollution</b>; the sector's aggregate drives <b>climate stress</b> that withers farms everywhere. Frontier worlds marked <span class="pill good">colonizable</span> are fresh: full reserves, clean skies. Beyond the charted 20 lies a further, procedurally-generated <b>frontier ring</b> — different every game — waiting to be found with a 🛰️ Survey Expedition below. Travelling costs fuel and advances a cycle. A world under your fleet's watch (patrolling, stationed, or simply docked) shares its pirate activity for free, chart or no chart. <span class="hint">Sector code: <b>${seedCodeFor(S.frontierSeed)}</b> — share it, or start a new game from one, with the 🔑 Seed button.</span></div>
     ${filterRow}

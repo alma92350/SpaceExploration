@@ -393,11 +393,75 @@ writing a line.
 
 Tests: `starmap.test.js` (10 checks).
 
+## Slice 9 (shipped) — your own infrastructure, on the map
+Slice 7 gave faction ownership a real visual language, but the player's
+*own* infrastructure had none: a colony only ever showed up as a plain
+"your colony 🌍" swap inside the colonizable-world tag (always visible, no
+filter), a base had **no map indication anywhere** — confirmed by grep,
+`renderGalaxy`/`renderStarmap` never once read `S.bases` before this — and
+a Shipyard (colony building or base Small Shipyard module) had no
+footprint either, despite `shipyardTierAt(pid)`/`shipyardVenueAt(pid)`
+(fleet.js) already resolving exactly that fact for any world, colony-vs-
+base precedence included.
+- **New `settlements` filter** (`ensureGalaxyFilters`) — a 5th boolean,
+  backfilled for saves from before it existed (`S.galaxyFilters.settlements
+  === undefined` check) so no `SAVE_VERSION` bump was needed.
+- **Card grid** (`renderGalaxy`): the existing "your colony 🌍" vs
+  "colonizable" tag distinction is now itself gated by the new filter
+  (previously unconditional) — turning it off genuinely hides the
+  ownership fact, matching how the faction-color gating already works,
+  rather than just hiding a redundant duplicate pill. Two new pills: 🏰
+  "your base" (`S.bases[pid]`, any world — a base isn't restricted to
+  colonizable worlds the way a colony is) and 🏗️ "Shipyard T*n*"
+  (`shipyardTierAt(pid) > 0`, whichever venue is actually present).
+- **Starmap**: matching 🌍/🏰/🏗️ glyphs, same row as Slice 8's fleet/pirate
+  glyphs, same `settlements` gate.
+
+Tests: `starmap.test.js` (+1 check), `galaxymap.test.js` (+1 check, plus
+the two pre-existing `ensureGalaxyFilters`/`toggleGalaxyFilter` checks
+updated for the 5th key).
+
+## Slice 10 (shipped) — pan & zoom
+The starmap's `viewBox` had always been the fixed, full 760×220 canvas —
+confirmed via read-through of `renderStarmap` before this slice, there was
+no camera concept anywhere in the render path. A crowded cluster (several
+worlds, a convoy route, drifted-together glyphs) had no way to be picked
+apart except squinting; the only interaction the map offered at all was
+clicking a node to travel.
+- **Session-only camera state** (`starmapView`, renderCore.js): a plain
+  top-level `let`, not part of `S`, following the exact shape of
+  `subViews` (renderCombat.js) — never saved, resets to the default full
+  view on reload, needs no `SAVE_VERSION` bump. `null` means "default,
+  fully zoomed out," so a player who never touches the controls sees
+  precisely the old, unchanging view.
+- **Controls**: 🔍+/🔍− buttons zoom toward the current view's own center;
+  ⬅️➡️⬆️⬇️ pan by a quarter of the current view's own width/height (so
+  panning feels proportionally the same at any zoom level); the mouse
+  wheel over the map (`starmapWheel`) zooms toward the cursor's mapped
+  position instead of the view center, matching the zoom-toward-a-point
+  behavior players expect from a scroll wheel. A ↺ Reset view button
+  appears only once the view has actually been touched.
+- **Clamping** (`starmapClampView`): zoom is capped at 1/6th of the full
+  map per axis (`STARMAP_MAX_SCALE`) so a node's glyphs/labels never blow
+  up past legibility, and pan overscroll is capped to half of the
+  *current* viewport's own size — an edge world can be panned to dead
+  center at any zoom level, but the map can never be scrolled entirely out
+  of view. Overscroll room shrinks to exactly zero as the view returns to
+  the full canvas, so "zoomed all the way out" always lands back on the
+  precise original, unshifted view rather than a shifted variant.
+- Purely a viewing aid — no change to what the map draws, only how much of
+  it is visible at once; nodes, glyphs, drift, and the convoy route are
+  all unaffected.
+
+Tests: `starmap.test.js` (+9 checks).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-None — all eight brainstormed slices are shipped. Bigger, replayable maps
+None — all ten brainstormed slices are shipped. Bigger, replayable maps
 (frontier ring, core variance), real geography (lane graph, starmap),
 deeper exploration (probe/richer signals), a shareable Sector Code, a
 legible strategic layer (fleet presence, fleet-sourced intel, faction
-control, display filters), and a starmap that reads as a living view
-(names, fleet/pirate glyphs, slow drift, convoy routes) are all in.
-Anything past this would be new brainstorming, not backlog.
+control, display filters), a starmap that reads as a living view (names,
+fleet/pirate glyphs, slow drift, convoy routes), the player's own
+infrastructure made visible and filterable, and an interactive pan/zoom
+camera are all in. Anything past this would be new brainstorming, not
+backlog.

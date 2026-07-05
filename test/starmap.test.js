@@ -73,6 +73,23 @@ test("warship and freighter glyphs render independently and are gated by the fle
   assert.ok(!html.includes("⚔️") && !html.includes("📦"), "turning off the fleet filter should hide both glyphs");
 });
 
+test("colony, base and shipyard glyphs render independently and are gated by the settlements filter", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  const cid = run(`(PLANETS.find(p => p.colonizable && galaxyKnown(p)) || {}).id`);
+  const bid = run(`(PLANETS.find(p => !p.colonizable && galaxyKnown(p)) || {}).id`);
+  if (!cid || !bid) return;   // this game's random draw didn't surface both world types — nothing to assert
+  run(`S.colonies["${cid}"] = { pop: 5, happiness: 70, tax: 10, buildings: { shipyard: 3 }, storage: {}, orders: {}, unrest: 0, faction: null, idle: {} };
+       S.bases["${bid}"] = { modules: { shipyard_small: 2 }, storage: {}, trade: { on: false, exp: {}, imp: {}, cols: {} } };`);
+  let html = renderMap(run);
+  assert.ok(html.includes("🌍"), "the colony glyph should render on the colonized world");
+  assert.ok(html.includes("🏰"), "the base glyph should render on the based world");
+  assert.ok(html.includes("🏗️"), "a shipyard glyph should render for both the colony Shipyard and the base Small Shipyard");
+  run(`toggleGalaxyFilter("settlements");`);
+  html = renderMap(run);
+  assert.ok(!html.includes("🌍") && !html.includes("🏰") && !html.includes("🏗️"), "turning off the settlements filter should hide all three glyphs");
+});
+
 test("no convoy route renders with no active escort mission", () => {
   const { run } = createSandbox();
   run(`S = freshState(); rollPrices();`);
@@ -117,4 +134,104 @@ test("hyperlane edges still only ever connect two mutually-known worlds (unchang
   const knownIds = new Set(JSON.parse(run(`JSON.stringify(PLANETS.filter(galaxyKnown).map(p => p.id))`)));
   const hidden = run(`(PLANETS.find(p => !galaxyKnown(p)) || {}).name`);
   if (hidden) assert.ok(!html.includes(`>${hidden}<`), "an unknown world's name should never leak onto the map");
+});
+
+/* Pan & zoom: a session-only camera rect over the map's own 760×220 coordinate space (same
+   shape as subViews, renderCombat.js — UI-only, never part of the save file). Untouched, it's
+   exactly the old, unchanging full-map view; the controls let the player zoom in on a crowded
+   area or a specific world and pan around without that ever touching game state. */
+
+test("the default view is the full, unshifted canvas, and no Reset button shows until it's touched", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  assert.deepEqual(JSON.parse(run(`JSON.stringify(starmapViewRect())`)), { x: 0, y: 0, w: 760, h: 220 });
+  const html = renderMap(run);
+  assert.match(html, /viewBox="0 0 760 220"/);
+  assert.doesNotMatch(html, /Reset view/);
+});
+
+test("starmapZoomBtn zooms toward the view's own center and reveals the Reset button", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  run(`starmapZoomBtn(0.5);`);
+  const v = JSON.parse(run(`JSON.stringify(starmapViewRect())`));
+  assert.equal(v.w, 380); assert.equal(v.h, 110);
+  assert.equal(v.x, 190, "zooming toward the center (380,110) at half scale should center the new, smaller rect there too");
+  assert.equal(v.y, 55);
+  const html = renderMap(run);
+  assert.match(html, /viewBox="190 55 380 110"/);
+  assert.match(html, /Reset view/);
+});
+
+test("starmapPan shifts the view proportionally to its own current size", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  run(`starmapZoomBtn(0.5);`);   // w=380,h=110
+  run(`starmapPan(0.25, -0.25);`);
+  const v = JSON.parse(run(`JSON.stringify(starmapViewRect())`));
+  assert.equal(v.x, 190 + 0.25 * 380);
+  assert.equal(v.y, 55 - 0.25 * 110);
+});
+
+test("zooming in repeatedly is clamped at STARMAP_MAX_SCALE, never shrinking below it", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  for (let i = 0; i < 30; i++) run(`starmapZoomBtn(0.5);`);
+  const v = JSON.parse(run(`JSON.stringify(starmapViewRect())`));
+  assert.ok(v.w >= 760 / 6 - 0.01, `width (${v.w}) should never clamp below 760/STARMAP_MAX_SCALE`);
+  assert.ok(v.h >= 220 / 6 - 0.01, `height (${v.h}) should never clamp below 220/STARMAP_MAX_SCALE`);
+});
+
+test("zooming out repeatedly always lands back on exactly the original, unshifted view", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  run(`starmapZoomBtn(0.4); starmapPan(0.4, 0.4);`);   // zoom in and drift off-center first
+  for (let i = 0; i < 10; i++) run(`starmapZoomBtn(2);`);   // zoom back out well past 1x
+  const v = JSON.parse(run(`JSON.stringify(starmapViewRect())`));
+  assert.deepEqual(v, { x: 0, y: 0, w: 760, h: 220 }, "fully zoomed back out should never land on a shifted variant of the full view");
+});
+
+test("panning can never scroll the map more than half a screen out of view, at any zoom level", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  run(`starmapZoomBtn(0.3);`);   // zoom in first
+  for (let i = 0; i < 30; i++) run(`starmapPan(1, 1);`);   // try to pan far off the edge
+  const v = JSON.parse(run(`JSON.stringify(starmapViewRect())`));
+  assert.ok(v.x <= 760 - v.w / 2, "at least half the viewport should still overlap real map content on x");
+  assert.ok(v.y <= 220 - v.h / 2, "at least half the viewport should still overlap real map content on y");
+});
+
+test("starmapResetView clears back to the default, untouched view", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  run(`starmapZoomBtn(0.5); starmapPan(0.3, 0.1);`);
+  run(`starmapResetView();`);
+  assert.equal(run(`starmapView`), null);
+  assert.deepEqual(JSON.parse(run(`JSON.stringify(starmapViewRect())`)), { x: 0, y: 0, w: 760, h: 220 });
+});
+
+test("starmapWheel zooms toward the cursor's mapped position, in or out by the wheel direction", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  const mockEvent = (deltaY) => `{ preventDefault: () => {}, deltaY: ${deltaY},
+    currentTarget: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 760, height: 220 }) },
+    clientX: 190, clientY: 55 }`;
+  run(`starmapWheel(${mockEvent(-100)});`);   // scroll up/toward = zoom in
+  let v = JSON.parse(run(`JSON.stringify(starmapViewRect())`));
+  assert.ok(v.w < 760, "scrolling up should zoom in (shrink the view)");
+  const wAfterIn = v.w;
+  run(`starmapWheel(${mockEvent(100)});`);   // scroll down/away = zoom out
+  v = JSON.parse(run(`JSON.stringify(starmapViewRect())`));
+  assert.ok(v.w > wAfterIn, "scrolling down should zoom back out (grow the view)");
+});
+
+test("renderStarmap's controls are wired to the pan/zoom functions and reflect the live viewBox", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  const html = renderMap(run);
+  assert.match(html, /onclick="starmapZoomBtn\(0\.7\)"/);
+  assert.match(html, /onclick="starmapZoomBtn\(1\.43\)"/);
+  assert.match(html, /onclick="starmapPan\(-0\.25,0\)"/);
+  assert.match(html, /onclick="starmapPan\(0\.25,0\)"/);
+  assert.match(html, /onwheel="starmapWheel\(event\)"/);
 });

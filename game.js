@@ -278,12 +278,14 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.99.0";
+const APP_VERSION = "2.100.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.100.0", notes: "New: the 🗺️ Starmap is now interactive — zoom in/out and pan with on-screen controls or the mouse wheel to pick apart a crowded cluster instead of squinting at the full sector at once. Purely a viewing aid: nothing about the map's contents changes, and ↺ Reset view snaps straight back to the familiar full view." },
+  { version: "2.99.1", notes: "New: your own 🌍 colonies, 🏰 bases, and 🏗️ Shipyards now get their own pills and Starmap glyphs, plus a new Settlements filter to show or hide them — a base in particular had no map indication at all before this." },
   { version: "2.99.0", notes: "New: the 🗺️ Starmap comes alive — every world is labeled by name, carries 🏴/⚔️/📦 glyphs for pirate activity and your own warships/freighters, and the whole layout drifts slowly over the cycles (dark matter, probably — no orbital mechanics here). An active convoy run draws its own dashed route with a progress marker, which flashes into an alarm the moment an ambush lands." },
   { version: "2.98.0", notes: "New: convoy combat gets the Raid tab's Vanguard/Line/Reserve formation — assign each of your Escort ships (flagship, escorts, even freighters) to a tier: Vanguard tanks the brunt of incoming fire, Line does the most damage, Reserve sits it out safely. Freighters default to Reserve. The old 🛡️ Screen posture's freighter body-block is replaced by this direct control." },
   { version: "2.97.1", notes: "Fix: the ✦ Fleet tab's Escort roster showed a warship following you as callable (it always refused when clicked) while hiding an idle warship actually docked here. Assigning your own hulls to a convoy now correctly lists idle local warships instead." },
@@ -733,6 +735,7 @@ Object.assign(window, {
   research, researchTech, doPolitics, doMission, buyUpgrade, setShipTrim, setDecree,
   buildBase, buildModule, depositQty, withdrawQty, storeAllCargo, fulfilContract,
   colonize, buildColonyBuilding, setTax, colonyDeposit, colonyWithdraw, setOrder, launchExpedition, newGame, toggleGalaxyFilter,
+  starmapZoomBtn, starmapWheel, starmapPan, starmapResetView,
   startProductionSurge, giveMoralePerk,
   launchSpireProject, contributeToSpire, contributeSpireTech, spireLegacy,
   foundOrg, upgradeOrg, runOrgAbility,

@@ -1,5 +1,5 @@
 {
-  "version": "2.99.0",
+  "version": "2.100.0",
   "saveVersion": "v2",
-  "notes": "New: the Starmap comes alive — world name labels, fleet/pirate glyphs, a slow cycle-over-cycle drift, and a convoy route that flashes an alarm when ambushed."
+  "notes": "New: the Starmap is now interactive — zoom and pan with on-screen controls or the mouse wheel."
 }
