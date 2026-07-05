@@ -354,10 +354,50 @@ a test requests it (monkey-patching `getElementById` inside the sandbox for
 just that test) makes the real rendered output readable, matching how an
 actual browser DOM already behaves.
 
+## Slice 8 (shipped) — the starmap comes alive
+Slice 5's starmap drew a bare circle per known world — name only in a hover
+tooltip, no fleet/pirate/convoy overlay at all (that detail only ever lived
+in Slice 7's card-grid pills), and a position recomputed identically every
+render with no notion of time. Confirmed via full read-through before
+writing a line.
+- **Visible name labels**: a small `<text>` under each node — previously
+  only a `<title>` hover tooltip.
+- **Fleet/pirate glyphs**: 🏴 pirates, ⚔️ warships, 📦 freighters, drawn
+  per-node from the *exact same predicates* Slice 7's card-grid pills
+  already use (`pirateIntelKnows`/`pirateLevel`, the `fleetPresentAt`-style
+  per-status union split by `FLEET_SHIPS[key].role`) — the map and the
+  cards below it can never disagree about what's present where. Gated by
+  the same `S.galaxyFilters` booleans the pills already read
+  (`pirates`/`fleet`). The player's own node (bigger radius, white ring)
+  and faction-colored ownership rings were already this slice's job —
+  unchanged.
+- **Slow drift, no orbital mechanics** (`starmapSeed`/`starmapDrift`,
+  renderCore.js): a small per-world positional wobble, purely a function of
+  `S.turn` (already persisted, already ticks every cycle) and a stable hash
+  of the world's own id — deterministic and reproducible, so it needed
+  *zero* new saved state and no `SAVE_VERSION` bump. Each world gets a
+  slightly different, very low frequency so the sector reads as slowly,
+  organically drifting rather than uniform lockstep or jitter. Hyperlane
+  edges are already recomputed from node positions fresh every render, so
+  they flex to follow drifting endpoints automatically. Flavor text: "the
+  sector drifts a little every cycle — dark matter, probably."
+- **Convoy route + ambush alert**: the Escort tab's `S.escort.mission`
+  (`{from, to, legs, legsLeft}`) is the only feature with a concrete
+  "journey between two worlds, with progress and possible mid-route
+  combat" shape — confirmed `genEscortContract` (escort.js) doesn't require
+  `from`/`to` to share a direct hyperlane, so the route is its own dashed
+  line, not reused from the hyperlane graph. A marker sits at the
+  `(legs - legsLeft) / legs` progress point: 🚚 normally, 💥 (larger, and
+  the route turns alert-red) once `escortInCombat()` is true. Gated by the
+  `fleet` filter, same bucket as the other fleet-owned overlays.
+
+Tests: `starmap.test.js` (10 checks).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-None — all seven brainstormed slices are shipped. Bigger, replayable maps
+None — all eight brainstormed slices are shipped. Bigger, replayable maps
 (frontier ring, core variance), real geography (lane graph, starmap),
-deeper exploration (probe/richer signals), a shareable Sector Code, and a
+deeper exploration (probe/richer signals), a shareable Sector Code, a
 legible strategic layer (fleet presence, fleet-sourced intel, faction
-control, display filters) are all in. Anything past this would be new
-brainstorming, not backlog.
+control, display filters), and a starmap that reads as a living view
+(names, fleet/pirate glyphs, slow drift, convoy routes) are all in.
+Anything past this would be new brainstorming, not backlog.

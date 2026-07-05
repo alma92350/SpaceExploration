@@ -259,6 +259,14 @@ chart, since a ship sitting there has eyes of its own. A **Show:** filter row
 lets you declutter the map down to just the fleet, pirate, faction, or
 environmental layer you care about.
 
+The **starmap** itself reads as a living view, not a frozen snapshot: every
+node is labeled by name, carries 🏴/⚔️/📦 glyphs for pirate activity and your
+own warships/freighters, and the whole layout **drifts slowly, cycle over
+cycle** — no orbital mechanics, just dark matter, probably. An active convoy
+run draws its own dashed route between origin and destination (multi-leg
+progress shown as a 🚚 marker sliding along it), which flips to a bright,
+alarmed 💥 the moment an ambush actually lands.
+
 ## 🏛️ Politics, factions & trade law (the deep end)
 
 - **Five factions** — Core Authority, Mining Guild, Agri-Combine, Tech
