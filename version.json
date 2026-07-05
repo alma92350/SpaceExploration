@@ -1,5 +1,5 @@
 {
-  "version": "2.97.0",
+  "version": "2.97.1",
   "saveVersion": "v2",
-  "notes": "New: raiding a coalition's shipping now earns rep with whichever faction considers them a rival, letter of marque or not."
+  "notes": "Fix: the Escort tab's own-warship rally list now correctly shows idle local hulls instead of ships following you (which always refused when clicked)."
 }

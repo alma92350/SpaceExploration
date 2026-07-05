@@ -345,3 +345,28 @@ changed operating areas.
   from any world. No `SAVE_VERSION` bump — an existing save's
   `status:"patrol"` ships keep working; their stale `station` value is simply
   never read again. Tests: `raidvicinity.test.js` (rewritten), `galaxymap.test.js`.
+
+## Slice 10 (shipped) — fix: the Escort tab's rally list used the wrong pool
+The Escort tab's "your own warships" section (`renderSettlement.js`) listed
+`fleetRaidable()` as its callable-hulls pool — before Slice 9 that function
+meant "idle warships," so it happened to line up with what `escortRallyFleet`
+actually requires (`status:"idle"`). Slice 9 redefined `fleetRaidable()` to
+mean "warships following the player" (`status:"patrol"`), which the Escort
+list never picked up on: it started showing following ships as callable
+(they'd always refuse, "that ship isn't available," when clicked) while
+hiding genuinely-available idle ships docked right at the player's own
+location.
+- New **`fleetEscortable()`** (fleet.js): `status:"idle"` warships with
+  `home === S.location` — a distinct pool from `fleetRaidable()`. Following
+  duty is for raid support wherever the player roams; rallying a convoy
+  departing from here only ever makes sense for a hull that's actually
+  docked here.
+- `escortRallyFleet(shipId)` gained the matching `s.home !== S.location`
+  refusal it was always missing — defense in depth, not just a UI-list fix,
+  so a stale UI or direct call can't rally a hull from anywhere else either.
+- `renderSettlement.js`'s rally list now reads `fleetEscortable()` instead of
+  `fleetRaidable()`.
+
+Tests: `escortfleet.test.js` (5 checks, including a render-level check that
+the button offered for a following ship is gone and the idle local one now
+appears).
