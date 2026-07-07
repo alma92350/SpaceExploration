@@ -130,6 +130,10 @@ already loaded and takes several cycles to reach a far world, delivering to
 a colony/base's storage or selling at a foreign market on arrival. The whole
 way there it risks a pirate ambush (an escorting warship cuts the odds) and,
 if you're **Wanted**, a navy interception that confiscates the cargo outright.
+Spot trouble on the route after a tanker's already left? The Assign tab's
+**🛡️ Reinforce a tanker run** card lets you send more idle warships — docked
+at the same home port the tanker departed from — to join its escort
+mid-transit, cutting the odds for whatever's left of the trip.
 
 ## 🪐 The core worlds — a rotating roster
 

@@ -481,3 +481,36 @@ reassign, refit, personal-convoy boarding): `s.status === "idle" && s.home
   that isn't idle-and-docked-here or has nothing to move, the full
   player-tank → base → colony → sell unload cascade, and `assignTankerRun`
   correctly topping off pre-loaded fuel rather than ignoring it).
+
+## Slice 13 (shipped) — reinforce a tanker run already under way
+Escorts could only ever be chosen at the moment a run was dispatched
+(`assignTankerRun`'s `escortIds` argument) — there was no way to send more
+protection to a tanker already traveling if, say, a pirate-active route was
+discovered only after it left port. `escortRallyFleet` (Slice 3/8) already
+solved the identical problem for the Escort tab's own convoy — rallying
+more hulls into an *already-active* mission — so this is that same shape,
+just for a Tanker Run.
+- **`reinforceTankerRun(tankerId, warshipId)`** (fleet.js): the warship
+  must be idle and docked at the *same home port the tanker itself
+  departed from* (`w.home === s.home`) — the only place it could
+  plausibly set out from to catch up — and the tanker must actually be
+  `status:"tanker_run"`. On success the warship joins `s.run.escorts`
+  exactly like one assigned at dispatch: it counts toward
+  `tankerRunGuards(s)` for every remaining cycle (damping
+  `tankerRunPirateRisk`'s odds and severity from that point on), and is
+  freed and relocated to the destination on delivery, or freed on loss,
+  through the exact same escort-release code the original escorts
+  already used — no special-casing needed since reinforcements and
+  dispatch-time escorts are indistinguishable once aboard.
+- **UI** (renderFleetFortunes.js, Assign view): a new "🛡️ Reinforce a
+  tanker run" card lists every ship currently `tanker_run` (destination,
+  cycles left, live escort count, and its home port), with one button per
+  idle warship docked at that same home port to send it immediately — no
+  form state needed, each button is a direct action like the Logistics
+  card's own "Assign guard" buttons.
+- Tests: `tanker.test.js` (+6 checks: a same-home reinforcement joins and
+  raises the guard count; a wrong-home, busy, or non-warship ship is
+  refused; refused entirely for a tanker not on a run; a mid-run
+  reinforcement measurably reduces pirate damage/fuel loss the same as a
+  dispatch-time escort; and a reinforcement is freed/relocated on delivery
+  exactly like an original escort).
