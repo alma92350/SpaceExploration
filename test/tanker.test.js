@@ -335,3 +335,107 @@ test("assignTankerRun tops off fuel already loaded aboard via loadTanker, rather
   assert.equal(run(`S.colonies[S.location].storage.fuel`), localBefore - (cap - preload), "only the shortfall (cap minus what was already aboard) should be drawn from local storage");
   assert.equal(run(`S.fleet[0].fuel`), 0, "the ship's own fuel field should be rolled into the run and cleared");
 });
+
+test("reinforceTankerRun adds a same-home idle warship to an active run's escorts", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1), wr = warshipKey(run);
+  run(`S = freshState(); rollPrices();`);
+  withColonyShipyard(run, 4);
+  run(`S.colonies[S.location].storage.fuel = 500;
+       S.pirates = {};
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30 },
+                  { id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "idle", hull: 40, hullMax: 40 }];`);
+  const destId = knownDest(run);
+  run(`assignTankerRun("t1", "${destId}", []);`);
+  assert.equal(run(`tankerRunGuards(S.fleet[0])`), 0, "no escorts assigned yet");
+  run(`reinforceTankerRun("t1", "w1");`);
+  assert.equal(run(`S.fleet[1].status`), "tanker_run", "the warship should now be on the run");
+  assert.equal(run(`S.fleet[1].escortFor`), "t1");
+  assert.equal(run(`S.fleet[0].run.escorts.includes("w1")`), true, "the run's own escort list should include the reinforcement");
+  assert.equal(run(`tankerRunGuards(S.fleet[0])`), 1, "the reinforcement should count toward the run's live guard count");
+});
+
+test("reinforceTankerRun refuses a warship docked at a different home port, or one that isn't idle/a warship", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1), wr = warshipKey(run), fr = run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].role === "freighter")`);
+  run(`S = freshState(); rollPrices();`);
+  withColonyShipyard(run, 4);
+  run(`S.colonies[S.location].storage.fuel = 500;
+       S.pirates = {};`);
+  const destId = knownDest(run);
+  run(`S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30 },
+                  { id: "away", key: "${wr}", name: "Away Guard", home: "${destId}", status: "idle", hull: 40, hullMax: 40 },
+                  { id: "busy", key: "${wr}", name: "Busy Guard", home: S.location, status: "logistics", station: S.location, hull: 40, hullMax: 40 },
+                  { id: "hauler", key: "${fr}", name: "Hauler", home: S.location, status: "idle", hull: 10, hullMax: 10 }];`);
+  run(`assignTankerRun("t1", "${destId}", []);`);
+  run(`reinforceTankerRun("t1", "away"); reinforceTankerRun("t1", "busy"); reinforceTankerRun("t1", "hauler");`);
+  assert.equal(run(`tankerRunGuards(S.fleet[0])`), 0, "none of a wrong-home, busy, or non-warship ship should be able to reinforce");
+  assert.equal(run(`S.fleet.find(s => s.id === "away").status`), "idle", "the away warship should be untouched");
+});
+
+test("reinforceTankerRun refuses when the target tanker isn't actually on a run", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1), wr = warshipKey(run);
+  run(`S = freshState();
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Idle Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30 },
+                  { id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "idle", hull: 40, hullMax: 40 }];`);
+  run(`reinforceTankerRun("t1", "w1");`);
+  assert.equal(run(`S.fleet[1].status`), "idle", "reinforcing a tanker that isn't on a run should be refused");
+});
+
+test("a reinforcement added mid-run dampens pirate-ambush damage the same as an escort assigned at dispatch", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1), wr = warshipKey(run);
+  run(`S = freshState(); rollPrices();`);
+  withColonyShipyard(run, 4);
+  run(`S.colonies[S.location].storage.fuel = 500;
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 100, hullMax: 100 },
+                  { id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "idle", hull: 40, hullMax: 40 }];`);
+  const destId = knownDest(run);
+  run(`S.pirates = {}; S.pirates["${destId}"] = 5; S.pirates[S.location] = 0;`);
+  run(`assignTankerRun("t1", "${destId}", []);`);
+  run(`reinforceTankerRun("t1", "w1");`);
+  const hullBefore = run(`S.fleet[0].hull`), fuelBefore = run(`S.fleet[0].run.fuel`);
+  run(`Math.random = () => 0.0;`);
+  run(`processTankerRuns();`);
+  const dmg = hullBefore - run(`S.fleet[0].hull`), loss = fuelBefore - run(`S.fleet[0].run.fuel`);
+  // same forced roll, same lvl, zero guards this time — should hurt strictly more. A fresh
+  // sandbox re-rolls its own starting location (pickStart), so its own destination must be
+  // recomputed here too rather than reusing the first sandbox's destId.
+  const unguarded = createSandbox();
+  const t1b = tankerKeyAt(unguarded.run, 1);
+  unguarded.run(`S = freshState(); rollPrices();`);
+  withColonyShipyard(unguarded.run, 4);
+  const destId2 = knownDest(unguarded.run);
+  unguarded.run(`S.colonies[S.location].storage.fuel = 500;
+       S.pirates = {}; S.pirates["${destId2}"] = 5; S.pirates[S.location] = 0;
+       S.fleet = [{ id: "t1", key: "${t1b}", name: "Tanker", home: S.location, status: "idle", hull: 100, hullMax: 100 }];`);
+  unguarded.run(`assignTankerRun("t1", "${destId2}", []);`);
+  const hullBefore2 = unguarded.run(`S.fleet[0].hull`), fuelBefore2 = unguarded.run(`S.fleet[0].run.fuel`);
+  unguarded.run(`Math.random = () => 0.0;`);
+  unguarded.run(`processTankerRuns();`);
+  const dmgUnguarded = hullBefore2 - unguarded.run(`S.fleet[0].hull`), lossUnguarded = fuelBefore2 - unguarded.run(`S.fleet[0].run.fuel`);
+  assert.ok(dmg < dmgUnguarded, "a mid-run reinforcement should reduce pirate damage just like a dispatch-time escort");
+  assert.ok(loss < lossUnguarded, "a mid-run reinforcement should reduce fuel lost to pirates");
+});
+
+test("a reinforcement escort is freed and relocated on delivery just like an original escort", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1), wr = warshipKey(run);
+  run(`S = freshState(); rollPrices();`);
+  withColonyShipyard(run, 4);
+  run(`S.colonies[S.location].storage.fuel = 500;
+       S.pirates = {};
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30 },
+                  { id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "idle", hull: 40, hullMax: 40 }];`);
+  const destId = knownDest(run);
+  run(`S.pirates["${destId}"] = 0; S.pirates[S.location] = 0;`);
+  run(`assignTankerRun("t1", "${destId}", []);`);
+  run(`reinforceTankerRun("t1", "w1");`);
+  run(`Math.random = () => 0.99;`);
+  const cycles = run(`S.fleet[0].run.totalCycles`);
+  for (let i = 0; i < cycles; i++) run(`processTankerRuns();`);
+  assert.equal(run(`S.fleet[1].status`), "idle", "the reinforcement should be freed once the run delivers");
+  assert.equal(run(`S.fleet[1].escortFor`), null);
+  assert.equal(run(`S.fleet[1].home`), destId, "the reinforcement should end up at the delivered-to world alongside the tanker");
+});

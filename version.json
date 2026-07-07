@@ -1,5 +1,5 @@
 {
-  "version": "2.102.0",
+  "version": "2.103.0",
   "saveVersion": "v2",
-  "notes": "New: Load and Unload buttons for tankers — stage fuel ahead of a run, or reclaim it, without needing to dispatch one."
+  "notes": "New: send protection to a Tanker Run already under way — reinforce it mid-transit with an idle warship from its home port."
 }

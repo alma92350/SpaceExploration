@@ -222,7 +222,24 @@ function renderFleet() {
         <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${tf.planet && avail > 0 ? "" : "disabled"} onclick="assignTankerRun('${tf.ship}','${tf.planet}',${escortArgs})">⛽ Dispatch (${cycles} cyc)</button></div>
       </div>`;
     }
-    body = `${missionCard}${logiCard}${convoyCard}${tankerCard}${!missionCard && !logiCard && !convoyCard && !tankerCard ? '<div class="card"><div class="hint">No idle warships to dispatch, no colonies yet to station freighters at, no idle ships docked here for a convoy, and no idle tankers for a fuel run. Build a ship in the 🏗️ Shipyard tab, or found a colony first.</div></div>' : ""}`;
+    // ---- reinforce a Tanker Run already under way — same idea as escortRallyFleet rallying more
+    // hulls into an already-active Escort convoy, but for a tanker traveling on its own ----
+    const activeRuns = f.filter(s => s.status === "tanker_run" && s.run);
+    let reinforceCard = "";
+    if (activeRuns.length) {
+      const rows = activeRuns.map(s => {
+        const runDef = FLEET_SHIPS[s.key];
+        const idleWarHome2 = f.filter(w => w.status === "idle" && w.home === s.home && FLEET_SHIPS[w.key] && FLEET_SHIPS[w.key].role === "warship");
+        const guardBtns = idleWarHome2.map(w => `<button class="btn btn-sm" onclick="reinforceTankerRun('${s.id}','${w.id}')">🛡️ ${w.name}</button>`).join(" ");
+        return `<div class="ship-stat" style="align-items:center">
+          <span class="k">${runDef.ico} ${s.name} <span class="hint">→ ${mdPlanetName(s.run.to)} · ${s.run.cyclesLeft}/${s.run.totalCycles} cyc · ${tankerRunGuards(s)} escort(s) · from ⚓ ${mdPlanetName(s.home)}</span></span>
+          <span class="v">${idleWarHome2.length ? guardBtns : '<span class="hint">No idle warships at its home port</span>'}</span></div>`;
+      }).join("");
+      reinforceCard = `<div class="card"><h4>🛡️ Reinforce a tanker run</h4>
+        <div class="hint">Send more of your idle warships — docked at the same home port the tanker departed from — to join its escort mid-transit, cutting the odds of a pirate ambush for the rest of the trip.</div>
+        ${rows}</div>`;
+    }
+    body = `${missionCard}${logiCard}${convoyCard}${tankerCard}${reinforceCard}${!missionCard && !logiCard && !convoyCard && !tankerCard && !reinforceCard ? '<div class="card"><div class="hint">No idle warships to dispatch, no colonies yet to station freighters at, no idle ships docked here for a convoy, no idle tankers for a fuel run, and no tanker runs to reinforce. Build a ship in the 🏗️ Shipyard tab, or found a colony first.</div></div>' : ""}`;
   } else {
     let yardCard;
     if (yard <= 0) {

@@ -446,6 +446,23 @@ function recallTankerRun(shipId) {
   log(`⛽ Recalled the ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name} before it cleared port — cargo still aboard.`, "");
   toast(`${s.name} recalled`, ""); saveGame(); renderAll();
 }
+// send MORE protection to a tanker already under way — the Tanker Run mirror of escortRallyFleet
+// (escort.js) rallying more hulls into an already-active Escort convoy. A reinforcement must be
+// idle and docked at the SAME home port the tanker itself departed from (the only place it could
+// plausibly set out from to catch up); once aboard it counts toward tankerRunGuards() for every
+// remaining cycle of the trip, same as an escort assigned at dispatch, and is freed the same way
+// on delivery or loss.
+function reinforceTankerRun(tankerId, warshipId) {
+  const s = fleetList().find(x => x.id === tankerId);
+  if (!s || s.status !== "tanker_run" || !s.run) return toast("That tanker isn't on a run.", "bad");
+  const w = fleetList().find(x => x.id === warshipId), wd = w && FLEET_SHIPS[w.key];
+  if (!w || !wd || wd.role !== "warship" || w.status !== "idle") return toast("That ship isn't available.", "bad");
+  if (w.home !== s.home) return toast(`Only warships docked at ${mdPlanetName(s.home)} can reinforce this run.`, "bad");
+  w.status = "tanker_run"; w.escortFor = tankerId;
+  s.run.escorts = s.run.escorts || []; s.run.escorts.push(warshipId);
+  log(`🛡️ Your ${wd.ico} ${w.name} peels off to reinforce the ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name}'s run to ${mdPlanetName(s.run.to)}.`, "event");
+  toast(`${w.name} escorting ${s.name}`, "good"); sfx("event"); saveGame(); renderAll();
+}
 // ---- Tanker Load/Unload: manual cargo management for an idle tanker docked at the player's
 // current location — separate from a Tanker Run's own automatic top-up at dispatch (which still
 // happens for whatever room is left after any fuel loaded here). Unlike Escort/Fleet mission
