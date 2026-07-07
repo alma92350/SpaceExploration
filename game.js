@@ -168,7 +168,7 @@ const TAB_LADDER = [
     test: s => Object.keys(s.colonies || {}).length > 0 || (Array.isArray(s.fleet) && s.fleet.length > 0)
       || Object.values(s.bases || {}).some(b => (b.modules || {}).shipyard_small > 0) },
 ];
-const RAW_IDS = ["ore", "crystals", "radioactives", "ice", "biomass", "spice", "gas", "relics"];
+const RAW_IDS = COM_IDS.filter(id => COM[id].tier === "Raw");   // derived from the commodity table — a new raw good joins automatically
 function tabUnlocked(id) { return S.showAllTabs || ALWAYS_TABS.includes(id) || !!(S.unlocked && S.unlocked[id]); }
 function tabHint(id) { const g = TAB_LADDER.find(t => t.id === id); return g ? g.hint : ""; }
 function unlock(id, announceIt) {
@@ -671,8 +671,9 @@ function init() {
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   // backfill every commodity added since this save was made (drones, ai, antimatter,
   // plasmatorp, ...) and repair NaN-corrupted stocks — an undefined S.res[c] slips
-  // straight past guards like `S.res[c] < qty` and poisons `+=` into NaN
-  if (S.res) CARGO_IDS.forEach(c => { if (S.res[c] == null || !Number.isFinite(S.res[c])) S.res[c] = 0; });
+  // straight past guards like `S.res[c] < qty` and poisons `+=` into NaN. The four
+  // core scalars get the same repair: a NaN credits/fuel poisons every += after it.
+  if (S.res) [...CARGO_IDS, "credits", "fuel", "tech", "influence"].forEach(c => { if (S.res[c] == null || !Number.isFinite(S.res[c])) S.res[c] = 0; });
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
