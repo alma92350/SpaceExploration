@@ -104,7 +104,7 @@ test("assignTankerRun loads fuel from local storage before the hold, sets run st
   assert.equal(run(`S.fleet[1].escortFor`), "t1");
 });
 
-test("recallTankerRun refunds fuel and frees escorts before the run has ticked, but refuses once it has", () => {
+test("recallTankerRun restores fuel aboard the ship and frees escorts before the run has ticked, but refuses once it has", () => {
   const { run } = createSandbox();
   const t1 = tankerKeyAt(run, 1), wr = warshipKey(run);
   run(`S = freshState(); rollPrices();`);
@@ -119,7 +119,8 @@ test("recallTankerRun refunds fuel and frees escorts before the run has ticked, 
   run(`recallTankerRun("t1");`);
   assert.equal(run(`S.fleet[0].status`), "idle", "recall before any cycle should return the tanker to idle");
   assert.equal(run(`S.fleet[0].run`), null);
-  assert.equal(run(`S.colonies[S.location].storage.fuel`), storageBefore + loaded, "recalled fuel should be refunded to local storage");
+  assert.equal(run(`S.fleet[0].fuel`), loaded, "the recalled cargo should stay aboard the ship (it never left port), not go back to storage");
+  assert.equal(run(`S.colonies[S.location].storage.fuel`), storageBefore, "local storage should be untouched by a recall — the fuel never left the ship");
   assert.equal(run(`S.fleet[1].status`), "idle", "the escort should also be freed");
 
   run(`assignTankerRun("t1", "${destId}", []);`);
@@ -242,4 +243,95 @@ test("scrapShip refuses a ship that's on a tanker run", () => {
   run(`scrapShip("t1");`);
   assert.equal(run(`S.fleet.length`), 1, "a tanker on a run should not be scrapped");
   assert.equal(state.confirmCalls.length, 0, "the confirm dialog shouldn't even appear for a ship on a tanker run");
+});
+
+test("loadTanker draws from the base first, then the colony, up to the tanker's own cargo cap", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1);
+  run(`S = freshState(); rollPrices();`);
+  run(`S.bases[S.location] = { modules: {}, storage: { fuel: 30 }, trade: { on: false, exp: {}, imp: {}, cols: {} } };
+       S.colonies[S.location] = { pop: 10, happiness: 70, tax: 10, buildings: {}, storage: { fuel: 500 }, orders: {}, unrest: 0, faction: null, idle: {} };
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30, fuel: 0 }];`);
+  const cap = run(`FLEET_SHIPS["${t1}"].cap`);
+  run(`loadTanker("t1");`);
+  assert.equal(run(`S.bases[S.location].storage.fuel`), 0, "the base's fuel (30, less than the cap) should be drained first");
+  assert.equal(run(`S.fleet[0].fuel`), cap, "the tanker should top off from the colony for the remainder, up to its own cap");
+  assert.equal(run(`S.colonies[S.location].storage.fuel`), 500 - (cap - 30), "the colony should only be drawn on for what the base couldn't cover");
+});
+
+test("loadTanker refuses when not idle/docked here, or when there's nothing to load", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1);
+  run(`S = freshState(); rollPrices();`);
+  run(`S.colonies[S.location] = { pop: 10, happiness: 70, tax: 10, buildings: {}, storage: { fuel: 500 }, orders: {}, unrest: 0, faction: null, idle: {} };
+       const otherPid = Object.keys(currentPlanet().distances)[0];
+       S.fleet = [{ id: "away", key: "${t1}", name: "Away", home: otherPid, status: "idle", hull: 30, hullMax: 30, fuel: 0 },
+                  { id: "busy", key: "${t1}", name: "Busy", home: S.location, status: "tanker_run", hull: 30, hullMax: 30, fuel: 0, run: { to: otherPid, dist: 5, totalCycles: 3, cyclesLeft: 3, fuel: 10, escorts: [] } }];`);
+  run(`loadTanker("away"); loadTanker("busy");`);
+  assert.equal(run(`S.fleet[0].fuel`), 0, "a tanker docked elsewhere shouldn't be loadable from here");
+  assert.equal(run(`S.fleet[1].fuel`), 0, "a tanker mid-run shouldn't be loadable");
+  assert.equal(run(`S.colonies[S.location].storage.fuel`), 500, "nothing should have been drawn from storage");
+
+  run(`S.colonies[S.location].storage.fuel = 0;
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30, fuel: 0 }];`);
+  run(`loadTanker("t1");`);
+  assert.equal(run(`S.fleet[0].fuel`), 0, "with no fuel anywhere here, loading should be a no-op");
+});
+
+test("unloadTanker fills the player's own tank first, then the base, then the colony, then sells the rest", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1);
+  run(`S = freshState(); rollPrices();`);
+  // pin every capacity so the test can predict exactly how much reaches each step: the player's
+  // tank has 60 room (40 -> fuelCap 100), the base has 20 room (200 cap, 180 already used by
+  // other cargo), the colony has 20 room (300 cap, 280 already used) — 100 total before selling.
+  run(`S.res.fuel = 40;
+       S.bases[S.location] = { modules: {}, storage: { metals: 180 }, trade: { on: false, exp: {}, imp: {}, cols: {} } };
+       S.colonies[S.location] = { pop: 10, happiness: 70, tax: 10, buildings: {}, storage: { metals: 280 }, orders: {}, unrest: 0, faction: null, idle: {} };
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30, fuel: 150 }];`);
+  const baseCap = run(`baseStorageCap(S.location)`), baseUsed = run(`baseStorageUsed(S.bases[S.location])`);
+  const colCap = run(`colonyStorageCap(S.colonies[S.location], currentPlanet())`), colUsed = run(`colonyStorageUsed(S.colonies[S.location])`);
+  const baseRoom = baseCap - baseUsed, colRoom = colCap - colUsed;
+  const creditsBefore = run(`S.res.credits`);
+  run(`unloadTanker("t1");`);
+  assert.equal(run(`S.res.fuel`), 100, "the player's own tank should fill to its cap first (40 -> 100, taking 60)");
+  assert.equal(run(`S.bases[S.location].storage.fuel`), baseRoom, "the base should then fill up to its remaining room");
+  assert.equal(run(`S.colonies[S.location].storage.fuel`), colRoom, "the colony should then fill up to its remaining room with whatever's left");
+  const remaining = 150 - 60 - baseRoom - colRoom;
+  assert.ok(remaining > 0, "test setup should leave a remainder to sell — otherwise this isn't exercising the sell step");
+  assert.ok(run(`S.res.credits`) > creditsBefore, "any fuel left after topping off the tank/base/colony should be sold for credits");
+  assert.equal(run(`S.fleet[0].fuel`), 0, "the tanker should end up fully unloaded");
+});
+
+test("unloadTanker refuses when not idle/docked here, or when carrying nothing", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1);
+  run(`S = freshState(); rollPrices();
+       const otherPid = Object.keys(currentPlanet().distances)[0];
+       S.fleet = [{ id: "away", key: "${t1}", name: "Away", home: otherPid, status: "idle", hull: 30, hullMax: 30, fuel: 50 },
+                  { id: "empty", key: "${t1}", name: "Empty", home: S.location, status: "idle", hull: 30, hullMax: 30, fuel: 0 }];`);
+  const creditsBefore = run(`S.res.credits`);
+  run(`unloadTanker("away"); unloadTanker("empty");`);
+  assert.equal(run(`S.fleet[0].fuel`), 50, "a tanker docked elsewhere shouldn't be unloadable from here");
+  assert.equal(run(`S.fleet[1].fuel`), 0, "an already-empty tanker has nothing to unload");
+  assert.equal(run(`S.res.credits`), creditsBefore, "no credits should change when nothing was unloaded");
+});
+
+test("assignTankerRun tops off fuel already loaded aboard via loadTanker, rather than ignoring it", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1);
+  run(`S = freshState(); rollPrices();`);
+  withColonyShipyard(run, 4);
+  run(`S.colonies[S.location].storage.fuel = 500;
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30, fuel: 0 }];`);
+  const cap = run(`FLEET_SHIPS["${t1}"].cap`);
+  const preload = Math.floor(cap / 2);
+  run(`S.fleet[0].fuel = ${preload};
+       S.colonies[S.location].storage.fuel = 500;`);   // reset local storage after the manual preload above
+  const localBefore = run(`S.colonies[S.location].storage.fuel`);
+  const destId = knownDest(run);
+  run(`assignTankerRun("t1", "${destId}", []);`);
+  assert.equal(run(`S.fleet[0].run.fuel`), cap, "the run should top the pre-loaded fuel up to the tanker's full cap");
+  assert.equal(run(`S.colonies[S.location].storage.fuel`), localBefore - (cap - preload), "only the shortfall (cap minus what was already aboard) should be drawn from local storage");
+  assert.equal(run(`S.fleet[0].fuel`), 0, "the ship's own fuel field should be rolled into the run and cleared");
 });

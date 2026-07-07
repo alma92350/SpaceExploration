@@ -1,5 +1,5 @@
 {
-  "version": "2.101.1",
+  "version": "2.102.0",
   "saveVersion": "v2",
-  "notes": "New: the Starmap tracks any Tanker Run in progress with its own dotted route and a live progress marker."
+  "notes": "New: Load and Unload buttons for tankers — stage fuel ahead of a run, or reclaim it, without needing to dispatch one."
 }

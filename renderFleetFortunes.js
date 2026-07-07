@@ -63,6 +63,17 @@ function renderFleet() {
       // ship's home shipyard, a separate concept.
       const canPatrol = s.status === "idle" && def.role === "warship";
       const patrolBtn = canPatrol ? `<button class="btn btn-sm" title="Follow you — on call for raids anywhere (2-ally summon or Battle Group) until recalled" onclick="assignPatrol('${s.id}')">🛰️ Follow me</button>` : "";
+      // Tanker Load/Unload: manual cargo management for an idle tanker docked right here — no
+      // Shipyard required (just a storeroom to draw from/deposit into), unlike repair/reassign/refit.
+      const dockedHere = s.status === "idle" && s.home === pid;
+      let loadBtn = "", unloadBtn = "";
+      if (dockedHere && def.role === "tanker") {
+        const b = S.bases[pid], col = S.colonies[pid];
+        const localFuel = ((b && b.storage.fuel) || 0) + ((col && col.storage.fuel) || 0);
+        const full = (s.fuel || 0) >= shipCargoCap(s);
+        if (localFuel > 0 && !full) loadBtn = `<button class="btn btn-sm" title="Load fuel from the base/colony here" onclick="loadTanker('${s.id}')">⬆️⛽ Load</button>`;
+        if ((s.fuel || 0) > 0) unloadBtn = `<button class="btn btn-sm" title="Unload — tops off your own tank first, then the base, then the colony, selling anything left over" onclick="unloadTanker('${s.id}')">⬇️⛽ Unload</button>`;
+      }
       const scrapPct = scrapRefundPct(), scrapBonusOn = scrapPct > SCRAP_REFUND_PCT, scrapRefund = Math.round((def.cost.metals || 0) * scrapPct);
       const ctlBtn = onMission ? `<button class="btn btn-sm" title="Recall — bank what it's earned" onclick="recallFleetMission('${s.id}')">↩ Recall</button>`
         : (onRun && s.run.cyclesLeft === s.run.totalCycles) ? `<button class="btn btn-sm" title="Turn back before clearing port — fuel refunded" onclick="recallTankerRun('${s.id}')">↩ Recall</button>`
@@ -70,7 +81,9 @@ function renderFleet() {
         : onConvoy ? `<button class="btn btn-sm" title="Recall from your convoy" onclick="recallConvoy('${s.id}')">↩ Recall</button>`
         : onPatrol ? `<button class="btn btn-sm" title="Stop following you" onclick="recallPatrol('${s.id}')">↩ Recall</button>`
         : s.status === "building" || s.status === "escort" || onRun || onRunEscort ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvages ${scrapRefund} metals${scrapBonusOn ? " — recycling bonus" : ""})" onclick="scrapShip('${s.id}')">♻️ ${scrapRefund}${scrapBonusOn ? "✦" : ""}</button>`;
-      const spec = def.role === "warship" ? `🔥${shipStrEff(s)} · 🛡️${s.hullMax}` : def.role === "tanker" ? `⛽${shipCargoCap(s)} · 🐌${Math.round(fleetShipSpeed(def) * 100)}%` : `📦${shipCargoCap(s)} cargo`;
+      const spec = def.role === "warship" ? `🔥${shipStrEff(s)} · 🛡️${s.hullMax}`
+        : def.role === "tanker" ? `⛽${shipCargoCap(s)} · 🐌${Math.round(fleetShipSpeed(def) * 100)}%${(s.fuel || 0) > 0 ? ` · 🛢️${s.fuel} loaded` : ""}`
+        : `📦${shipCargoCap(s)} cargo`;
       // ---- Small Shipyard customization: commit an idle hull to a Cargo or Combat
       // lean, up to 3 levels, only while docked at its home base's Small Shipyard ----
       const lvl = s.loadoutLevel || 0, maxed = lvl >= LOADOUT_MAX_LEVEL;
@@ -88,7 +101,7 @@ function renderFleet() {
       }
       return `<div class="ship-stat" style="align-items:center">
         <span class="k">${def.ico} ${s.name} <span class="hint">${SHIP_CLASSES[def.cls].name} · ${spec} · ⚓ ${homeName}</span></span>
-        <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${reassignBtn}${patrolBtn}${ctlBtn}</span></div>${loadoutRow}`;
+        <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${reassignBtn}${patrolBtn}${loadBtn}${unloadBtn}${ctlBtn}</span></div>${loadoutRow}`;
     };
     const warships = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
     const freighters = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
@@ -192,12 +205,13 @@ function renderFleet() {
       const cycles = tf.planet ? tankerRunCycles(dist, speed) : 0;
       const cap = shipCargoCap(ship);
       const local = shipyardLocalStorage(ship.home);
-      const avail = Math.min(cap, ((local && local.fuel) || 0) + (S.res.fuel || 0));
+      const already = ship.fuel || 0;
+      const avail = already + Math.min(cap - already, ((local && local.fuel) || 0) + (S.res.fuel || 0));
       const destPlanet = tf.planet && PLANETS.find(p => p.id === tf.planet);
       const risk = tf.planet ? Math.round((0.05 + Math.max(pirateLevel(tf.planet), pirateLevel(ship.home)) * 0.04) * Math.pow(0.45, tf.escorts.length) * 100) : 0;
       const escortArgs = `[${tf.escorts.map(id => `'${id}'`).join(",")}]`;
       tankerCard = `<div class="card"><h4>⛽ Dispatch a tanker run</h4>
-        <div class="hint">Send an idle tanker to haul fuel to another world on its own — it loads fuel from its home's stockpile (then your hold), and takes several cycles to arrive since tankers are slow by design. Delivering to one of your own colonies/bases tops up its storage; anywhere else, the fuel is sold at the local market. The trip risks a pirate ambush (damage &amp; lost fuel — an escorting warship cuts the odds) and, if you're Wanted, a navy interception that confiscates the cargo outright.</div>
+        <div class="hint">Send an idle tanker to haul fuel to another world on its own — any fuel already loaded aboard (⬆️⛽ Load, in the roster) tops off first, then it draws the rest from its home's stockpile (then your hold), and takes several cycles to arrive since tankers are slow by design. Delivering to one of your own colonies/bases tops up its storage; anywhere else, the fuel is sold at the local market. The trip risks a pirate ambush (damage &amp; lost fuel — an escorting warship cuts the odds) and, if you're Wanted, a navy interception that confiscates the cargo outright.</div>
         <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;align-items:center">
           <span class="hint">Tanker</span><select onchange="setTankerRunField('ship',this.value)">${shipOpts}</select>
           <span class="hint">Destination</span><select onchange="setTankerRunField('planet',this.value)">${planetOpts}</select></div>
