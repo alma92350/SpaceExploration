@@ -535,5 +535,9 @@ dependencies to install — just:
 npm test
 ```
 
-CI (`.github/workflows/test.yml`) runs the same command on every push and
-pull request against `main`.
+CI (`.github/workflows/test.yml`) syntax-checks every script and runs the
+same command on Node 20 and 24, on every push and pull request against
+`main`. The suite also includes repo guardrails: a version-consistency
+check (`APP_VERSION`, `version.json`, the changelog and `index.html`'s
+`?v=` cache-busters must agree), a duplicate-declaration guard for the
+shared global scope, and a seeded 120-cycle simulation smoke test.
