@@ -13,8 +13,13 @@ const { createSandbox } = require("./helpers/sandbox.js");
 
 function tier1WarshipKey(run) { return run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].tier === 1 && FLEET_SHIPS[k].role === "warship")`); }
 function tier1FreighterKey(run) { return run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].tier === 1 && FLEET_SHIPS[k].role === "freighter")`); }
+function tier1TankerKey(run) { return run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].tier === 1 && FLEET_SHIPS[k].role === "tanker")`); }
 function knownPlanets(run) { return run(`PLANETS.filter(galaxyKnown)`); }
 function renderMap(run) { return run(`renderStarmap(PLANETS.filter(galaxyKnown))`); }
+function knownDest(run) { return run(`(PLANETS.find(p => isActive(p) && galaxyKnown(p) && p.id !== S.location) || {}).id`); }
+function withColonyShipyard(run, tier) {
+  run(`S.colonies[S.location] = { pop: 10, happiness: 70, tax: 10, buildings: { shipyard: ${tier} }, storage: { fuel: 500 }, orders: {}, unrest: 0, faction: null, idle: {} };`);
+}
 
 test("renderStarmap draws a visible name label for every known world, not just a tooltip", () => {
   const { run } = createSandbox();
@@ -125,6 +130,64 @@ test("turning off the fleet filter also hides the convoy route", () => {
   run(`toggleGalaxyFilter("fleet");`);
   const html = renderMap(run);
   assert.ok(!html.includes("stroke-dasharray"), "the convoy is fleet-adjacent activity — the fleet filter should hide it too");
+});
+
+test("no tanker route renders with no active Tanker Run", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  const html = renderMap(run);
+  assert.ok(!html.includes(`stroke-dasharray="1,3"`), "no dotted tanker route without a run in progress");
+  assert.ok(!html.includes("</title>🛢️</text>"), "no tanker marker without a run in progress (the hint text's own mention of 🛢️ doesn't count)");
+});
+
+test("an active Tanker Run draws a dotted route with a progress marker positioned by totalCycles/cyclesLeft", () => {
+  const { run } = createSandbox();
+  const t1 = tier1TankerKey(run);
+  run(`S = freshState(); rollPrices();`);
+  withColonyShipyard(run, 4);
+  const destId = knownDest(run);
+  run(`S.pirates = {}; S.pirates["${destId}"] = 0; S.pirates[S.location] = 0;
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker One", home: S.location, status: "idle", hull: 30, hullMax: 30 }];`);
+  run(`assignTankerRun("t1", "${destId}", []);`);
+  let html = renderMap(run);
+  assert.ok(html.includes(`stroke-dasharray="1,3"`), "an active tanker run should draw a dotted route");
+  assert.ok(html.includes("</title>🛢️</text>"), "the route should carry a tanker marker");
+
+  // tick one cycle forward (dodging risk rolls) and confirm the marker's tooltip reflects progress
+  run(`Math.random = () => 0.99;`);
+  run(`processTankerRuns();`);
+  html = renderMap(run);
+  assert.ok(/\d+\/\d+ cycle\(s\) left/.test(html), "the marker's tooltip should reflect the run's live progress");
+});
+
+test("turning off the fleet filter also hides the tanker route", () => {
+  const { run } = createSandbox();
+  const t1 = tier1TankerKey(run);
+  run(`S = freshState(); rollPrices();`);
+  withColonyShipyard(run, 4);
+  const destId = knownDest(run);
+  run(`S.pirates = {}; S.pirates["${destId}"] = 0; S.pirates[S.location] = 0;
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker One", home: S.location, status: "idle", hull: 30, hullMax: 30 }];`);
+  run(`assignTankerRun("t1", "${destId}", []);`);
+  run(`toggleGalaxyFilter("fleet");`);
+  const html = renderMap(run);
+  assert.ok(!html.includes(`stroke-dasharray="1,3"`), "the tanker run is fleet-adjacent activity — the fleet filter should hide its route too");
+});
+
+test("multiple simultaneous Tanker Runs each draw their own route", () => {
+  const { run } = createSandbox();
+  const t1 = tier1TankerKey(run);
+  run(`S = freshState(); rollPrices();`);
+  withColonyShipyard(run, 4);
+  run(`S.colonies[S.location].storage.fuel = 5000;`);
+  const destId = knownDest(run);
+  run(`S.pirates = {}; S.pirates["${destId}"] = 0; S.pirates[S.location] = 0;
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker One", home: S.location, status: "idle", hull: 30, hullMax: 30 },
+                  { id: "t2", key: "${t1}", name: "Tanker Two", home: S.location, status: "idle", hull: 30, hullMax: 30 }];`);
+  run(`assignTankerRun("t1", "${destId}", []); assignTankerRun("t2", "${destId}", []);`);
+  const html = renderMap(run);
+  const matches = html.match(/stroke-dasharray="1,3"/g) || [];
+  assert.equal(matches.length, 2, "two simultaneous tanker runs on the same route should each draw their own dotted line");
 });
 
 test("hyperlane edges still only ever connect two mutually-known worlds (unchanged spoiler safety)", () => {

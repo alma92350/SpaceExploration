@@ -422,10 +422,11 @@ rather than inventing a new core-loop state.
   destination — it's physically there now, same abstraction fleet missions
   already use.
 - `recallTankerRun(shipId)` only works before the run has ticked
-  (`cyclesLeft === totalCycles`) — refunds the loaded fuel, frees the ship
-  and its escorts. No mid-run recall; a run always resolves via delivery or
-  loss. `scrapShip` also refuses a ship mid-run, same as every other duty
-  status.
+  (`cyclesLeft === totalCycles`) — restores the loaded fuel onto the ship
+  itself (`s.fuel`, see Slice 12) rather than refunding it to storage, since
+  it never actually left port; frees the ship and its escorts. No mid-run
+  recall; a run always resolves via delivery or loss. `scrapShip` also
+  refuses a ship mid-run, same as every other duty status.
 - **UI** (renderFleetFortunes.js): a third "⛽ Tankers" roster section
   alongside Warships/Freighters, a live in-transit status line
   (destination + cycles left), and a new "Dispatch a tanker run" card
@@ -439,3 +440,44 @@ rather than inventing a new core-loop state.
   `assignTankerRun`, `recallTankerRun`, `processTankerRuns`,
   `setTankerRunField`, `toggleTankerEscort`. Tests: `tanker.test.js`
   (11 checks).
+
+## Slice 12 (shipped) — Tanker Load/Unload
+Slice 11 only ever loaded a tanker automatically, at the moment a run was
+dispatched (`assignTankerRun`'s own local-storage/hold top-up). There was
+no way to stage a tanker's cargo ahead of time, see how much it was
+carrying while idle, or reclaim/redistribute fuel without committing to a
+full run. Fixed with two new manual actions, gated exactly like every
+other "you must physically be at this ship's dock" fleet action (repair,
+reassign, refit, personal-convoy boarding): `s.status === "idle" && s.home
+=== S.location`.
+- New per-ship field `s.fuel` — an idle tanker's own onboard cargo, sitting
+  outside of any run (`s.run.fuel` is a separate, run-scoped amount that
+  only exists in transit). No migration needed; undefined reads as 0
+  everywhere via the usual `|| 0` convention.
+- **`loadTanker(shipId)`**: tops the ship up to `shipCargoCap(s)`, drawing
+  fuel from whatever's here — **base first, then colony** (a deliberate,
+  explicit reversal of `shipyardLocalStorage`/`localStockpileAt`'s
+  colony-first precedence used everywhere else in the codebase, chosen
+  because that's the exact order asked for). No Shipyard required — just
+  a base or colony storeroom to draw from, same reasoning
+  `localStockpileAt` already uses for repairs.
+- **`unloadTanker(shipId)`**: drains the ship's fuel, filling destinations
+  in order — the player's own ship tank (`fuelCap()`) first, then the base,
+  then the colony (mirroring Load's own base-before-colony order), and
+  finally **sells** whatever's left at `sellPrice` for credits. A single
+  click empties the tanker sensibly with no destination picker needed.
+- `assignTankerRun` now treats any already-loaded `s.fuel` as a head
+  start: it tops up only the shortfall (`cap - already`) from local
+  storage/hold, instead of re-deriving the whole load from scratch. A
+  tanker topped off ahead of time via `loadTanker` dispatches with that
+  fuel already committed.
+- **UI** (renderFleetFortunes.js): the roster's tanker spec line shows
+  `🛢️N loaded` whenever `s.fuel > 0`; two new conditional buttons on an
+  idle, home-docked tanker's row — ⬆️⛽ Load (shown only when there's local
+  fuel to draw and room to take it) and ⬇️⛽ Unload (shown only when the
+  tanker is actually carrying something).
+- Tests: `tanker.test.js` (+5 checks: base-before-colony load ordering
+  capped at the hull's own cargo capacity, load/unload refusing a ship
+  that isn't idle-and-docked-here or has nothing to move, the full
+  player-tank → base → colony → sell unload cascade, and `assignTankerRun`
+  correctly topping off pre-loaded fuel rather than ignoring it).

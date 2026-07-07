@@ -455,13 +455,37 @@ clicking a node to travel.
 
 Tests: `starmap.test.js` (+9 checks).
 
+## Slice 11 (shipped) — tanker convoy routes
+Fleet.js's Slice 11 (see docs/FLEET.md) added Tanker Runs — a tanker hauls
+fuel to another world over several background cycles — but the starmap had
+no way to show one under way; the only route overlay was the Escort tab's
+single active convoy (Slice 8). Tanker Runs are a different shape: several
+can be in flight at once (any number of idle tankers can be dispatched),
+and there's no live "combat wave" state to flash into an alarm the way an
+Escort ambush does, since risk resolves instantly per-cycle in the
+background (`processTankerRuns`, fleet.js).
+- Every `S.fleet` ship with `status:"tanker_run"` draws its own line from
+  its `home` to `run.to`, positioned along the route by
+  `(totalCycles - cyclesLeft) / totalCycles` — same progress-interpolation
+  shape the Escort route already uses, just reading Tanker Run's own field
+  names. A dotted dash pattern (`stroke-dasharray="1,3"`) keeps it visually
+  distinct from the Escort convoy's dashed line, since it's a different
+  kind of journey; a 🛢️ marker sits at the live progress point, its
+  tooltip naming the tanker, the fuel it's carrying, the destination, and
+  cycles remaining.
+- Gated by the existing `filters.fleet` bucket — the same one every other
+  fleet-owned overlay (warship/freighter glyphs, the Escort route) already
+  uses, so there's no new filter category to toggle separately.
+
+Tests: `starmap.test.js` (+4 checks).
+
 ## Roadmap (risk-ordered, not narrative-ordered)
-None — all ten brainstormed slices are shipped. Bigger, replayable maps
+None — all eleven brainstormed slices are shipped. Bigger, replayable maps
 (frontier ring, core variance), real geography (lane graph, starmap),
 deeper exploration (probe/richer signals), a shareable Sector Code, a
 legible strategic layer (fleet presence, fleet-sourced intel, faction
 control, display filters), a starmap that reads as a living view (names,
 fleet/pirate glyphs, slow drift, convoy routes), the player's own
-infrastructure made visible and filterable, and an interactive pan/zoom
-camera are all in. Anything past this would be new brainstorming, not
-backlog.
+infrastructure made visible and filterable, an interactive pan/zoom
+camera, and live tanker convoy routes are all in. Anything past this
+would be new brainstorming, not backlog.

@@ -120,10 +120,14 @@ order.
 The ✦ Fleet tab builds three families of hull at a colony **Shipyard** (or a
 base's smaller **Small Shipyard** for the lightest tiers): **freighters**
 haul goods, **warships** fight or work system missions, and **🛢️ tankers**
-run fuel on their own. A tanker is genuinely slow, so dispatching one is a
-background **Tanker Run**, not an instant trip — it loads fuel from wherever
-it's docked and takes several cycles to reach a far world, topping up a
-colony/base's storage or selling at a foreign market on arrival. The whole
+run fuel on their own. A tanker's onboard cargo can be topped off ahead of
+time with the roster's **⬆️⛽ Load** button (base first, then colony) and
+drained with **⬇️⛽ Unload** (your own tank first, then the base, then the
+colony, selling whatever's left) — handy for staging fuel before a run or
+reclaiming it without one. A tanker is genuinely slow, so dispatching one is
+a background **Tanker Run**, not an instant trip — it tops off whatever's
+already loaded and takes several cycles to reach a far world, delivering to
+a colony/base's storage or selling at a foreign market on arrival. The whole
 way there it risks a pirate ambush (an escorting warship cuts the odds) and,
 if you're **Wanted**, a navy interception that confiscates the cargo outright.
 
@@ -278,10 +282,12 @@ own warships/freighters, and the whole layout **drifts slowly, cycle over
 cycle** — no orbital mechanics, just dark matter, probably. An active convoy
 run draws its own dashed route between origin and destination (multi-leg
 progress shown as a 🚚 marker sliding along it), which flips to a bright,
-alarmed 💥 the moment an ambush actually lands. It's interactive too: 🔍+/🔍−
-and directional pan buttons (or just the mouse wheel over the map) let you
-zoom into a crowded cluster or a single world's neighborhood, with a
-↺ Reset view button to snap straight back to the full sector.
+alarmed 💥 the moment an ambush actually lands. Any 🛢️ tanker out on a fuel
+run gets its own dotted route too, tracking its live progress toward
+delivery. It's interactive too: 🔍+/🔍− and directional pan buttons (or just
+the mouse wheel over the map) let you zoom into a crowded cluster or a
+single world's neighborhood, with a ↺ Reset view button to snap straight
+back to the full sector.
 
 ## 🏛️ Politics, factions & trade law (the deep end)
 
