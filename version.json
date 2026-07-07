@@ -1,5 +1,5 @@
 {
-  "version": "2.101.0",
+  "version": "2.101.1",
   "saveVersion": "v2",
-  "notes": "New: 🛢️ Tankers — a slow, 4-size hull family that hauls fuel on background multi-cycle runs, risking piracy and (if you're Wanted) navy interception along the way."
+  "notes": "New: the Starmap tracks any Tanker Run in progress with its own dotted route and a live progress marker."
 }

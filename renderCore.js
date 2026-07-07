@@ -342,6 +342,22 @@ function renderStarmap(known) {
       convoy += `<text x="${mx}" y="${my + 4}" text-anchor="middle" font-size="${ambush ? 15 : 11}"><title>${ambush ? "Ambush! The convoy is under attack" : `Convoy under way — leg ${m.legs - m.legsLeft}/${m.legs}`}</title>${ambush ? "💥" : "🚚"}</text>`;
     }
   }
+  // tanker convoy routes: every ship out on a Tanker Run (fleet.js, s.status === "tanker_run" &&
+  // s.run) draws its own dotted line from its home to its destination — a distinct dash pattern
+  // from the Escort convoy's dashed line above, since it's a different kind of journey (unattended,
+  // no live combat state to flash into an alarm the way an escort ambush does). Several can be in
+  // flight at once, unlike the Escort tab's single active contract.
+  let tankerRoutes = '';
+  if (filters.fleet) {
+    fleetList().filter(s => s.status === "tanker_run" && s.run).forEach(s => {
+      const r = s.run, a = pos[s.home], b = pos[r.to];
+      if (!a || !b) return;
+      const t = Math.max(0, Math.min(1, (r.totalCycles - r.cyclesLeft) / r.totalCycles));
+      const mx = a.x + (b.x - a.x) * t, my = a.y + (b.y - a.y) * t;
+      tankerRoutes += `<line x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="1,3" stroke-linecap="round" opacity="0.75"/>`;
+      tankerRoutes += `<text x="${mx}" y="${my + 4}" text-anchor="middle" font-size="11"><title>${s.name} running ${r.fuel} fuel to ${mdPlanetName(r.to)} — ${r.cyclesLeft}/${r.totalCycles} cycle(s) left</title>🛢️</text>`;
+    });
+  }
   const showFactions = filters.factions;
   let nodes = '';
   known.forEach(p => {
@@ -385,8 +401,8 @@ function renderStarmap(known) {
   return `<div class="card" style="overflow:auto">
     <h4>🗺️ Starmap</h4>
     ${controls}
-    <svg viewBox="${view.x} ${view.y} ${view.w} ${view.h}" style="width:100%;height:auto;min-height:160px" preserveAspectRatio="xMidYMid meet" onwheel="starmapWheel(event)">${edges}${convoy}${nodes}</svg>
-    <div class="hint">Lines are the direct hyperlanes/routes on your ship's own charts — the bright ones touch wherever you're standing. Click a world to travel, or scroll/use the controls above to zoom &amp; pan. The sector drifts a little every cycle — dark matter, probably.</div>
+    <svg viewBox="${view.x} ${view.y} ${view.w} ${view.h}" style="width:100%;height:auto;min-height:160px" preserveAspectRatio="xMidYMid meet" onwheel="starmapWheel(event)">${edges}${convoy}${tankerRoutes}${nodes}</svg>
+    <div class="hint">Lines are the direct hyperlanes/routes on your ship's own charts — the bright ones touch wherever you're standing. A dotted 🛢️ line tracks any Tanker Run in progress. Click a world to travel, or scroll/use the controls above to zoom &amp; pan. The sector drifts a little every cycle — dark matter, probably.</div>
   </div>`;
 }
 function renderGalaxy() {
