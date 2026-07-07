@@ -9,10 +9,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-      - run: node --check game.js
+          node-version: ${{ matrix.node }}
+      # syntax-check every script and test file, not just game.js
+      - run: git ls-files '*.js' | xargs -n1 node --check
       - run: npm test
