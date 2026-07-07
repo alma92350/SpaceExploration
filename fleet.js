@@ -1,22 +1,27 @@
 /* ============================================================
    STELLAR FRONTIER — player fleet
-   Ships built at colony shipyards (freighters & warships), fully under
-   the player's command: ordering/scrapping/repairing hulls, calling ships
-   into a raid as allies, the raid Battle Group (posture, tactical
+   Ships built at colony shipyards (freighters, tankers & warships), fully
+   under the player's command: ordering/scrapping/repairing hulls, calling
+   ships into a raid as allies, the raid Battle Group (posture, tactical
    formation tiers, firepower/damage), stationing freighters and their
    warship escorts on logistics duty at a colony (convoy ambushes and
-   all), and dispatching warships on system missions (the player-owned
-   mirror of a band Mandate). renderFleet() and its session-only UI form
-   state (fleetMissionForm, fleetLogiForm) stay in game.js — they move
-   with the rest of the render* functions in the eventual rendering
-   slice, same as every render function so far.
+   all), dispatching warships on system missions (the player-owned mirror
+   of a band Mandate), and dispatching tankers on autonomous, multi-cycle
+   Tanker Runs to haul fuel between worlds (slow by design — see
+   fleetShipSpeed/tankerRunCycles — and exposed to piracy/authority-
+   interception risk the whole way, damped by any escorting warships).
+   renderFleet() and its session-only UI form state (fleetMissionForm,
+   fleetLogiForm) stay in game.js — they move with the rest of the
+   render* functions in the eventual rendering slice, same as every
+   render function so far.
 
    Loaded after colonization.js, before game.js. combatLocked, fmt, log,
    addRep, digestNote, mdPlanetName, cycleLedger, commissionCovers,
-   clampPirate, pirateLevel, mandateCycleYield, MANDATE_TASKS, saveGame
-   and renderAll still live in other files/game.js at this point in the
-   split — safe, since every function here is only CALLED later, once
-   every script has finished loading, same pattern as every prior slice.
+   clampPirate, pirateLevel, mandateCycleYield, MANDATE_TASKS, galaxyKnown,
+   sellPrice, saveGame and renderAll still live in other files/game.js at
+   this point in the split — safe, since every function here is only
+   CALLED later, once every script has finished loading, same pattern as
+   every prior slice.
    ============================================================ */
 
 "use strict";
@@ -37,6 +42,14 @@ const FLEET_SHIPS = {
   med_freighter:   { role: "freighter", cls: "frigate",    name: "Medium Freighter", ico: "🚛", tier: 2, build: 3, cap: 240, cost: { credits: 5000,  metals: 60,  electronics: 6,  radioactives: 12, ai: 2 } },
   heavy_freighter: { role: "freighter", cls: "cruiser",    name: "Heavy Freighter",  ico: "🚍", tier: 3, build: 5, cap: 420, cost: { credits: 9000,  metals: 110, electronics: 14, radioactives: 20, ai: 4 } },
   bulk_freighter:  { role: "freighter", cls: "battleship", name: "Bulk Hauler",      ico: "🛳️", tier: 4, build: 7, cap: 700, cost: { credits: 16000, metals: 200, alloys: 20, electronics: 24, radioactives: 32, ai: 7 } },
+  // ---- tankers (fuel-hauling specialists; weak guns like freighters, but SLOW —
+  // `speed` is a 0-1 multiplier only this family carries, read via fleetShipSpeed().
+  // Built and repaired exactly like any other hull; their own Tanker Run duty
+  // (below) is what makes their speed matter, not construction or upkeep ----
+  tanker_coastal: { role: "tanker", cls: "corvette",   name: "Coastal Tanker",     ico: "🛢️", tier: 1, build: 2, cap: 160, speed: 0.75, cost: { credits: 2200,  metals: 26,  radioactives: 10 } },
+  tanker_medium:  { role: "tanker", cls: "frigate",    name: "Medium Tanker",      ico: "🚢", tier: 2, build: 3, cap: 320, speed: 0.60, cost: { credits: 4500,  metals: 52,  electronics: 5,  radioactives: 20, ai: 2 } },
+  tanker_super:   { role: "tanker", cls: "cruiser",    name: "Super Tanker",       ico: "🛳️", tier: 3, build: 5, cap: 560, speed: 0.48, cost: { credits: 8200,  metals: 95,  electronics: 12, radioactives: 34, ai: 4 } },
+  tanker_ultra:   { role: "tanker", cls: "battleship", name: "Ultra-Large Tanker", ico: "🚛", tier: 4, build: 7, cap: 900, speed: 0.38, cost: { credits: 14500, metals: 175, alloys: 16, electronics: 20, radioactives: 54, ai: 7 } },
   // ---- warships (defense; combat stats from SHIP_CLASSES) ----
   corvette:   { role: "warship", cls: "corvette",   name: "Corvette",   ico: "🚤", tier: 1, build: 2, cost: { credits: 3500,  metals: 40,  electronics: 6,  radioactives: 8,  weapons: 3,  drones: 2 } },
   frigate:    { role: "warship", cls: "frigate",    name: "Frigate",    ico: "🚢", tier: 2, build: 3, cost: { credits: 7000,  metals: 80,  electronics: 14, radioactives: 15, weapons: 6,  drones: 3,  ai: 3 } },
@@ -45,9 +58,11 @@ const FLEET_SHIPS = {
 };
 const FLEET_SHIP_KEYS = Object.keys(FLEET_SHIPS);
 function fleetList() { if (!Array.isArray(S.fleet)) S.fleet = []; return S.fleet; }
-function fleetShipHullMax(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return def.role === "freighter" ? Math.round(FLEET_HULL_BASE * 0.7 + (def.cap || 0) * 0.08) : Math.round(FLEET_HULL_BASE * c.hull); }
-function fleetShipStr(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return def.role === "freighter" ? Math.round(FLEET_FP_BASE * c.str * 0.35) : Math.round(FLEET_FP_BASE * c.str); }
-function fleetShipUpkeep(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return def.role === "freighter" ? Math.round(15 + (def.cap || 0) * 0.06) : Math.round(40 * c.str); }
+function fleetIsHauler(def) { return def.role === "freighter" || def.role === "tanker"; }   // both are cargo hulls with weak guns, scaled off cap not combat class
+function fleetShipSpeed(def) { return def.speed != null ? def.speed : 1; }   // only tankers are slower than full speed
+function fleetShipHullMax(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsHauler(def) ? Math.round(FLEET_HULL_BASE * 0.7 + (def.cap || 0) * 0.08) : Math.round(FLEET_HULL_BASE * c.hull); }
+function fleetShipStr(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsHauler(def) ? Math.round(FLEET_FP_BASE * c.str * 0.35) : Math.round(FLEET_FP_BASE * c.str); }
+function fleetShipUpkeep(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsHauler(def) ? Math.round(15 + (def.cap || 0) * 0.06) : Math.round(40 * c.str); }
 function fleetUpkeep() { return fleetList().filter(s => s.status !== "building").reduce((sum, s) => sum + (FLEET_SHIPS[s.key] ? fleetShipUpkeep(FLEET_SHIPS[s.key]) : 0), 0); }
 function colonyShipyardTier(pid) { const col = S.colonies && S.colonies[pid]; return (col && col.buildings && col.buildings.shipyard) || 0; }
 // a base's Small Shipyard module — a colony's full-range Shipyard always takes
@@ -115,7 +130,7 @@ function scrapRefundPct() { return baseShipyardTier(S.location) >= 2 ? SCRAP_REC
 function scrapShip(id) {
   const i = fleetList().findIndex(s => s.id === id); if (i < 0) return;
   const s = fleetList()[i], def = FLEET_SHIPS[s.key];
-  if (s.status === "mission" || s.status === "escort" || s.status === "logistics" || s.status === "convoy" || s.status === "patrol") return toast("That ship is on duty — recall it first.", "bad");
+  if (s.status === "mission" || s.status === "escort" || s.status === "logistics" || s.status === "convoy" || s.status === "patrol" || s.status === "tanker_run") return toast("That ship is on duty — recall it first.", "bad");
   const pct = scrapRefundPct(), bonus = pct > SCRAP_REFUND_PCT;
   const refund = def ? Math.round((def.cost.metals || 0) * pct) : 0;
   if (typeof confirm === "function"
@@ -384,6 +399,112 @@ function processConvoys() {       // pirate ambushes on your stationed freighter
   });
   if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
 }
+// ---- Tanker Runs: dispatch an idle tanker on an autonomous, multi-cycle fuel-hauling
+// run to another world — the tanker-family mirror of a warship's fleet mission
+// (assignFleetMission, below), but hauling FUEL instead of working a mandate task, and
+// taking several cycles to arrive because tankers are genuinely slow (fleetShipSpeed).
+// Escorting warships (chosen at dispatch, from the tanker's own home world) ride along
+// and damp the piracy risk every cycle, same shape processConvoys already uses for
+// stationed guards. Authority interception is a separate risk, gated on Wanted — a
+// seizure, not a firefight, so it costs cargo/credits/rep rather than hull. ----
+const TANKER_RUN_MIN_CYCLES = 2, TANKER_RUN_MAX_CYCLES = 12;
+function tankerRunCycles(dist, speed) { return Math.max(TANKER_RUN_MIN_CYCLES, Math.min(TANKER_RUN_MAX_CYCLES, Math.round((dist || 6) / (3 * (speed || 1))))); }
+function tankerRunGuards(s) { return ((s.run && s.run.escorts) || []).filter(id => fleetList().some(x => x.id === id && x.status === "tanker_run")).length; }
+function assignTankerRun(shipId, destId, escortIds) {
+  const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
+  if (!s || !def || def.role !== "tanker") return toast("Only tankers can run fuel.", "bad");
+  if (s.status !== "idle") return toast(`The ${s.name} isn't free.`, "bad");
+  const dest = PLANETS.find(p => p.id === destId);
+  if (!dest || !isActive(dest) || destId === s.home || !galaxyKnown(dest)) return toast("Pick a known destination.", "bad");
+  const home = PLANETS.find(p => p.id === s.home);
+  const dist = (home && home.distances && home.distances[destId]) || 6;
+  const cap = shipCargoCap(s);
+  const local = shipyardLocalStorage(s.home);
+  const fuel = Math.min(cap, ((local && local.fuel) || 0) + (S.res.fuel || 0));
+  if (fuel <= 0) return toast("No fuel available to load — stock some at the tanker's home first.", "bad");
+  payMats({ fuel }, local);
+  const escorts = [];
+  (Array.isArray(escortIds) ? escortIds : []).forEach(id => {
+    const w = fleetList().find(x => x.id === id), wd = w && FLEET_SHIPS[w.key];
+    if (!w || !wd || wd.role !== "warship" || w.status !== "idle" || w.home !== s.home) return;
+    w.status = "tanker_run"; w.escortFor = shipId; escorts.push(id);
+  });
+  const speed = fleetShipSpeed(def), cycles = tankerRunCycles(dist, speed);
+  s.status = "tanker_run"; s.run = { to: destId, dist, totalCycles: cycles, cyclesLeft: cycles, fuel, escorts };
+  log(`⛽ Your ${def.ico} ${s.name} casts off for <span class="c">${dest.name}</span> with ${fuel} fuel — ${cycles} cycle(s), ${escorts.length ? `escorted by ${escorts.length} warship(s)` : "unescorted"}.`, "event");
+  toast(`${s.name} → ${dest.name} (${cycles} cyc)`, "good"); sfx("event"); saveGame(); renderAll();
+}
+function recallTankerRun(shipId) {
+  const s = fleetList().find(x => x.id === shipId); if (!s || s.status !== "tanker_run" || !s.run) return;
+  if (s.run.cyclesLeft !== s.run.totalCycles) return toast(`The ${s.name} has already cleared port — it can't turn back now.`, "bad");
+  const local = shipyardLocalStorage(s.home);
+  if (local) local.fuel = (local.fuel || 0) + s.run.fuel; else S.res.fuel = (S.res.fuel || 0) + s.run.fuel;
+  (s.run.escorts || []).forEach(id => { const w = fleetList().find(x => x.id === id); if (w) { w.status = "idle"; w.escortFor = null; } });
+  s.status = "idle"; s.run = null;
+  log(`⛽ Recalled the ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name} before it cleared port — fuel refunded.`, "");
+  toast(`${s.name} recalled`, ""); saveGame(); renderAll();
+}
+function tankerRunPirateRisk(s) {
+  const r = s.run, def = FLEET_SHIPS[s.key];
+  const lvl = Math.max(pirateLevel(r.to), pirateLevel(s.home));
+  if (lvl <= 0) return;
+  const guards = tankerRunGuards(s);
+  const chance = (0.05 + lvl * 0.04) * Math.pow(0.45, guards);
+  if (Math.random() >= chance) return;
+  const dmg = Math.round(lvl * 6 * (0.5 + Math.random()) / (1 + guards));
+  const loss = Math.min(r.fuel, Math.round(r.fuel * 0.25 * (0.5 + Math.random()) / (1 + guards)));
+  s.hull = Math.max(0, s.hull - dmg); r.fuel -= loss;
+  const name = mdPlanetName(r.to);
+  if (s.hull <= 0) {
+    s._dead = true;
+    (r.escorts || []).forEach(id => { const w = fleetList().find(x => x.id === id); if (w) { w.status = "idle"; w.escortFor = null; } });
+    log(`💥 Pirates destroyed your ${def.ico} ${s.name} running fuel toward ${name} — the whole cargo lost with it.`, "bad");
+    if (typeof toast === "function") toast(`${s.name} lost to pirates!`, "bad");
+    digestNote("threats", `${s.name} lost at ${name}`);
+  } else {
+    log(`🏴‍☠️ Pirates ambushed your tanker run toward ${name} — ${s.name} took ${dmg} damage${loss ? ` and lost ${loss} fuel` : ""}${guards ? " (your escort drove them off)" : " — pair it with a warship escort"}.`, "bad");
+    digestNote("threats", `tanker run ambushed nearing ${name}`);
+  }
+}
+function tankerRunInterceptRisk(s) {
+  if ((S.pirate.wanted || 0) < 25) return;
+  const r = s.run, dest = PLANETS.find(p => p.id === r.to); if (!dest) return;
+  const chance = (S.pirate.wanted / 100) * dest.enforce * 0.5;
+  if (Math.random() >= chance || r.fuel <= 0) return;
+  const seized = r.fuel; r.fuel = 0;
+  const fine = Math.min(S.res.credits || 0, Math.round(seized * COM.fuel.base * 0.3) + 100);
+  S.res.credits -= fine; addRep(dest.faction, -4);
+  log(`🚨 Customs intercepted your ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name} nearing ${mdPlanetName(r.to)} — ${seized} fuel confiscated, fined ${fmt(fine)} cr. Your Wanted status made it a target.`, "bad");
+  if (typeof toast === "function") toast(`${s.name}: fuel seized!`, "bad");
+}
+function tankerRunDeliver(s) {
+  const r = s.run, def = FLEET_SHIPS[s.key], dest = PLANETS.find(p => p.id === r.to);
+  const owned = (S.colonies && S.colonies[r.to]) || (S.bases && S.bases[r.to]);
+  if (owned) {
+    owned.storage.fuel = (owned.storage.fuel || 0) + r.fuel;
+    log(`⛽ Your ${def.ico} ${s.name} delivered ${r.fuel} fuel to ${dest.name}'s storage.`, "good");
+    toast(`${s.name}: delivered ${r.fuel} fuel`, "good");
+  } else {
+    const pay = Math.round(r.fuel * sellPrice(r.to, "fuel"));
+    S.res.credits += pay;
+    log(`⛽ Your ${def.ico} ${s.name} sold ${r.fuel} fuel at ${dest.name} for ${fmt(pay)} cr.`, "good");
+    toast(`${s.name}: +${fmt(pay)} cr`, "good");
+  }
+  digestNote("arrivals", `${s.name} completed a tanker run to ${dest.name}`);
+  (r.escorts || []).forEach(id => { const w = fleetList().find(x => x.id === id); if (w) { w.status = "idle"; w.escortFor = null; w.home = r.to; } });
+  s.status = "idle"; s.home = r.to; s.run = null;
+}
+function processTankerRuns() {
+  const runs = fleetList().filter(s => s.status === "tanker_run" && s.run);
+  runs.forEach(s => {
+    tankerRunPirateRisk(s);
+    if (s._dead || s.status !== "tanker_run") return;
+    tankerRunInterceptRisk(s);
+    if (s.status !== "tanker_run") return;
+    if (--s.run.cyclesLeft <= 0) tankerRunDeliver(s);
+  });
+  if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
+}
 // ---- personal convoy: freighters ride WITH you on every jump, extending your OWN
 // cargo hold on the road; warships (and any pirate bands riding with you) escort
 // them, damping travel-ambush odds and softening any ambush that slips through
@@ -504,6 +625,7 @@ function processFleet() {
   });
   if (f.some(s => s._dead)) S.fleet = f.filter(s => !s._dead);
   processConvoys();
+  processTankerRuns();
   const up = fleetUpkeep();
   if (up > 0) { const paid = Math.min(S.res.credits || 0, up); S.res.credits -= paid; if (typeof cycleLedger === "function") cycleLedger("fleet upkeep", -paid); if (paid < up) log(`⚠️ You couldn't fully cover fleet upkeep (${fmt(up)} cr) — crews grumble.`, "bad"); }
 }

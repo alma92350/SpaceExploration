@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.100.0";
+const APP_VERSION = "2.101.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.101.0", notes: "New: 🛢️ Tankers — a 4-size hull family built at any Shipyard (only the two smallest at a base Small Shipyard) whose job is hauling fuel. They're genuinely slow, so dispatching one is a background Tanker Run: it loads fuel from wherever it's docked and takes several cycles to reach a far world, topping up a colony/base's storage or selling at a foreign market on arrival. Pirates can ambush the run the whole way there (an escorting warship cuts the odds), and if you're Wanted, a navy patrol can intercept it and confiscate the cargo outright." },
   { version: "2.100.0", notes: "New: the 🗺️ Starmap is now interactive — zoom in/out and pan with on-screen controls or the mouse wheel to pick apart a crowded cluster instead of squinting at the full sector at once. Purely a viewing aid: nothing about the map's contents changes, and ↺ Reset view snaps straight back to the familiar full view." },
   { version: "2.99.1", notes: "New: your own 🌍 colonies, 🏰 bases, and 🏗️ Shipyards now get their own pills and Starmap glyphs, plus a new Settlements filter to show or hide them — a base in particular had no map indication at all before this." },
   { version: "2.99.0", notes: "New: the 🗺️ Starmap comes alive — every world is labeled by name, carries 🏴/⚔️/📦 glyphs for pirate activity and your own warships/freighters, and the whole layout drifts slowly over the cycles (dark matter, probably — no orbital mechanics here). An active convoy run draws its own dashed route with a progress marker, which flashes into an alarm the moment an ambush lands." },
@@ -749,6 +750,7 @@ Object.assign(window, {
   commissionMandate, cancelMandate, setMandateField, reconcileBands, brokerTruce,
   orderShip, scrapShip, repairFleetShip, reassignShipyard, upgradeLoadout, assignFleetMission, recallFleetMission, setFleetMissionField, raidSummonFleet, escortRallyFleet,
   assignLogistics, recallLogistics, setFleetLogiField, assignPatrol, recallPatrol,
+  assignTankerRun, recallTankerRun, setTankerRunField, toggleTankerEscort,
   deployBattleGroup, recallBattleGroup, setBattleGroupPosture, setBattleGroupFormation,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand, setEscortFormation,
   giftBandCredits, giftBandCargo,

@@ -26,6 +26,13 @@ let fleetMissionForm = { ship: null, planet: null, task: "cull", dur: 6 };
 function setFleetMissionField(k, v) { fleetMissionForm[k] = (k === "dur") ? (parseInt(v, 10) || 6) : v; renderFleet(); }
 let fleetLogiForm = { planet: null };
 function setFleetLogiField(k, v) { fleetLogiForm[k] = v; renderFleet(); }
+let tankerRunForm = { ship: null, planet: null, escorts: [] };
+function setTankerRunField(k, v) { tankerRunForm[k] = v; renderFleet(); }
+function toggleTankerEscort(id) {
+  const at = tankerRunForm.escorts.indexOf(id);
+  if (at >= 0) tankerRunForm.escorts.splice(at, 1); else tankerRunForm.escorts.push(id);
+  renderFleet();
+}
 function renderFleet() {
   const el = (typeof document !== "undefined") && document.getElementById("panel-fleet"); if (!el) return;
   const f = fleetList(), pid = S.location, yard = shipyardTierAt(pid), baseYard = baseShipyardTier(pid);
@@ -38,9 +45,12 @@ function renderFleet() {
       const def = FLEET_SHIPS[s.key]; if (!def) return "";
       const homeName = (PLANETS.find(p => p.id === s.home) || {}).name || "—", here = s.home === pid && yard > 0, rc = fleetRepairCost(s);
       const onMission = s.status === "mission" && s.mission, onLogi = s.status === "logistics", onConvoy = s.status === "convoy", onPatrol = s.status === "patrol";
+      const onRun = s.status === "tanker_run" && s.run, onRunEscort = s.status === "tanker_run" && s.escortFor;
       const status = s.status === "building" ? `<span style="color:var(--warn)">🏗️ building (${s.buildLeft} cyc)</span>`
         : onMission ? `<span style="color:var(--accent)">🎯 ${MANDATE_TASKS[s.mission.task].name} @ ${mdPlanetName(s.mission.planet)} (${s.mission.cyclesLeft} cyc · +${fmt(s.mission.accrued)} cr)</span>`
         : s.status === "escort" ? `<span style="color:var(--accent)">🛡️ escorting a convoy</span>`
+        : onRun ? `<span style="color:var(--accent)">⛽ running ${s.run.fuel} fuel to ${mdPlanetName(s.run.to)} (${s.run.cyclesLeft}/${s.run.totalCycles} cyc)</span>`
+        : onRunEscort ? `<span style="color:var(--accent)">🛡️ escorting a tanker run</span>`
         : onLogi ? `<span style="color:var(--accent)">${def.role === "freighter" ? "🚚 hauling for" : "🛡️ guarding"} ${mdPlanetName(s.station)}</span>`
         : onConvoy ? `<span style="color:var(--accent)">🚚 riding in your personal convoy</span>`
         : onPatrol ? `<span style="color:var(--accent-2)">🛰️ following you</span>`
@@ -55,11 +65,12 @@ function renderFleet() {
       const patrolBtn = canPatrol ? `<button class="btn btn-sm" title="Follow you — on call for raids anywhere (2-ally summon or Battle Group) until recalled" onclick="assignPatrol('${s.id}')">🛰️ Follow me</button>` : "";
       const scrapPct = scrapRefundPct(), scrapBonusOn = scrapPct > SCRAP_REFUND_PCT, scrapRefund = Math.round((def.cost.metals || 0) * scrapPct);
       const ctlBtn = onMission ? `<button class="btn btn-sm" title="Recall — bank what it's earned" onclick="recallFleetMission('${s.id}')">↩ Recall</button>`
+        : (onRun && s.run.cyclesLeft === s.run.totalCycles) ? `<button class="btn btn-sm" title="Turn back before clearing port — fuel refunded" onclick="recallTankerRun('${s.id}')">↩ Recall</button>`
         : onLogi ? `<button class="btn btn-sm" title="Recall from logistics duty" onclick="recallLogistics('${s.id}')">↩ Recall</button>`
         : onConvoy ? `<button class="btn btn-sm" title="Recall from your convoy" onclick="recallConvoy('${s.id}')">↩ Recall</button>`
         : onPatrol ? `<button class="btn btn-sm" title="Stop following you" onclick="recallPatrol('${s.id}')">↩ Recall</button>`
-        : s.status === "building" || s.status === "escort" ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvages ${scrapRefund} metals${scrapBonusOn ? " — recycling bonus" : ""})" onclick="scrapShip('${s.id}')">♻️ ${scrapRefund}${scrapBonusOn ? "✦" : ""}</button>`;
-      const spec = def.role === "warship" ? `🔥${shipStrEff(s)} · 🛡️${s.hullMax}` : `📦${shipCargoCap(s)} cargo`;
+        : s.status === "building" || s.status === "escort" || onRun || onRunEscort ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvages ${scrapRefund} metals${scrapBonusOn ? " — recycling bonus" : ""})" onclick="scrapShip('${s.id}')">♻️ ${scrapRefund}${scrapBonusOn ? "✦" : ""}</button>`;
+      const spec = def.role === "warship" ? `🔥${shipStrEff(s)} · 🛡️${s.hullMax}` : def.role === "tanker" ? `⛽${shipCargoCap(s)} · 🐌${Math.round(fleetShipSpeed(def) * 100)}%` : `📦${shipCargoCap(s)} cargo`;
       // ---- Small Shipyard customization: commit an idle hull to a Cargo or Combat
       // lean, up to 3 levels, only while docked at its home base's Small Shipyard ----
       const lvl = s.loadoutLevel || 0, maxed = lvl >= LOADOUT_MAX_LEVEL;
@@ -81,8 +92,9 @@ function renderFleet() {
     };
     const warships = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
     const freighters = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
+    const tankers = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "tanker");
     body = `<div class="card"><h4>✦ Your Fleet <span class="hint">${f.length} ship(s) · upkeep ${fmt(fleetUpkeep())} cr/cyc</span></h4>
-      ${f.length ? `${warships.length ? `<div class="ship-stat"><span class="k">⚔️ Warships</span></div>${warships.map(shipRow).join("")}` : ""}${freighters.length ? `<div class="ship-stat" style="margin-top:6px"><span class="k">🚚 Freighters</span></div>${freighters.map(shipRow).join("")}` : ""}` : '<div class="hint">No ships yet — lay down a hull in the 🏗️ Shipyard tab.</div>'}</div>`;
+      ${f.length ? `${warships.length ? `<div class="ship-stat"><span class="k">⚔️ Warships</span></div>${warships.map(shipRow).join("")}` : ""}${freighters.length ? `<div class="ship-stat" style="margin-top:6px"><span class="k">🚚 Freighters</span></div>${freighters.map(shipRow).join("")}` : ""}${tankers.length ? `<div class="ship-stat" style="margin-top:6px"><span class="k">⛽ Tankers</span></div>${tankers.map(shipRow).join("")}` : ""}` : '<div class="hint">No ships yet — lay down a hull in the 🏗️ Shipyard tab.</div>'}</div>`;
   } else if (view === "assign") {
     // ---- dispatch an idle warship on a system mission (100% of the take) ----
     const idleWar = f.filter(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
@@ -160,7 +172,43 @@ function renderFleet() {
         ${idleWarHere.length ? `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Add warship</span> ${warBtns}</div>` : ""}
         ${!idleFrHere.length && !idleWarHere.length && !inConvoy.length ? '<div class="hint" style="margin-top:6px">No idle ships docked here — build one, or fly to where an idle ship of yours is stationed.</div>' : ""}</div>`;
     }
-    body = `${missionCard}${logiCard}${convoyCard}${!missionCard && !logiCard && !convoyCard ? '<div class="card"><div class="hint">No idle warships to dispatch, no colonies yet to station freighters at, and no idle ships docked here for a convoy. Build a ship in the 🏗️ Shipyard tab, or found a colony first.</div></div>' : ""}`;
+    // ---- Tanker Runs: dispatch an idle tanker on an autonomous, multi-cycle fuel-hauling run ----
+    const idleTankers = f.filter(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "tanker");
+    let tankerCard = "";
+    if (idleTankers.length) {
+      const tf = tankerRunForm;
+      if (!tf.ship || !idleTankers.some(s => s.id === tf.ship)) { tf.ship = idleTankers[0].id; tf.escorts = []; }
+      const ship = fleetList().find(x => x.id === tf.ship);
+      const home = PLANETS.find(p => p.id === ship.home);
+      const known = PLANETS.filter(p => isActive(p) && galaxyKnown(p) && p.id !== ship.home);
+      if (!tf.planet || !known.some(p => p.id === tf.planet)) tf.planet = known.length ? known[0].id : null;
+      const shipOpts = idleTankers.map(x => `<option value="${x.id}" ${x.id === tf.ship ? "selected" : ""}>${FLEET_SHIPS[x.key].ico} ${x.name} (⚓ ${mdPlanetName(x.home)})</option>`).join("");
+      const planetOpts = known.map(p => `<option value="${p.id}" ${p.id === tf.planet ? "selected" : ""}>${p.name} · ${pirateIntelKnows(p.id) ? pirateLevelLabel(pirateLevel(p.id)) : "activity ❔"}</option>`).join("");
+      const idleWarHome = f.filter(s => s.status === "idle" && s.home === ship.home && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
+      tf.escorts = tf.escorts.filter(id => idleWarHome.some(s => s.id === id));
+      const escortBtns = idleWarHome.map(s => `<button class="btn btn-sm ${tf.escorts.includes(s.id) ? "btn-primary" : ""}" onclick="toggleTankerEscort('${s.id}')">🛡️ ${s.name}</button>`).join(" ");
+      const dist = tf.planet ? ((home && home.distances && home.distances[tf.planet]) || 6) : 0;
+      const speed = fleetShipSpeed(FLEET_SHIPS[ship.key]);
+      const cycles = tf.planet ? tankerRunCycles(dist, speed) : 0;
+      const cap = shipCargoCap(ship);
+      const local = shipyardLocalStorage(ship.home);
+      const avail = Math.min(cap, ((local && local.fuel) || 0) + (S.res.fuel || 0));
+      const destPlanet = tf.planet && PLANETS.find(p => p.id === tf.planet);
+      const risk = tf.planet ? Math.round((0.05 + Math.max(pirateLevel(tf.planet), pirateLevel(ship.home)) * 0.04) * Math.pow(0.45, tf.escorts.length) * 100) : 0;
+      const escortArgs = `[${tf.escorts.map(id => `'${id}'`).join(",")}]`;
+      tankerCard = `<div class="card"><h4>⛽ Dispatch a tanker run</h4>
+        <div class="hint">Send an idle tanker to haul fuel to another world on its own — it loads fuel from its home's stockpile (then your hold), and takes several cycles to arrive since tankers are slow by design. Delivering to one of your own colonies/bases tops up its storage; anywhere else, the fuel is sold at the local market. The trip risks a pirate ambush (damage &amp; lost fuel — an escorting warship cuts the odds) and, if you're Wanted, a navy interception that confiscates the cargo outright.</div>
+        <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;align-items:center">
+          <span class="hint">Tanker</span><select onchange="setTankerRunField('ship',this.value)">${shipOpts}</select>
+          <span class="hint">Destination</span><select onchange="setTankerRunField('planet',this.value)">${planetOpts}</select></div>
+        ${idleWarHome.length ? `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Escort (from the same home port)</span> ${escortBtns}</div>` : ""}
+        <div class="ship-stat" style="margin-top:8px"><span class="k">Load</span><span class="v">${avail} fuel ⛽ · ${cycles} cycle(s)${destPlanet ? ` to ${destPlanet.name}` : ""}</span></div>
+        ${tf.planet ? `<div class="ship-stat"><span class="k">Piracy risk</span><span class="v" style="color:${risk >= 15 ? "var(--bad)" : risk > 0 ? "var(--warn)" : "var(--good)"}">${risk}%/cyc${tf.escorts.length ? " (escorted)" : ""}</span></div>` : ""}
+        ${(S.pirate && S.pirate.wanted >= 25) ? `<div class="hint" style="color:var(--bad)">⚠️ You're Wanted — lawful worlds may intercept the run and confiscate its cargo.</div>` : ""}
+        <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${tf.planet && avail > 0 ? "" : "disabled"} onclick="assignTankerRun('${tf.ship}','${tf.planet}',${escortArgs})">⛽ Dispatch (${cycles} cyc)</button></div>
+      </div>`;
+    }
+    body = `${missionCard}${logiCard}${convoyCard}${tankerCard}${!missionCard && !logiCard && !convoyCard && !tankerCard ? '<div class="card"><div class="hint">No idle warships to dispatch, no colonies yet to station freighters at, no idle ships docked here for a convoy, and no idle tankers for a fuel run. Build a ship in the 🏗️ Shipyard tab, or found a colony first.</div></div>' : ""}`;
   } else {
     let yardCard;
     if (yard <= 0) {
@@ -172,7 +220,7 @@ function renderFleet() {
       const rows = FLEET_SHIP_KEYS.filter(k => FLEET_SHIPS[k].tier <= yard).map(k => {
         const d = FLEET_SHIPS[k], mats = fleetMatsOf(d), matStr = fleetMatsString(mats, local);
         const ok = (S.res.credits || 0) >= d.cost.credits && canAffordMats(mats, local) && slips < yard;
-        const spec = d.role === "warship" ? `🔥${fleetShipStr(d)} · 🛡️${fleetShipHullMax(d)}` : `📦${d.cap}`;
+        const spec = d.role === "warship" ? `🔥${fleetShipStr(d)} · 🛡️${fleetShipHullMax(d)}` : d.role === "tanker" ? `⛽${d.cap} · 🐌${Math.round(fleetShipSpeed(d) * 100)}%` : `📦${d.cap}`;
         return `<div class="ship-stat" style="align-items:center"><span class="k">${d.ico} ${d.name} <span class="hint">${spec} · ⏱️${d.build} cyc · T${d.tier}</span></span>
           <span class="v"><span class="hint">${fmt(d.cost.credits)} cr ${matStr}</span> <button class="btn btn-sm ${ok ? "btn-good" : ""}" ${ok ? "" : "disabled"} title="${slips >= yard ? "All slipways busy" : ""}" onclick="orderShip('${k}')">Build</button></span></div>`;
       }).join("");
@@ -186,7 +234,7 @@ function renderFleet() {
     body = yardCard;
   }
   el.innerHTML = `<h2>✦ Fleet</h2>
-    <div class="subtitle">Your own ships, built at colony shipyards — loyal and fully under your command. <b>Freighters</b> haul your goods; <b>warships</b> fight or work systems on contract. They cost credits &amp; materials to build and draw upkeep each cycle (see the 💰 Cycle accounts log). Call ships into your raids/escorts, or deploy your whole idle fleet as a raid Battle Group.</div>
+    <div class="subtitle">Your own ships, built at colony shipyards — loyal and fully under your command. <b>Freighters</b> haul your goods; <b>warships</b> fight or work systems on contract; <b>tankers</b> haul fuel on their own multi-cycle runs, slow but built for the job. They cost credits &amp; materials to build and draw upkeep each cycle (see the 💰 Cycle accounts log). Call ships into your raids/escorts, or deploy your whole idle fleet as a raid Battle Group.</div>
     ${subTabBar("fleet", FLEET_VIEWS)}
     ${body}`;
 }
