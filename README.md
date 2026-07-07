@@ -117,6 +117,16 @@ together — pick which hostile(s) to focus fire on, same as the Escort tab's
 convoy combat, instead of being forced to kill them one at a time in a fixed
 order.
 
+The ✦ Fleet tab builds three families of hull at a colony **Shipyard** (or a
+base's smaller **Small Shipyard** for the lightest tiers): **freighters**
+haul goods, **warships** fight or work system missions, and **🛢️ tankers**
+run fuel on their own. A tanker is genuinely slow, so dispatching one is a
+background **Tanker Run**, not an instant trip — it loads fuel from wherever
+it's docked and takes several cycles to reach a far world, topping up a
+colony/base's storage or selling at a foreign market on arrival. The whole
+way there it risks a pirate ambush (an escorting warship cuts the odds) and,
+if you're **Wanted**, a navy interception that confiscates the cargo outright.
+
 ## 🪐 The core worlds — a rotating roster
 
 There are **15 core trade worlds**, but **each new game features a random 9 of

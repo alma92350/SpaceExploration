@@ -9,9 +9,10 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
   One colony = one shipyard (colonies are one-per-planet). Tier gates the biggest
   hull and the number of **slipways** (parallel builds = tier).
 - **Ship catalog** (`FLEET_SHIPS`): freighters (light/medium/heavy/bulk — cargo
-  `cap`) and warships (corvette/frigate/cruiser/battleship — combat stats from
-  `SHIP_CLASSES`). Each has a credit+material `cost`, a `build` time in cycles,
-  and a `tier`.
+  `cap`), tankers (coastal/medium/super/ultra — cargo `cap` plus a `speed`
+  multiplier, see Slice 11), and warships (corvette/frigate/cruiser/
+  battleship — combat stats from `SHIP_CLASSES`). Each has a credit+material
+  `cost`, a `build` time in cycles, and a `tier`.
 - **Construction**: `orderShip` (at the docked colony) validates shipyard tier,
   free slipway, and affordability; debits credits from your own hold, but
   materials draw from `shipyardLocalStorage(pid)` **first** — the colony's own
@@ -98,7 +99,10 @@ cut. The trade vs hired pirate bands: you pay to **build**, **upkeep**, and
 
 ## Stats
 - `fleetShipHullMax` / `fleetShipStr` derive from `SHIP_CLASSES` (warships) or
-  cargo `cap` (freighters); `fleetShipUpkeep` scales with class str / capacity.
+  cargo `cap` (freighters and tankers, via `fleetIsHauler(def)`);
+  `fleetShipUpkeep` scales with class str / capacity the same way.
+  `fleetShipSpeed(def)` reads a hull's `speed` field (only tankers have
+  one — see Slice 11), defaulting to `1` for everything else.
 
 ## Slice 2 (shipped) — fleet missions
 - `assignFleetMission(shipId, planet, task, dur)` sends an **idle warship** to work
@@ -370,3 +374,68 @@ location.
 Tests: `escortfleet.test.js` (5 checks, including a render-level check that
 the button offered for a following ship is gone and the idle local one now
 appears).
+
+## Slice 11 (shipped) — tanker hulls & autonomous Tanker Runs
+No hull anywhere had a "speed"/travel-time stat — a player jump (`travel()`,
+economy.js) always resolves in exactly one cycle regardless of distance or
+convoy contents; only the Escort tab's contracts modeled multi-cycle travel,
+and that's tied to accepting a contract, not to freely dispatching your own
+fleet. Tankers needed a genuinely slow, background-risk delivery mechanic —
+modeled directly on `assignFleetMission`/`processFleet`'s existing shape
+rather than inventing a new core-loop state.
+- **New hull family** (`FLEET_SHIPS`, `role:"tanker"`): `tanker_coastal`/
+  `tanker_medium`/`tanker_super`/`tanker_ultra`, tiers 1–4, reusing `cls` for
+  hull/str scaling exactly like freighters (`fleetIsHauler(def)` now covers
+  both roles in `fleetShipHullMax`/`fleetShipStr`/`fleetShipUpkeep`). A new
+  `speed` field (0–1, only tankers have it) reads through `fleetShipSpeed(def)`
+  — every other hull implicitly defaults to `1`, so no existing hull's
+  behavior changes. Tier gating is free: `orderShip`'s existing
+  `def.tier > yard` check plus the base Small Shipyard's own `tiers:2`
+  ceiling means only Tier 1–2 tankers build at a base, Tier 3–4 need a
+  colony Shipyard — no new gating code.
+- **Tanker Run** (`assignTankerRun(shipId, destId, escortIds)`): dispatches
+  an idle tanker to haul fuel to another known world. Loads fuel onto it (up
+  to `shipCargoCap(s)`, so a base Small Shipyard Cargo Loadout refit just
+  works) via the same `shipyardLocalStorage`/`canAffordMats`/`payMats`
+  sourcing every other build/repair action already uses — local stockpile
+  first, hold for the rest. Any chosen idle warships docked at the *same*
+  home ride along as escorts (`status:"tanker_run"`, `s.escortFor`). Run
+  state lives directly on the ship (`s.run = {to, dist, totalCycles,
+  cyclesLeft, fuel, escorts}`), the same shape `s.mission` already uses for
+  fleet missions. `tankerRunCycles(dist, speed)` — `dist/(3*speed)`, clamped
+  2–12 — reuses the Escort contract's own `dist/3` leg shape, so a slower or
+  farther-bound tanker visibly takes longer, and a run is always genuinely
+  "multiple cycles."
+- **Risk, ticked in `processTankerRuns()`** (called from `processFleet`,
+  alongside `processConvoys`): pirate ambush uses the exact
+  `processConvoys` shape (`(0.05+lvl*0.04) * 0.45^guards`, hull + fuel loss
+  scaled down `/(1+guards)`, hull ≤0 destroys the tanker) — an escorting
+  warship damps this. Authority interception only rolls once
+  `S.pirate.wanted >= 25` (the same threshold `maybeInterdict`, outlaw.js,
+  already uses), independent of escorts (hired muscle doesn't make customs
+  less suspicious) — on a hit it confiscates the carried fuel and a modest
+  fine/rep hit (a seizure, not a firefight, so no hull damage), mirroring
+  the existing customs-bust shape (economy.js).
+- **Delivery**: a player colony/base destination tops up its
+  `storage.fuel`; anywhere else, the remaining fuel sells at `sellPrice`.
+  The tanker (and any escorts) return to idle with `home` updated to the
+  destination — it's physically there now, same abstraction fleet missions
+  already use.
+- `recallTankerRun(shipId)` only works before the run has ticked
+  (`cyclesLeft === totalCycles`) — refunds the loaded fuel, frees the ship
+  and its escorts. No mid-run recall; a run always resolves via delivery or
+  loss. `scrapShip` also refuses a ship mid-run, same as every other duty
+  status.
+- **UI** (renderFleetFortunes.js): a third "⛽ Tankers" roster section
+  alongside Warships/Freighters, a live in-transit status line
+  (destination + cycles left), and a new "Dispatch a tanker run" card
+  (`tankerRunForm`, mirrors `fleetMissionForm`) with ship/destination
+  selects, escort toggle buttons, a live cycle/risk estimate, and the
+  dispatch button.
+- State: `s.speed` is a static hull-def field (no migration); `s.run`/
+  `s.escortFor` are new optional per-ship fields, `s.status` gains a new
+  `"tanker_run"` value — no `SAVE_VERSION` bump needed. Exports:
+  `fleetIsHauler`, `fleetShipSpeed`, `tankerRunCycles`, `tankerRunGuards`,
+  `assignTankerRun`, `recallTankerRun`, `processTankerRuns`,
+  `setTankerRunField`, `toggleTankerEscort`. Tests: `tanker.test.js`
+  (11 checks).
