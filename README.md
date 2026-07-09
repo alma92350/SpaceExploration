@@ -141,9 +141,12 @@ The **🏴‍☠️ Contacts** tab has a **💬 Talk** sub-view for free-form, i
 chat with any band you've crossed paths with, voiced by a model running on
 your own machine via [Ollama](https://ollama.com). Each captain's tone is
 grounded in that band's real standing, personality and rates (hire fee, loot
-cut) from `pirateBands.js` — for now it's banter and haggling only, with no
-mechanical effect; the numbered buttons elsewhere on the Contacts card still
-move credits and standing.
+cut) from `pirateBands.js`. Free chat is just banter, but you can also
+**💰 make an offer** to haggle their escort hire fee — an in-character
+ACCEPT or COUNTER becomes a real discount (bounded 40%-150% of the going
+rate) that holds for a few cycles until you actually sign the crew on from
+the 🛡️ Escort tab. Every other numbered button on the Contacts card still
+works exactly as before.
 
 It's entirely optional and entirely local: the page talks straight to
 Ollama's HTTP API on your machine (default `http://localhost:11434`, model

@@ -1,5 +1,5 @@
 {
-  "version": "2.105.0",
+  "version": "2.106.0",
   "saveVersion": "v2",
-  "notes": "New: talk to your pirate bands in the Contacts tab, voiced by a locally-running Ollama model. Nothing leaves your machine; off by default and harmless if Ollama isn't installed."
+  "notes": "New: haggle a pirate band's hire fee in the 💬 Talk chat — a struck deal becomes a real, bounded discount honored the next time you hire that crew from the Escort tab."
 }

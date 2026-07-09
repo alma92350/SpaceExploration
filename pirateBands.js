@@ -157,7 +157,25 @@ function decayBands() {                                  // standings drift towa
   bandList().forEach(b => { if (b.rep > 0) b.rep = Math.max(0, b.rep - 1); else if (b.rep < 0) b.rep = Math.min(0, b.rep + 1); });
 }
 // escort recruitment: friendly bands hire on as escort ships for a negotiated fee
-function escortRecruitFee(b) { return Math.round((800 + b.level * 700) * (1 - ((b.rep || 0) / 100) * 0.4) * bandPers(b).fee); }
+function escortRecruitBaseFee(b) { return Math.round((800 + b.level * 700) * (1 - ((b.rep || 0) / 100) * 0.4) * bandPers(b).fee); }
+// a struck bargain (setBandNegotiatedFee, via 💬 Talk) undercuts the base fee for a
+// few cycles or until spent, whichever comes first — same lapse pattern as a truce
+const NEGOTIATED_DEAL_DURATION = 5;
+function bandNegotiatedFee(b) { return (b && b.negotiatedFee != null && b.negotiatedUntil && S.turn <= b.negotiatedUntil) ? b.negotiatedFee : null; }
+function escortRecruitFee(b) { const nf = bandNegotiatedFee(b); return nf != null ? nf : escortRecruitBaseFee(b); }
+// a haggled price can swing 40%-150% of the base rate either way — cheap enough to reward
+// a good pitch, but never a giveaway, and a lowball can still get countered upward
+function bandNegotiationBounds(b) { const base = escortRecruitBaseFee(b); return { lo: Math.round(base * 0.4), hi: Math.round(base * 1.5) }; }
+function setBandNegotiatedFee(id, amount) {
+  const b = bandById(id); if (!b) return;
+  const { lo, hi } = bandNegotiationBounds(b);
+  const fee = Math.max(lo, Math.min(hi, Math.round(amount)));
+  b.negotiatedFee = fee; b.negotiatedUntil = (S.turn || 0) + NEGOTIATED_DEAL_DURATION;
+  log(`🤝 The ${b.ico} ${b.name} agreed to hire on for ${fmt(fee)} cr — the deal holds for ${NEGOTIATED_DEAL_DURATION} cycles or until you sign them on.`, "good");
+  toast(`${b.name}: ${fmt(fee)} cr deal struck`, "good"); sfx("event"); saveGame();
+  if (typeof renderContacts === "function") renderContacts();
+  return fee;
+}
 function escortRecruitableBands() { return bandList().filter(b => ["neutral", "friendly", "sworn"].includes(bandTier(b).key) && !bandOnMandate(b) && !bandBusy(b)); }   // crews under contract / tied up can't be hired
 function bandBetrayChance(b) { return Math.max(0, Math.min(0.6, 0.26 - ((b.rep || 0) / 100) * 0.32 - Math.min(0.18, ((S.pirate && S.pirate.dread) || 0) / 100 * 0.18) + bandPers(b).betray)); }
 /* ---- Tags (your loose brotherhood) + location + call-for-support ---- */
