@@ -239,6 +239,28 @@ test("escortRecruitBand charges the negotiated fee (not the base one) and consum
   assert.equal(run("S.escort.fleet.some(s => s.hired && s.bandId === __b.id)"), true, "the band must actually join the escort roster");
 });
 
+test("renderEscort's hire list excludes a flighty band normally, but includes it once you've struck a deal", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  run(`const _c = {}; const _o = document.getElementById.bind(document);
+       document.getElementById = id => _c[id] || (_c[id] = _o(id));`);
+  run(`
+    S.pirateBands = {};
+    const b = newBand(1); b.rep = -10; b.pers = "greedy"; S.pirateBands[b.id] = b;   // neutral tier (still recruitable) but greedy + low rep -> desert risk well over 5%
+    globalThis.__b = b;
+    refreshEscortOffers(); acceptEscort(0);
+  `);
+  assert.ok(run("bandBetrayChance(__b) >= 0.05"), "test band must actually be above the normal cutoff");
+  const before = run(`document.getElementById("panel-escort").innerHTML`);
+  assert.doesNotMatch(before, new RegExp(`escortRecruitBand\\('${run("__b.id")}'\\)`), "a flighty, un-negotiated band must not appear in the hire list");
+
+  run(`setBandNegotiatedFee(__b.id, escortRecruitBaseFee(__b)); renderEscort();`);
+  const after = run(`document.getElementById("panel-escort").innerHTML`);
+  const feeStr = run("fmt(escortRecruitFee(__b))");
+  assert.match(after, new RegExp(`escortRecruitBand\\('${run("__b.id")}'\\)`), "a band you've struck a deal with must appear regardless of desert risk");
+  assert.ok(after.includes(`Hire (${feeStr} cr)`), "the button must show the negotiated fee");
+});
+
 test("ollamaNegotiate fails soft (onError, no throw) when fetch is unavailable, same as ollamaChat", async () => {
   const { run } = createSandbox();
   run(`S = freshState(); S.pirateBands = {}; const b = newBand(1); S.pirateBands[b.id] = b; globalThis.__bandId = b.id;`);

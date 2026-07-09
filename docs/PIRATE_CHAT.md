@@ -81,7 +81,11 @@ follows for feature-detecting `fetch` and failing soft.
   trailing `DEAL:` line before it's stripped) and resolves only in `onDone`.
   `renderSettlement.js`'s Escort-tab hire button reads the same
   `escortRecruitFee`/`bandNegotiatedFee`, so it shows the haggled price (with a
-  🤝 marker) with no separate wiring.
+  🤝 marker) with no separate wiring. That recruit card's list also normally
+  filters out any band at ≥5% desert risk (`bandBetrayChance`) — a band you've
+  struck a deal with bypasses that filter (`bandNegotiatedFee(b) != null`), so a
+  negotiated hire never silently disappears from the list just for being
+  flighty; the real risk % still shows right next to it.
 - **`persistence.js`** — `sanitizeLoadedState()` treats `S.pirateChat` like
   `S.journal`: plain-text sanitizing (tags stripped, apostrophes/quotes kept)
   instead of the generic `stripUnsafeStrings` pass every other field gets,

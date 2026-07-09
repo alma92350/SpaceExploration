@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.106.0";
+const APP_VERSION = "2.106.1";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.106.1", notes: "Fix: the 🛡️ Escort tab's own Hire pirate escorts list filtered out any crew with 5%+ desert risk — including a band you'd just haggled a hire price with in 💬 Talk, so a struck deal could vanish from the list entirely. A negotiated band now always shows up (still labeled with its real desert risk), regardless of how flighty they are." },
   { version: "2.106.0", notes: "New: haggle a pirate band's hire fee right in the 💬 Talk chat — make an offer, and an in-character ACCEPT or COUNTER becomes a real, bounded discount (40%-150% of the going rate) that holds for a few cycles until you actually sign the crew on from the 🛡️ Escort tab. A struck deal shows up everywhere the fee does (Contacts card, Escort hire list) so you always know what you agreed to." },
   { version: "2.105.0", notes: "New: talk to your pirate bands. The 🏴‍☠️ Contacts tab gets a 💬 Talk sub-view — free-form, in-character chat with any crew you've crossed paths with, voiced by a locally-running Ollama model (nothing leaves your machine; off by default and harmless if Ollama isn't installed). Each captain's tone is grounded in that band's real standing, personality and rates — banter and haggling only for now, no mechanical effect yet." },
   { version: "2.104.0", notes: "Internal: hardening & guardrails. Every loaded or imported save is now sanitized before anything in it reaches the UI (a shared save file can't smuggle scripts into the log), a failing autosave warns instead of silently losing progress, and an unreadable autosave is preserved for recovery instead of being overwritten by the fresh game. CI now syntax-checks every script on Node 20 & 24, and new tests lock the version/cache-busters together, forbid duplicate top-level declarations across files, and drive a seeded 120-cycle simulation. No gameplay changes." },
