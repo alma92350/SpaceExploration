@@ -1,5 +1,5 @@
 {
-  "version": "2.108.0",
+  "version": "2.109.0",
   "saveVersion": "v2",
-  "notes": "Changed: hire negotiation in 💬 Talk is now decided by the game itself, not the model — it narrates the decision in character, but never determines it. Works the same on any model, or with no model at all."
+  "notes": "Added: Bases can now be raided just like colonies always could — build a Garrison to defend one. Every raid is now claimed by an actual pirate band from your Contacts when one's a fit, instead of always faceless \"Pirates\"."
 }

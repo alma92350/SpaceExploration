@@ -116,9 +116,11 @@ function renderBases() {
       const dots = Array.from({ length: m.tiers }, (_, i) => `<span class="dot ${i < tier ? "on" : ""}"></span>`).join("");
       const cur = m.storage ? (tier > 0 ? `+${tier * 250} storage` : "not built")
         : m.shipyard ? (tier > 0 ? `Tier ${tier} · ${tier} slipway${tier > 1 ? "s" : ""}` : "not built")
+        : m.defense ? (tier > 0 ? `Level ${tier}` : "not built")
         : (tier > 0 ? `+${moduleOutput(planet, m, tier)} ${COM[m.produces].ico}/cycle` : "not built");
       const nxt = m.storage ? "+250 storage"
         : m.shipyard ? `Tier ${tier + 1} · ${tier + 1} slipway${tier + 1 > 1 ? "s" : ""}`
+        : m.defense ? `Level ${tier + 1}`
         : `+${moduleOutput(planet, m, tier + 1) - moduleOutput(planet, m, tier)} ${COM[m.produces].ico}/cycle`;
       return `<div class="card ${tier > 0 ? (maxed ? "maxed" : "owned") : ""}">
         <h4>${m.ico} ${m.name} <span class="tier-dots">${dots}</span></h4>
@@ -204,6 +206,7 @@ function renderBases() {
       }
     }
     here = `<div class="section-title">📍 ${planet.name}</div>
+      <div class="ship-stat"><span class="k">🛡️ Defense</span><span class="v">${baseDefense(b) ? "Level " + baseDefense(b) : '<span style="color:var(--bad)">undefended</span>'}</span></div>
       ${subTabBar("bases", BASE_VIEWS)}
       ${!hasColonies ? `<div class="hint" style="margin:6px 0">🔄 Found a colony to open <b>Import/Export</b> trade routes from this base.</div>` : ""}
       ${body}`;

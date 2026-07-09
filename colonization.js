@@ -44,6 +44,7 @@ function baseStorageCap(pid) {
   return BASE_BASE_STORAGE + (b.modules.warehouse || 0) * 250;
 }
 function baseStorageUsed(b) { return Object.values(b.storage).reduce((s, q) => s + q, 0); }
+function baseDefense(b) { return (b && b.modules.garrison) || 0; }
 // Repair materials (a fleet hull, or the player's own ship) draw from whatever local stockpile
 // sits at a location first — colony storage over base storage, same precedence a Shipyard build
 // venue uses (shipyardVenueAt, fleet.js) — but repair itself needs no Shipyard/Small Shipyard
@@ -172,6 +173,41 @@ function baseBuyQty(c) { const el = document.getElementById("xfer-" + c); baseMa
 function baseSellQty(c) { const el = document.getElementById("xfer-" + c); baseMarketSell(c, el ? +el.value : 0); }
 function withdrawQty(c) { transferFromBase(c, +document.getElementById("xfer-" + c).value); }
 
+/* per-base per-cycle raid roll — the base-side mirror of colonyEventRoll's pirate-raid
+   branch below: same odds and shape (pirateCalm suppresses it entirely; a Garrison can
+   repel it; otherwise a quarter of stored goods and a credit loss go missing), but
+   scaled to a base's own numbers. Bases have no happiness/population field to hook
+   into, so the credit loss scales off total module tiers built (a developed base is
+   worth more to plunder) instead of colony pop, and a successful raid has no morale
+   bonus to restore. */
+function baseRaidRoll(pid, b, planet) {
+  const name = planet.name;
+  if (Math.random() >= 0.07) return;
+  if (pirateCalm()) {
+    log(`🛡️ Pirates kept clear of your base on <span class="c">${name}</span> — your bounty hunting has them lying low.`, "good");
+    return;
+  }
+  const raider = pickRaidBand();
+  const raiderSubj = raider ? `The ${raider.ico} ${raider.name}` : "Pirates";
+  const raiderBy = raider ? ` by the ${raider.ico} ${raider.name}` : "";
+  if (baseDefense(b) > 0 && Math.random() < baseDefense(b) * 0.30) {
+    log(`🛡️ Your base on <span class="c">${name}</span> repelled a pirate raid${raiderBy}.`, "good");
+    return;
+  }
+  let lootLog = [];
+  Object.keys(b.storage).forEach(c => {
+    const take = Math.floor((b.storage[c] || 0) * 0.25);
+    if (take > 0) { b.storage[c] -= take; lootLog.push(`${take} ${COM[c].ico}`); }
+  });
+  const tierSum = Object.values(b.modules).reduce((s, t) => s + t, 0);
+  const credLoss = Math.min(S.res.credits, (tierSum + 1) * 60);
+  S.res.credits -= credLoss;
+  cycleLedger("base raid losses", -credLoss);
+  log(`🏴‍☠️ ${raiderSubj} raided your base on <span class="c">${name}</span>! Lost ${lootLog.join(" ") || "no goods"} and ${fmt(credLoss)} credits.`, "bad");
+  digestNote("threats", `${name} base raided`);
+  toast(`Base at ${name} raided!`, "bad");
+  announce(`🏴‍☠️ ${name} Base Raided`, `${raiderSubj} struck your base. Build a 🛡️ Garrison to defend it.`, true);
+}
 /* runs every cycle (including while you travel) */
 function processBases() {
   const summary = {};
@@ -201,6 +237,7 @@ function processBases() {
         digestProd("fuel", made);
       }
     }
+    baseRaidRoll(pid, b, planet);
   });
   const keys = Object.keys(summary);
   if (keys.length) log(`🏗️ Your bases produced ${keys.map(c => summary[c] + COM[c].ico).join(" ")}.`, "good");
@@ -496,9 +533,15 @@ function colonyEventRoll(pid, col, planet) {
       log(`🛡️ Pirates kept clear of <span class="c">${name}</span> — your bounty hunting has them lying low.`, "good");
       return false;
     }
+    // pickRaidBand ties the raid to a real crew's identity whenever one's a fit (a friendly
+    // or sworn band never raids you) — falls back to the old faceless phrasing when none is
+    // (early game, no bands met yet), so every message below is byte-identical to before then
+    const raider = pickRaidBand();
+    const raiderSubj = raider ? `The ${raider.ico} ${raider.name}` : "Pirates";
+    const raiderBy = raider ? ` by the ${raider.ico} ${raider.name}` : "";
     if (def > 0 && Math.random() < def * 0.30) {
       col.happiness = Math.min(100, col.happiness + 4);
-      log(`🛡️ ${name}'s garrison repelled a pirate raid.`, "good");
+      log(`🛡️ ${name}'s garrison repelled a pirate raid${raiderBy}.`, "good");
       return false;
     }
     let lootLog = [];
@@ -508,11 +551,12 @@ function colonyEventRoll(pid, col, planet) {
     });
     const credLoss = Math.min(S.res.credits, col.pop * 8);
     S.res.credits -= credLoss;
+    cycleLedger("colony raid losses", -credLoss);
     col.happiness = Math.max(0, col.happiness - 12);
-    log(`🏴‍☠️ Pirates raided <span class="c">${name}</span>! Lost ${lootLog.join(" ") || "no goods"} and ${fmt(credLoss)} credits.`, "bad");
+    log(`🏴‍☠️ ${raiderSubj} raided <span class="c">${name}</span>! Lost ${lootLog.join(" ") || "no goods"} and ${fmt(credLoss)} credits.`, "bad");
     digestNote("threats", `${name} raided`);
     toast(`${name} raided!`, "bad");
-    announce(`🏴‍☠️ ${name} Raided`, `Pirates struck your colony. Build a 🛡️ Garrison to defend it.`, true);
+    announce(`🏴‍☠️ ${name} Raided`, `${raiderSubj} struck your colony. Build a 🛡️ Garrison to defend it.`, true);
     return false;
   }
 
