@@ -13,6 +13,15 @@
    next time the player actually hires that band from the Escort tab. The
    model still can't complete a hire, spend credits, or act on its own.
 
+   Reasoning models (Qwen3, QwQ, DeepSeek-R1, ...) can think at length before
+   answering. S.ollama.think (default off, toggled in the Talk sub-view) asks
+   Ollama to stream that chain-of-thought separately (message.thinking) rather
+   than skip or inline it — off keeps replies short and fast; on shows it live
+   as a distinct "🧠 thinking…" block, never stored in chat history. Either
+   way, stripThinkTags defensively drops a <think> block a model embedded
+   directly in its content, since not every model/Ollama version honors the
+   split — that text must never reach the transcript, history, or DEAL: parsing.
+
    Loaded after pirateBands.js, before raiding.js. saveGame, toast and
    renderContacts still live in persistence.js/game.js/renderCombat.js at
    this point in the split — safe, since every function here is only CALLED
@@ -35,12 +44,22 @@ function ensureOllamaSettings() {
   if (!S.ollama || typeof S.ollama !== "object") S.ollama = {};
   if (!S.ollama.endpoint) S.ollama.endpoint = DEFAULT_OLLAMA_ENDPOINT;
   if (!S.ollama.model) S.ollama.model = DEFAULT_OLLAMA_MODEL;
+  if (S.ollama.think == null) S.ollama.think = false;   // reasoning models (Qwen3, QwQ, DeepSeek-R1, ...) default OFF — keeps replies short & fast
   return S.ollama;
 }
 function setOllamaSetting(k, v) {
   ensureOllamaSettings();
   S.ollama[k] = String(v == null ? "" : v).trim();
   saveGame();
+}
+// think is a real boolean, not a string like endpoint/model — a dedicated toggle keeps
+// it from getting stringified to "false" (truthy!) by setOllamaSetting's String(v) coercion
+function toggleOllamaThink() {
+  const cfg = ensureOllamaSettings();
+  cfg.think = !cfg.think;
+  saveGame();
+  if (typeof renderContacts === "function") renderContacts();
+  return cfg.think;
 }
 function ensurePirateChat() { if (!S.pirateChat || typeof S.pirateChat !== "object") S.pirateChat = {}; return S.pirateChat; }
 function pirateChatHistory(bandId) {
@@ -103,7 +122,9 @@ function buildOllamaMessages(systemPrompt, history, userText, contextN) {
   msgs.push({ role: "user", content: userText });
   return msgs;
 }
-// pure: one line of Ollama's newline-delimited /api/chat stream -> the text delta, or null if unusable
+// pure: one line of Ollama's newline-delimited /api/chat stream -> its content/thinking
+// deltas, or null if unusable. Reasoning models (Qwen3, QwQ, DeepSeek-R1, ...) stream their
+// chain-of-thought separately as message.thinking when the request asks for it (think:true)
 function parseOllamaStreamLine(line) {
   const t = (line || "").trim();
   if (!t) return null;
@@ -111,7 +132,17 @@ function parseOllamaStreamLine(line) {
   try { obj = JSON.parse(t); } catch (e) { return null; }
   if (obj.error) return { error: String(obj.error) };
   const delta = obj.message && typeof obj.message.content === "string" ? obj.message.content : "";
-  return { delta, done: !!obj.done };
+  const thinkDelta = obj.message && typeof obj.message.thinking === "string" ? obj.message.thinking : "";
+  return { delta, thinkDelta, done: !!obj.done };
+}
+// pure, defensive: not every model/Ollama version honors the separate `thinking` field —
+// some inline <think>...</think> straight into content. Strip it before it's ever shown,
+// stored in history, or fed to parseDealLine, closed or left dangling by a cut-off stream.
+function stripThinkTags(text) {
+  let t = String(text == null ? "" : text);
+  t = t.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  t = t.replace(/<think>[\s\S]*$/i, "");
+  return t.trim();
 }
 function abortSignalWithTimeout(ms) {
   if (typeof AbortSignal !== "undefined" && AbortSignal.timeout) return AbortSignal.timeout(ms);
@@ -135,18 +166,22 @@ async function testOllamaConnection() {
     return { ok: false, error: `Couldn't reach Ollama at ${cfg.endpoint}. ${OLLAMA_CORS_HINT}` };
   }
 }
-// POST /api/chat, streamed. callbacks: onToken(deltaSoFar), onDone(fullText), onError(message).
+// POST /api/chat, streamed. callbacks: onToken(deltaSoFar), onThinking(thinkingSoFar),
+// onDone(fullText), onError(message). fullText has any <think> content already stripped.
+// think (default S.ollama.think) asks a reasoning model (Qwen3, QwQ, DeepSeek-R1, ...) to
+// stream its chain-of-thought separately via message.thinking instead of skipping/inlining
+// it — off by default so replies stay short and fast, matching this feature's system prompts.
 // Shared by both plain chat and negotiation — they differ only in the messages they build.
-async function streamOllamaCompletion(messages, callbacks) {
-  const { onToken, onDone, onError } = callbacks || {};
+async function streamOllamaCompletion(messages, callbacks, think) {
+  const { onToken, onThinking, onDone, onError } = callbacks || {};
   if (typeof fetch !== "function") return onError && onError("This browser can't make network requests.");
   const cfg = ensureOllamaSettings();
-  let text = "";
+  let text = "", thinking = "";
   try {
     const r = await fetch(cfg.endpoint.replace(/\/+$/, "") + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: cfg.model, messages, stream: true }),
+      body: JSON.stringify({ model: cfg.model, messages, stream: true, think: !!think }),
       signal: abortSignalWithTimeout(60000),
     });
     if (!r.ok) {
@@ -156,7 +191,7 @@ async function streamOllamaCompletion(messages, callbacks) {
     }
     if (!r.body || typeof r.body.getReader !== "function") {
       const data = await r.json();   // environments without streaming bodies: take the one-shot reply
-      text = (data.message && data.message.content) || "";
+      text = stripThinkTags((data.message && data.message.content) || "");
       onDone && onDone(text);
       return text;
     }
@@ -173,12 +208,15 @@ async function streamOllamaCompletion(messages, callbacks) {
         const p = parseOllamaStreamLine(line);
         if (!p) continue;
         if (p.error) return onError && onError(p.error);
+        if (p.thinkDelta) { thinking += p.thinkDelta; onThinking && onThinking(thinking); }
         if (p.delta) { text += p.delta; onToken && onToken(text); }
       }
     }
     const tail = parseOllamaStreamLine(buf);
     if (tail && tail.error) return onError && onError(tail.error);
+    if (tail && tail.thinkDelta) { thinking += tail.thinkDelta; onThinking && onThinking(thinking); }
     if (tail && tail.delta) { text += tail.delta; onToken && onToken(text); }
+    text = stripThinkTags(text);
     onDone && onDone(text);
     return text;
   } catch (e) {
@@ -186,12 +224,13 @@ async function streamOllamaCompletion(messages, callbacks) {
     return null;
   }
 }
-// POST /api/chat, streamed. callbacks: onToken(deltaSoFar), onDone(fullText), onError(message)
+// POST /api/chat, streamed. callbacks: onToken(deltaSoFar), onThinking(thinkingSoFar),
+// onDone(fullText), onError(message)
 function ollamaChat(bandId, userText, callbacks) {
   const b = bandById(bandId);
   if (!b) return (callbacks && callbacks.onError && callbacks.onError("That crew isn't on your books anymore."));
   const messages = buildOllamaMessages(buildPirateSystemPrompt(b), pirateChatHistory(bandId), userText, CHAT_CONTEXT_MSGS);
-  return streamOllamaCompletion(messages, callbacks);
+  return streamOllamaCompletion(messages, callbacks, ensureOllamaSettings().think);
 }
 
 /* ---- Negotiation: haggle the escort hire fee in character. A dedicated call (not
@@ -218,9 +257,10 @@ function parseDealLine(text) {
   if (!m) return { clean: t.trim(), status: null, amount: null };
   return { clean: t.slice(0, m.index).trim(), status: m[1].toLowerCase(), amount: m[2] ? parseInt(m[2], 10) : null };
 }
-// callbacks: onToken(deltaSoFar), onDone({ userText, clean, status, amount }), onError(message)
+// callbacks: onToken(deltaSoFar), onThinking(thinkingSoFar),
+// onDone({ userText, clean, status, amount }), onError(message)
 function ollamaNegotiate(bandId, offerAmount, callbacks) {
-  const { onToken, onDone, onError } = callbacks || {};
+  const { onToken, onThinking, onDone, onError } = callbacks || {};
   const b = bandById(bandId);
   if (!b) return onError && onError("That crew isn't on your books anymore.");
   const bounds = bandNegotiationBounds(b);
@@ -230,7 +270,8 @@ function ollamaNegotiate(bandId, offerAmount, callbacks) {
   const messages = buildOllamaMessages(sysPrompt, pirateChatHistory(bandId), userText, CHAT_CONTEXT_MSGS);
   return streamOllamaCompletion(messages, {
     onToken,
+    onThinking,
     onDone: full => { onDone && onDone(Object.assign({ userText }, parseDealLine(full))); },
     onError,
-  });
+  }, ensureOllamaSettings().think);
 }

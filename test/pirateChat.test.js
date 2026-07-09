@@ -95,15 +95,48 @@ test("buildPirateSystemPrompt mentions an active blood feud by the rival's name"
   assert.ok(prompt.includes(run("__rivalName")), "prompt should name the feuding rival");
 });
 
-test("parseOllamaStreamLine reads a delta, surfaces a server error, and ignores garbage lines", () => {
+test("parseOllamaStreamLine reads content/thinking deltas, surfaces a server error, and ignores garbage lines", () => {
   const { run } = createSandbox();
   const good = JSON.parse(run(`JSON.stringify(parseOllamaStreamLine('{"message":{"role":"assistant","content":"ahoy"},"done":false}'))`));
-  assert.deepEqual(good, { delta: "ahoy", done: false });
+  assert.deepEqual(good, { delta: "ahoy", thinkDelta: "", done: false });
+  const thinking = JSON.parse(run(`JSON.stringify(parseOllamaStreamLine('{"message":{"role":"assistant","content":"","thinking":"pondering the offer"},"done":false}'))`));
+  assert.deepEqual(thinking, { delta: "", thinkDelta: "pondering the offer", done: false });
   const errLine = JSON.parse(run(`JSON.stringify(parseOllamaStreamLine('{"error":"model not found"}'))`));
   assert.deepEqual(errLine, { error: "model not found" });
   assert.equal(run(`parseOllamaStreamLine("not json at all")`), null);
   assert.equal(run(`parseOllamaStreamLine("")`), null);
   assert.equal(run(`parseOllamaStreamLine("   ")`), null);
+});
+
+test("stripThinkTags drops closed and unclosed <think> blocks, leaves plain prose untouched", () => {
+  const { run } = createSandbox();
+  assert.equal(run(`stripThinkTags("<think>hmm, a greedy pirate would ask for more</think>Ahoy, 900 cr and we've got a deal.")`), "Ahoy, 900 cr and we've got a deal.");
+  assert.equal(run(`stripThinkTags("Ahoy, 900 cr and we've got a deal.<think>never actually closed")`), "Ahoy, 900 cr and we've got a deal.");
+  assert.equal(run(`stripThinkTags("plain reply, no thinking tags at all")`), "plain reply, no thinking tags at all");
+  assert.equal(run(`stripThinkTags(null)`), "");
+});
+
+test("ollamaChat sends S.ollama.think in the request body, and defensively strips inline <think> tags from the reply", async () => {
+  const { run } = createSandbox();
+  run(`
+    S = freshState();
+    S.pirateBands = {}; const b = newBand(1); S.pirateBands[b.id] = b; globalThis.__bandId = b.id;
+    ensureOllamaSettings().think = true;
+    globalThis.fetch = async (url, opts) => {
+      globalThis.__lastBody = JSON.parse(opts.body);
+      return { ok: true, body: null, json: async () => ({ message: { content: "<think>a greedy pirate would ask for more</think>Ahoy, matey!" } }) };
+    };
+  `);
+  const out = JSON.parse(await run(`
+    (async () => {
+      const results = [];
+      const text = await ollamaChat(__bandId, "hello", { onDone: full => results.push(full) });
+      return JSON.stringify({ text, results, think: __lastBody.think });
+    })()
+  `));
+  assert.equal(out.think, true, "the request body must carry the current S.ollama.think setting");
+  assert.equal(out.text, "Ahoy, matey!", "an inline <think> block must be stripped even when Ollama doesn't separate it out");
+  assert.deepEqual(out.results, ["Ahoy, matey!"], "onDone must receive the already-cleaned text");
 });
 
 test("escapeChatHtml neutralizes markup and attribute-breakout characters, plain text passes through readably", () => {

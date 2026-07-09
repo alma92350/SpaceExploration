@@ -1,5 +1,5 @@
 {
-  "version": "2.106.2",
+  "version": "2.107.0",
   "saveVersion": "v2",
-  "notes": "Fix: a hire-price deal struck in 💬 Talk now refreshes the Escort tab immediately too, instead of only showing up there after some other action redraws it."
+  "notes": "New: an optional 🧠 Show model thinking toggle in 💬 Talk, for reasoning models like Qwen3/QwQ/DeepSeek-R1 — off by default, watch the model's reasoning live when you turn it on."
 }

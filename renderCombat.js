@@ -534,6 +534,10 @@ function sendChatMessage(id) {
       const el = document.getElementById("chatPending"); if (el) el.textContent = soFar;
       const t = document.getElementById("chatTranscript"); if (t) t.scrollTop = t.scrollHeight;
     },
+    onThinking: soFar => {
+      const el = document.getElementById("chatThinking"); if (el) el.textContent = soFar;
+      const t = document.getElementById("chatTranscript"); if (t) t.scrollTop = t.scrollHeight;
+    },
     onDone: full => {
       chatUI.sending[id] = false; chatUI.pending[id] = null;
       pushChatMessage(id, "pirate", (full || "").trim() || "…");
@@ -559,6 +563,10 @@ function sendOffer(id) {
   chatUI.sending[id] = true; chatUI.pending[id] = "🤝 haggling…";
   renderContacts();
   ollamaNegotiate(id, offer, {
+    onThinking: soFar => {
+      const el = document.getElementById("chatThinking"); if (el) el.textContent = soFar;
+      const t = document.getElementById("chatTranscript"); if (t) t.scrollTop = t.scrollHeight;
+    },
     onDone: result => {
       chatUI.sending[id] = false; chatUI.pending[id] = null;
       pushChatMessage(id, "pirate", result.clean || "…");
@@ -597,6 +605,10 @@ function chatSettingsCard() {
     </div>
     <div class="hint">${status}</div>
     <div class="hint">Can't connect? Make sure <code>ollama serve</code> is running, and that it allows this page's origin — e.g. start it with <code>OLLAMA_ORIGINS=*</code> set.</div>
+    <label class="row" style="align-items:center;gap:6px;cursor:pointer">
+      <input type="checkbox" ${cfg.think ? "checked" : ""} onchange="toggleOllamaThink()" />
+      <span class="hint">🧠 Show model thinking (reasoning models like Qwen3/QwQ/DeepSeek-R1 only — slower, but you can watch them reason before they answer)</span>
+    </label>
   </div>`;
 }
 function renderContactsChat() {
@@ -611,7 +623,10 @@ function renderContactsChat() {
   const fee = escortRecruitFee(b), cut = Math.round(bandLootShare(b) * 100), deal = bandNegotiatedFee(b);
   const history = pirateChatHistory(b.id);
   const sending = !!chatUI.sending[b.id], pending = chatUI.pending[b.id], err = chatUI.error[b.id];
+  const thinkingBlock = (pending != null && ensureOllamaSettings().think)
+    ? `<div class="chat-thinking"><div class="hint">🧠 thinking…</div><div id="chatThinking" class="chat-thinking-text"></div></div>` : "";
   const bubbles = history.map(m => chatBubble(m.who, m.text)).join("")
+    + thinkingBlock
     + (pending != null ? chatBubble("pirate", pending, "chatPending") : "")
     + (err ? `<div class="chat-bubble error"><span class="chat-text">⚠️ ${escapeChatHtml(err)}</span></div>` : "");
   const draft = chatUI.drafts[b.id] || "";
