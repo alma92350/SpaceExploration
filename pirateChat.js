@@ -268,32 +268,47 @@ function ollamaChat(bandId, userText, callbacks) {
 function buildNegotiationExtra(offerAmount) {
   return [
     `The player is now offering ${offerAmount} credits to hire your crew as an escort for a run.`,
-    `Reply in character in 1-2 short sentences, then on the very last line write exactly ONE of:`,
-    `DEAL: ACCEPT <credits>`,
-    `DEAL: COUNTER <credits>`,
-    `DEAL: REJECT`,
-    `<credits> must be ONLY digits — no commas, no symbols, and no unit word like "credits" or "cr" after the number. Write exactly one such line, never more than one, and put nothing after it.`,
+    `Reply in character in 1-2 short sentences, then on the very last line write your decision as one of:`,
+    `ACCEPT <credits>`,
+    `COUNTER <credits>`,
+    `REJECT`,
+    `<credits> must be ONLY digits — no commas, no symbols, and no unit word like "credits" or "cr" after the number. Write exactly one such line, never more than one, and put nothing else on it.`,
+    `Example of a correctly formatted reply, if you were accepting:`,
+    `Ye drive a hard bargain, but fine, we've a deal.`,
+    `ACCEPT ${offerAmount}`,
   ].join("\n");
 }
-// pure: pull every "DEAL: ACCEPT/COUNTER/REJECT ..." line out of a reply and strip all of
-// them from the visible/stored prose — a model doesn't always cleanly emit just one at the
-// very end: some tack a unit word onto the number ("3200 credits"), some second-guess
-// themselves mid-reply and write an ACCEPT then a COUNTER. The LAST such line found is
-// treated as the model's final word (closest thing to "what it actually decided"); amount
-// extraction tolerates a leading unit word/comma-grouping/trailing prose on that line, since
-// a model rarely follows "digits only" to the letter. `clean` never contains a raw DEAL:
-// line regardless of how many the model produced, so nothing mechanical leaks into dialogue.
-const DEAL_LINE_RE = /^[ \t]*DEAL:\s*(ACCEPT|COUNTER|REJECT)\b(.*)$/i;
+// pure: pull every ACCEPT/COUNTER/REJECT decision line out of a reply and strip all of them
+// from the visible/stored prose. Real models are inconsistent about the exact shape: some
+// keep an old "DEAL:" prefix (still accepted), most drop it entirely and write a bare
+// "ACCEPT" / "Accept" / "ACCEPT: 2800cr" on its own line; some tack a unit word onto the
+// number ("3200 credits"); some second-guess themselves mid-reply and write an ACCEPT then a
+// COUNTER; the smallest models sometimes skip the keyword entirely and answer with nothing
+// but a bare price. The LAST such line found is treated as the model's final word. To avoid
+// mistaking ordinary dialogue that happens to start with one of these words for a decision
+// ("Accept my apologies, this haggling business ain't easy" is prose, not a deal), the
+// keyword must be the WHOLE line — optionally followed by only an amount and/or unit word,
+// nothing else; likewise a bare-number line must be nothing but the number (+ unit word).
+const DEAL_LINE_RE = /^(?:DEAL:\s*)?(ACCEPT|COUNTER|REJECT)\s*:?\s*(\d[\d,]*)?\s*(?:credits?|cr\.?)?\s*$/i;
+const BARE_AMOUNT_LINE_RE = /^(\d[\d,]*)\s*(?:credits?|cr\.?)?\s*$/i;
 function parseDealLine(text) {
   const t = String(text == null ? "" : text);
   let status = null, amount = null;
   const kept = t.split("\n").filter(line => {
-    const m = DEAL_LINE_RE.exec(line.trim());
-    if (!m) return true;
-    status = m[1].toLowerCase();
-    const amtMatch = /(\d[\d,]*)/.exec(m[2]);
-    amount = amtMatch ? parseInt(amtMatch[1].replace(/,/g, ""), 10) : null;
-    return false;   // drop this line from the kept prose — it's always a machine line, never dialogue
+    const trimmed = line.trim();
+    const m = DEAL_LINE_RE.exec(trimmed);
+    if (m) {
+      status = m[1].toLowerCase();
+      amount = m[2] ? parseInt(m[2].replace(/,/g, ""), 10) : null;
+      return false;   // drop this line from the kept prose — it's always a machine line, never dialogue
+    }
+    const bare = BARE_AMOUNT_LINE_RE.exec(trimmed);
+    if (bare) {
+      status = "counter";   // a lone price with no keyword reads as "here's my number", not a plain accept
+      amount = parseInt(bare[1].replace(/,/g, ""), 10);
+      return false;
+    }
+    return true;
   });
   return { clean: kept.join("\n").replace(/\n{3,}/g, "\n\n").trim(), status, amount };
 }
@@ -311,7 +326,13 @@ function ollamaNegotiate(bandId, offerAmount, callbacks) {
   return streamOllamaCompletion(messages, {
     onToken,
     onThinking,
-    onDone: full => { onDone && onDone(Object.assign({ userText }, parseDealLine(full))); },
+    onDone: full => {
+      const parsed = parseDealLine(full);
+      // a bare "ACCEPT" with no number is unambiguous — it means "I accept your offer",
+      // not "no amount was stated" — a COUNTER with no number, though, can't be guessed
+      if (parsed.status === "accept" && parsed.amount == null) parsed.amount = offer;
+      onDone && onDone(Object.assign({ userText }, parsed));
+    },
     onError,
   }, ensureOllamaSettings().think);
 }

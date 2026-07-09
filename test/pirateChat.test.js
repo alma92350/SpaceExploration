@@ -275,11 +275,63 @@ test("parseDealLine keeps only the LAST of several DEAL lines a model second-gue
     "the later COUNTER is the model's real final answer, and neither raw DEAL: line may survive into the displayed prose");
 });
 
-test("buildNegotiationExtra states the offer and demands the strict trailing DEAL format", () => {
+test("parseDealLine accepts a bare ACCEPT/COUNTER/REJECT with no DEAL: prefix, a real bug report reproduced verbatim", () => {
+  const { run } = createSandbox();
+  // real transcript: three separate replies to the same offer, none using the "DEAL:" prefix
+  const bare = JSON.parse(run(`JSON.stringify(parseDealLine("ACCEPT"))`));
+  assert.deepEqual(bare, { clean: "", status: "accept", amount: null });
+  const withColonAndUnit = JSON.parse(run(`JSON.stringify(parseDealLine("ACCEPT: 2800cr"))`));
+  assert.deepEqual(withColonAndUnit, { clean: "", status: "accept", amount: 2800 });
+  const lowerCase = JSON.parse(run(`JSON.stringify(parseDealLine("Accept"))`));
+  assert.deepEqual(lowerCase, { clean: "", status: "accept", amount: null });
+  const bareCounter = JSON.parse(run(`JSON.stringify(parseDealLine("Ahoy, not for that pittance!\\nCOUNTER 4500"))`));
+  assert.deepEqual(bareCounter, { clean: "Ahoy, not for that pittance!", status: "counter", amount: 4500 });
+  const bareReject = JSON.parse(run(`JSON.stringify(parseDealLine("REJECT"))`));
+  assert.deepEqual(bareReject, { clean: "", status: "reject", amount: null });
+});
+
+test("parseDealLine does not mistake ordinary dialogue that merely starts with one of the keywords for a decision", () => {
+  const { run } = createSandbox();
+  const prose = JSON.parse(run(`JSON.stringify(parseDealLine("Accept my apologies, this haggling business ain't easy."))`));
+  assert.deepEqual(prose, { clean: "Accept my apologies, this haggling business ain't easy.", status: null, amount: null },
+    "a full sentence that happens to start with 'Accept' must stay as ordinary dialogue, not be read as a decision");
+  const prose2 = JSON.parse(run(`JSON.stringify(parseDealLine("Reject the notion that pirates have no honor!"))`));
+  assert.equal(prose2.status, null);
+});
+
+test("parseDealLine reads a bare price with no keyword at all as a counter, a real bug report from a smaller model", () => {
+  const { run } = createSandbox();
+  const bareNumber = JSON.parse(run(`JSON.stringify(parseDealLine("2841"))`));
+  assert.deepEqual(bareNumber, { clean: "", status: "counter", amount: 2841 });
+  const bareNumberWithProse = JSON.parse(run(`JSON.stringify(parseDealLine("Aye, that'll do.\\n2,841 credits"))`));
+  assert.deepEqual(bareNumberWithProse, { clean: "Aye, that'll do.", status: "counter", amount: 2841 });
+});
+
+test("ollamaNegotiate treats a bare ACCEPT with no stated amount as accepting the player's own offer", async () => {
+  const { run } = createSandbox();
+  run(`
+    S = freshState(); rollPrices();
+    S.pirateBands = {}; const b = newBand(2); S.pirateBands[b.id] = b; globalThis.__bandId = b.id;
+    globalThis.fetch = async () => ({ ok: true, body: null, json: async () => ({ message: { content: "Aye, ye have a deal!\\nACCEPT" } }) });
+  `);
+  const bounds = JSON.parse(run(`JSON.stringify(bandNegotiationBounds(S.pirateBands[__bandId]))`));
+  const midOffer = Math.round((bounds.lo + bounds.hi) / 2);
+  const out = JSON.parse(await run(`
+    (async () => {
+      let result = null;
+      await ollamaNegotiate(__bandId, ${midOffer}, { onDone: r => { result = r; } });
+      return JSON.stringify(result);
+    })()
+  `));
+  assert.equal(out.status, "accept");
+  assert.equal(out.amount, midOffer, "a bare ACCEPT with no number must default to the amount actually offered that round");
+});
+
+test("buildNegotiationExtra states the offer and demands a trailing ACCEPT/COUNTER/REJECT decision", () => {
   const { run } = createSandbox();
   const extra = run(`buildNegotiationExtra(777)`);
   assert.ok(extra.includes("777"), "must state the offered amount");
-  assert.ok(/DEAL: ACCEPT/.test(extra) && /DEAL: COUNTER/.test(extra) && /DEAL: REJECT/.test(extra));
+  assert.ok(/\bACCEPT\b/.test(extra) && /\bCOUNTER\b/.test(extra) && /\bREJECT\b/.test(extra));
 });
 
 test("bandNegotiationBounds brackets 40%-150% of the BASE fee, unaffected by any already-struck deal", () => {

@@ -1,5 +1,5 @@
 {
-  "version": "2.107.2",
+  "version": "2.107.3",
   "saveVersion": "v2",
-  "notes": "Fix: 💬 Talk no longer times out a slow-but-still-answering reply after a fixed 60s — it now only gives up on real silence, with a longer allowance for reasoning models."
+  "notes": "Fix: hire negotiation now recognizes a bare ACCEPT (no price) and a lone number with no keyword at all, and the prompt now includes a worked example for smaller models to follow."
 }

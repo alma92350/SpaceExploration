@@ -87,21 +87,33 @@ follows for feature-detecting `fetch` and failing soft.
     settings card, not a per-band one.
   - `ollamaNegotiate(bandId, offerAmount, { onToken, onThinking, onDone, onError })` —
     haggles the escort hire fee. Builds a *system prompt extended* with
-    `buildNegotiationExtra(offer)`, which demands the reply end in a strict,
-    machine-parseable line (`DEAL: ACCEPT <n>` / `DEAL: COUNTER <n>` /
-    `DEAL: REJECT`) — a dedicated call rather than parsing plain chat, because
-    a 1B-class model won't reliably volunteer that format unprompted mid-
-    conversation. `onDone` receives `{ userText, clean, status, amount }` from
-    `parseDealLine(text)` (pure), which scans every line for `DEAL:
-    ACCEPT/COUNTER/REJECT` and strips *all* of them from `clean` before the
-    prose is ever shown or stored, regardless of how many a reply contains —
-    models don't reliably stick to exactly one: some tack a unit word onto the
-    number ("3200 credits", tolerated — only the leading digits/commas are
-    read), some second-guess themselves mid-reply and write an ACCEPT
-    immediately followed by a contradicting COUNTER. The *last* matching line
-    is treated as the model's real final answer; an unparseable reply (no
-    matching line at all) comes back with `status: null` and the full text as
-    `clean`, never a crash.
+    `buildNegotiationExtra(offer)`, which demands the reply end in a decision
+    line (`ACCEPT <n>` / `COUNTER <n>` / `REJECT`, an old `DEAL:` prefix still
+    accepted) and, since smaller models follow a worked example far more
+    reliably than the instruction alone, ends with one: a sample in-character
+    line followed by `ACCEPT <the actual offer>` — a dedicated call rather
+    than parsing plain chat, because small models won't reliably volunteer
+    that format unprompted mid-conversation. `onDone` receives
+    `{ userText, clean, status, amount }` from `parseDealLine(text)` (pure),
+    which scans every line for a decision and strips *all* of them from
+    `clean` before the prose is ever shown or stored, regardless of how many a
+    reply contains or how loosely each is phrased. Tolerated, in order of how
+    real transcripts have actually gone wrong: a `DEAL:` prefix (optional,
+    either way), a trailing unit word on the number ("3200 credits" — only the
+    leading digits/commas are read), several decision lines in one reply
+    (second-guessing itself into an ACCEPT then a COUNTER — the *last* one
+    found is the real final answer), a bare keyword with no number at all
+    ("ACCEPT", "Accept", "ACCEPT: 2800cr" — for a bare ACCEPT specifically,
+    `ollamaNegotiate` fills in the player's own offer, since "I accept" with
+    no price stated unambiguously means "at the price you offered"), and —
+    from the smallest models — no keyword at all, just a lone price on its own
+    line, read as an implicit counter. To avoid mistaking ordinary dialogue
+    that happens to start with one of these words for a decision ("Accept my
+    apologies, this haggling business ain't easy" is prose, not a deal), a
+    keyword (or a bare number) must be the *entire* line, optionally followed
+    by only an amount and/or unit word — never partial-line matching. An
+    unparseable reply (no matching line at all) comes back with `status: null`
+    and the full text as `clean`, never a crash.
   - `escapeChatHtml(s)` — every chat bubble's text is player-typed or
     model-generated, unlike the rest of this innerHTML-templated UI (which
     only ever renders developer-authored strings), so it's the one place in
@@ -173,11 +185,16 @@ and personality plus feud naming, `parseOllamaStreamLine` on a good line, an
 `{"error":...}` line and garbage, `escapeChatHtml`, and the sanitizer's
 handling of chat transcripts (apostrophes survive, markup and hostile
 band-id keys don't; a save without the key stays byte-identical). Negotiation
-adds: `parseDealLine` on ACCEPT/COUNTER/REJECT and unparseable text, a real
-bug report reproduced verbatim (a trailing unit word/comma on the amount, and
-a self-contradicting ACCEPT-then-COUNTER reply — the last line wins and
-neither raw line survives into `clean`), `buildNegotiationExtra`,
-`bandNegotiationBounds` staying pinned to the base fee
+adds: `parseDealLine` on ACCEPT/COUNTER/REJECT and unparseable text, and a run
+of real bug reports reproduced verbatim — a trailing unit word/comma on the
+amount, a self-contradicting ACCEPT-then-COUNTER reply (the last line wins
+and neither raw line survives into `clean`), a bare keyword with no `DEAL:`
+prefix in any case ("ACCEPT", "Accept", "ACCEPT: 2800cr"), ordinary dialogue
+that merely starts with one of the keywords staying prose rather than being
+misread as a decision, and a lone price with no keyword at all — plus
+`ollamaNegotiate` itself defaulting a bare ACCEPT's missing amount to the
+player's own offer. `buildNegotiationExtra`, `bandNegotiationBounds` staying
+pinned to the base fee
 even after a deal is struck, `setBandNegotiatedFee` clamping an absurd ask into
 bounds and lapsing after `NEGOTIATED_DEAL_DURATION`, `escortRecruitBand`
 charging the negotiated price (not the base one) and consuming the deal on

@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.107.2";
+const APP_VERSION = "2.107.3";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.107.3", notes: "Fix: 💬 Talk's hire-negotiation parser was still too strict about how a model states its answer — a bare \"ACCEPT\"/\"Accept\" with no price, or (from smaller models) just a lone number with no ACCEPT/COUNTER/REJECT at all, both fell through as unrecognized and never struck a deal. Both now read correctly (a bare accept takes your own offer at face value; a bare number reads as their counter), and the negotiation prompt now includes a worked example, which smaller models in particular follow far more reliably than the instruction alone." },
   { version: "2.107.2", notes: "Fix: 💬 Talk gave up on a reply after a fixed 60 seconds no matter what, which cut off slower reasoning models (Qwen3, QwQ, DeepSeek-R1, ...) mid-thought even while they were still actively answering. It now only gives up on real silence — the clock resets every time more of the reply arrives — with a longer allowance while 🧠 Show model thinking is on. A genuine timeout also now says so plainly instead of pointing at CORS/OLLAMA_ORIGINS, which was never the actual problem in that case." },
   { version: "2.107.1", notes: "Fix: some models answered a hire offer in 💬 Talk with a mangled or doubled-up machine line (a stray unit word after the price, or second-guessing an ACCEPT into a COUNTER two lines later) — either one slipped past the parser whole and showed up as raw, out-of-character text in the transcript instead of a haggled price. Parsing is now far more forgiving of exactly that, and never lets a mechanical line reach the chat, however many a reply contains." },
   { version: "2.107.0", notes: "New: a 🧠 Show model thinking toggle in the 💬 Talk settings card, for reasoning models (Qwen3, QwQ, DeepSeek-R1, ...) that think at length before answering. Off by default (keeps replies short and fast); switch it on to watch the model's chain-of-thought stream live in its own dimmed block, separate from the in-character reply — never saved to chat history either way. Also hardened against models that inline their reasoning straight into the answer instead of separating it out — that text is now always stripped before it can leak into the transcript, save history, or the hire-negotiation parser." },
