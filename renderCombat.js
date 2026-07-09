@@ -563,12 +563,12 @@ function sendOffer(id) {
       chatUI.sending[id] = false; chatUI.pending[id] = null;
       pushChatMessage(id, "pirate", result.clean || "…");
       if ((result.status === "accept" || result.status === "counter") && result.amount) {
-        const struck = setBandNegotiatedFee(id, result.amount);
+        const struck = setBandNegotiatedFee(id, result.amount);   // already triggers renderAll()
         chatUI.offers[id] = struck;
-      } else if (!result.status) {
-        toast("Couldn't read a clear answer back — try rephrasing your offer.", "bad");
+      } else {
+        if (!result.status) toast("Couldn't read a clear answer back — try rephrasing your offer.", "bad");
+        renderContacts();   // no deal struck, so no renderAll() from setBandNegotiatedFee — refresh this panel ourselves
       }
-      renderContacts();
     },
     onError: msg => {
       chatUI.sending[id] = false; chatUI.pending[id] = null; chatUI.error[id] = msg;

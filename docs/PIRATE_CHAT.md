@@ -64,7 +64,12 @@ follows for feature-detecting `fetch` and failing soft.
   `escortRecruitBaseFee(b)` (the old formula, renamed), `bandNegotiationBounds(b)`
   (40%–150% of the base fee — pure, so repeated haggling can't ratchet the price
   down round after round), `setBandNegotiatedFee(id, amount)` (clamps into
-  bounds, sets `b.negotiatedFee`/`b.negotiatedUntil`, logs/toasts/saves),
+  bounds, sets `b.negotiatedFee`/`b.negotiatedUntil`, logs/toasts/saves, then
+  calls `renderAll()` — not just `renderContacts()` — since the struck fee
+  also changes what the Escort tab shows, and `setTab()` (`game.js`) only
+  toggles a panel's visibility on switch, never re-renders it; every other
+  state-changing action in this codebase already calls `renderAll()` for
+  exactly this reason, and a deal is no exception),
   `bandNegotiatedFee(b)` (returns the struck fee only while `negotiatedUntil`
   hasn't lapsed — same pattern as a bought feud truce), and `escortRecruitFee(b)`
   itself, now `bandNegotiatedFee(b) ?? escortRecruitBaseFee(b)` — every existing
@@ -120,7 +125,11 @@ adds: `parseDealLine` on ACCEPT/COUNTER/REJECT and unparseable text,
 even after a deal is struck, `setBandNegotiatedFee` clamping an absurd ask into
 bounds and lapsing after `NEGOTIATED_DEAL_DURATION`, `escortRecruitBand`
 charging the negotiated price (not the base one) and consuming the deal on
-use, and `ollamaNegotiate` failing soft with no `fetch`. The streaming network
+use, a flighty band appearing in the Escort recruit list only once negotiated,
+`setBandNegotiatedFee` refreshing an *already-rendered* Escort panel with no
+explicit re-render in between (the exact staleness bug a narrower
+`renderContacts()`-only call would reintroduce), and `ollamaNegotiate` failing
+soft with no `fetch`. The streaming network
 path itself (token-by-token UI updates, the CORS/timeout error copy, the
 `#chatPending` → persisted-bubble handoff, and the full negotiate
 ACCEPT/COUNTER/malformed round-trip through to the Escort tab's hire button)

@@ -184,7 +184,7 @@ test("buildNegotiationExtra states the offer and demands the strict trailing DEA
 test("bandNegotiationBounds brackets 40%-150% of the BASE fee, unaffected by any already-struck deal", () => {
   const { run } = createSandbox();
   run(`
-    S = freshState();
+    S = freshState(); rollPrices();
     S.pirateBands = {}; const b = newBand(2); S.pirateBands[b.id] = b;
     globalThis.__b = b;
   `);
@@ -201,7 +201,7 @@ test("bandNegotiationBounds brackets 40%-150% of the BASE fee, unaffected by any
 test("setBandNegotiatedFee clamps into bounds, and escortRecruitFee/bandNegotiatedFee reflect it until it lapses", () => {
   const { run } = createSandbox();
   run(`
-    S = freshState();
+    S = freshState(); rollPrices();
     S.pirateBands = {}; const b = newBand(2); S.pirateBands[b.id] = b;
     globalThis.__b = b;
   `);
@@ -254,10 +254,14 @@ test("renderEscort's hire list excludes a flighty band normally, but includes it
   const before = run(`document.getElementById("panel-escort").innerHTML`);
   assert.doesNotMatch(before, new RegExp(`escortRecruitBand\\('${run("__b.id")}'\\)`), "a flighty, un-negotiated band must not appear in the hire list");
 
-  run(`setBandNegotiatedFee(__b.id, escortRecruitBaseFee(__b)); renderEscort();`);
+  // No explicit renderEscort() here — the Escort tab is "already open" (its DOM was drawn
+  // above) when the deal is struck elsewhere. setTab() only toggles panel visibility on
+  // switch, it never re-renders, so setBandNegotiatedFee itself must refresh every panel
+  // (renderAll(), not just renderContacts()) or this tab would show the stale, pre-deal price.
+  run(`setBandNegotiatedFee(__b.id, escortRecruitBaseFee(__b));`);
   const after = run(`document.getElementById("panel-escort").innerHTML`);
   const feeStr = run("fmt(escortRecruitFee(__b))");
-  assert.match(after, new RegExp(`escortRecruitBand\\('${run("__b.id")}'\\)`), "a band you've struck a deal with must appear regardless of desert risk");
+  assert.match(after, new RegExp(`escortRecruitBand\\('${run("__b.id")}'\\)`), "a band you've struck a deal with must appear regardless of desert risk, with no explicit re-render needed");
   assert.ok(after.includes(`Hire (${feeStr} cr)`), "the button must show the negotiated fee");
 });
 

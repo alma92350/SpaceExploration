@@ -173,7 +173,9 @@ function setBandNegotiatedFee(id, amount) {
   b.negotiatedFee = fee; b.negotiatedUntil = (S.turn || 0) + NEGOTIATED_DEAL_DURATION;
   log(`🤝 The ${b.ico} ${b.name} agreed to hire on for ${fmt(fee)} cr — the deal holds for ${NEGOTIATED_DEAL_DURATION} cycles or until you sign them on.`, "good");
   toast(`${b.name}: ${fmt(fee)} cr deal struck`, "good"); sfx("event"); saveGame();
-  if (typeof renderContacts === "function") renderContacts();
+  // renderAll(), not just renderContacts() — the struck fee also changes what the (currently
+  // hidden) Escort tab shows, and setTab() only toggles visibility, never re-renders on switch
+  if (typeof renderAll === "function") renderAll();
   return fee;
 }
 function escortRecruitableBands() { return bandList().filter(b => ["neutral", "friendly", "sworn"].includes(bandTier(b).key) && !bandOnMandate(b) && !bandBusy(b)); }   // crews under contract / tied up can't be hired
