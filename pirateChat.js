@@ -241,21 +241,34 @@ function ollamaChat(bandId, userText, callbacks) {
 function buildNegotiationExtra(offerAmount) {
   return [
     `The player is now offering ${offerAmount} credits to hire your crew as an escort for a run.`,
-    `Reply in character in 1-2 short sentences, then on the very last line write exactly one of:`,
+    `Reply in character in 1-2 short sentences, then on the very last line write exactly ONE of:`,
     `DEAL: ACCEPT <credits>`,
     `DEAL: COUNTER <credits>`,
     `DEAL: REJECT`,
-    `<credits> must be a plain whole number, no symbols or commas. Always end with that exact final line and nothing after it.`,
+    `<credits> must be ONLY digits — no commas, no symbols, and no unit word like "credits" or "cr" after the number. Write exactly one such line, never more than one, and put nothing after it.`,
   ].join("\n");
 }
-// pure: pull a trailing "DEAL: ACCEPT/COUNTER/REJECT <n>" line off a reply, if the model
-// followed the format — `clean` is always safe to show/store even when status is null
-const DEAL_LINE_RE = /\n?[ \t]*DEAL:\s*(ACCEPT|COUNTER|REJECT)\s*:?\s*(\d+)?[ \t]*$/i;
+// pure: pull every "DEAL: ACCEPT/COUNTER/REJECT ..." line out of a reply and strip all of
+// them from the visible/stored prose — a model doesn't always cleanly emit just one at the
+// very end: some tack a unit word onto the number ("3200 credits"), some second-guess
+// themselves mid-reply and write an ACCEPT then a COUNTER. The LAST such line found is
+// treated as the model's final word (closest thing to "what it actually decided"); amount
+// extraction tolerates a leading unit word/comma-grouping/trailing prose on that line, since
+// a model rarely follows "digits only" to the letter. `clean` never contains a raw DEAL:
+// line regardless of how many the model produced, so nothing mechanical leaks into dialogue.
+const DEAL_LINE_RE = /^[ \t]*DEAL:\s*(ACCEPT|COUNTER|REJECT)\b(.*)$/i;
 function parseDealLine(text) {
   const t = String(text == null ? "" : text);
-  const m = DEAL_LINE_RE.exec(t);
-  if (!m) return { clean: t.trim(), status: null, amount: null };
-  return { clean: t.slice(0, m.index).trim(), status: m[1].toLowerCase(), amount: m[2] ? parseInt(m[2], 10) : null };
+  let status = null, amount = null;
+  const kept = t.split("\n").filter(line => {
+    const m = DEAL_LINE_RE.exec(line.trim());
+    if (!m) return true;
+    status = m[1].toLowerCase();
+    const amtMatch = /(\d[\d,]*)/.exec(m[2]);
+    amount = amtMatch ? parseInt(amtMatch[1].replace(/,/g, ""), 10) : null;
+    return false;   // drop this line from the kept prose — it's always a machine line, never dialogue
+  });
+  return { clean: kept.join("\n").replace(/\n{3,}/g, "\n\n").trim(), status, amount };
 }
 // callbacks: onToken(deltaSoFar), onThinking(thinkingSoFar),
 // onDone({ userText, clean, status, amount }), onError(message)

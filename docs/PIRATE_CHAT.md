@@ -80,9 +80,16 @@ follows for feature-detecting `fetch` and failing soft.
     `DEAL: REJECT`) — a dedicated call rather than parsing plain chat, because
     a 1B-class model won't reliably volunteer that format unprompted mid-
     conversation. `onDone` receives `{ userText, clean, status, amount }` from
-    `parseDealLine(text)` (pure), which strips the machine line off before the
-    prose is ever shown or stored — an unparseable reply just comes back with
-    `status: null` and the full text as `clean`, never a crash.
+    `parseDealLine(text)` (pure), which scans every line for `DEAL:
+    ACCEPT/COUNTER/REJECT` and strips *all* of them from `clean` before the
+    prose is ever shown or stored, regardless of how many a reply contains —
+    models don't reliably stick to exactly one: some tack a unit word onto the
+    number ("3200 credits", tolerated — only the leading digits/commas are
+    read), some second-guess themselves mid-reply and write an ACCEPT
+    immediately followed by a contradicting COUNTER. The *last* matching line
+    is treated as the model's real final answer; an unparseable reply (no
+    matching line at all) comes back with `status: null` and the full text as
+    `clean`, never a crash.
   - `escapeChatHtml(s)` — every chat bubble's text is player-typed or
     model-generated, unlike the rest of this innerHTML-templated UI (which
     only ever renders developer-authored strings), so it's the one place in
@@ -154,8 +161,11 @@ and personality plus feud naming, `parseOllamaStreamLine` on a good line, an
 `{"error":...}` line and garbage, `escapeChatHtml`, and the sanitizer's
 handling of chat transcripts (apostrophes survive, markup and hostile
 band-id keys don't; a save without the key stays byte-identical). Negotiation
-adds: `parseDealLine` on ACCEPT/COUNTER/REJECT and unparseable text,
-`buildNegotiationExtra`, `bandNegotiationBounds` staying pinned to the base fee
+adds: `parseDealLine` on ACCEPT/COUNTER/REJECT and unparseable text, a real
+bug report reproduced verbatim (a trailing unit word/comma on the amount, and
+a self-contradicting ACCEPT-then-COUNTER reply — the last line wins and
+neither raw line survives into `clean`), `buildNegotiationExtra`,
+`bandNegotiationBounds` staying pinned to the base fee
 even after a deal is struck, `setBandNegotiatedFee` clamping an absurd ask into
 bounds and lapsing after `NEGOTIATED_DEAL_DURATION`, `escortRecruitBand`
 charging the negotiated price (not the base one) and consuming the deal on

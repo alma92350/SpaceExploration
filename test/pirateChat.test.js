@@ -207,6 +207,24 @@ test("parseDealLine extracts ACCEPT/COUNTER/REJECT + amount and strips the machi
   assert.deepEqual(empty, { clean: "", status: null, amount: null });
 });
 
+test("parseDealLine tolerates a trailing unit word/commas on the amount, a real bug report: 'DEAL: ACCEPT 3200 credits'", () => {
+  const { run } = createSandbox();
+  const withUnit = JSON.parse(run(`JSON.stringify(parseDealLine("Ahoy, ye have a deal!\\nDEAL: ACCEPT 3200 credits"))`));
+  assert.deepEqual(withUnit, { clean: "Ahoy, ye have a deal!", status: "accept", amount: 3200 });
+  const withCommas = JSON.parse(run(`JSON.stringify(parseDealLine("Fine, take it.\\nDEAL: COUNTER 4,000 cr"))`));
+  assert.deepEqual(withCommas, { clean: "Fine, take it.", status: "counter", amount: 4000 });
+});
+
+test("parseDealLine keeps only the LAST of several DEAL lines a model second-guessed itself into, stripping every one from the prose", () => {
+  const { run } = createSandbox();
+  // real transcript: the model wrote an ACCEPT, then immediately talked itself into a COUNTER
+  const flipFlop = JSON.parse(run(`JSON.stringify(parseDealLine(
+    "Ahoy, that'll do nicely!\\nDEAL: ACCEPT 3200 credits\\nDEAL: COUNTER 4000 credits"
+  ))`));
+  assert.deepEqual(flipFlop, { clean: "Ahoy, that'll do nicely!", status: "counter", amount: 4000 },
+    "the later COUNTER is the model's real final answer, and neither raw DEAL: line may survive into the displayed prose");
+});
+
 test("buildNegotiationExtra states the offer and demands the strict trailing DEAL format", () => {
   const { run } = createSandbox();
   const extra = run(`buildNegotiationExtra(777)`);

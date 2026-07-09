@@ -1,5 +1,5 @@
 {
-  "version": "2.107.0",
+  "version": "2.107.1",
   "saveVersion": "v2",
-  "notes": "New: an optional 🧠 Show model thinking toggle in 💬 Talk, for reasoning models like Qwen3/QwQ/DeepSeek-R1 — off by default, watch the model's reasoning live when you turn it on."
+  "notes": "Fix: a hire-negotiation reply's machine-readable price line no longer leaks into the chat as raw text when a model appends a unit word to the number or writes more than one such line."
 }
