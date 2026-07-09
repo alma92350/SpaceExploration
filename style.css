@@ -306,6 +306,9 @@ tr:hover td { background: rgba(255,255,255,0.03); }
 .chat-input-row { margin-top: 8px; }
 .chat-field { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text);
   border-radius: 7px; padding: 6px 8px; font-size: 13px; }
+.chat-thinking { align-self: flex-start; max-width: 90%; }
+.chat-thinking .chat-thinking-text { max-height: 90px; overflow-y: auto; font-size: 12px; font-style: italic;
+  color: var(--muted); white-space: pre-wrap; word-break: break-word; padding: 4px 2px; }
 code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
 
 @media (max-width: 860px) {

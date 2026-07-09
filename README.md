@@ -148,6 +148,12 @@ rate) that holds for a few cycles until you actually sign the crew on from
 the 🛡️ Escort tab. Every other numbered button on the Contacts card still
 works exactly as before.
 
+Running a reasoning model (Qwen3, QwQ, DeepSeek-R1, and similar) instead? Talk
+has a **🧠 Show model thinking** toggle, off by default so replies stay short
+and fast — switch it on to watch the model reason through its answer live, in
+its own dimmed block separate from the in-character reply. Either way, that
+reasoning never gets saved to your chat history.
+
 It's entirely optional and entirely local: the page talks straight to
 Ollama's HTTP API on your machine (default `http://localhost:11434`, model
 `llama3.2:1b` — change either in the Talk sub-view), never through any

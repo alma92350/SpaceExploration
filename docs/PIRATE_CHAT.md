@@ -8,6 +8,12 @@ a real, bounded discount honored the next time you actually hire that band, from
 the Escort tab. Every other numbered button under **🤝 All contacts** (gifts,
 tags, feuds, call-for-support, mandates) still works exactly as before.
 
+Reasoning models (Qwen3, QwQ, DeepSeek-R1, ...) can think at length before
+answering — off by default here (short, snappy in-character replies are the
+point), but an optional **🧠 Show model thinking** toggle lets a curious player
+watch that reasoning stream live in its own dimmed block, never saved to
+history either way.
+
 ## Why local-only
 
 Every request goes straight from the browser to an Ollama server the player
@@ -24,8 +30,11 @@ follows for feature-detecting `fetch` and failing soft.
 
 - **`pirateChat.js`** (loaded after `pirateBands.js`) — the non-DOM half:
   - `ensureOllamaSettings()` / `setOllamaSetting(k, v)` — `S.ollama =
-    { endpoint, model }`, defaulting to `http://localhost:11434` /
-    `llama3.2:1b`.
+    { endpoint, model, think }`, defaulting to `http://localhost:11434` /
+    `llama3.2:1b` / `false`. `think` is a real boolean (not a string like
+    endpoint/model), so it's flipped by its own `toggleOllamaThink()` rather
+    than `setOllamaSetting` — that setter's `String(v)` coercion would turn
+    `false` into the *string* `"false"`, which is truthy.
   - `ensurePirateChat()` / `pirateChatHistory(bandId)` /
     `pushChatMessage(bandId, who, text)` — `S.pirateChat[bandId]` is an array
     of `{ who: "you"|"pirate", text, turn }`, capped at `CHAT_HISTORY_CAP`
@@ -40,13 +49,31 @@ follows for feature-detecting `fetch` and failing soft.
   - `buildOllamaMessages(systemPrompt, history, userText, contextN)` — pure;
     trims to the most recent `CHAT_CONTEXT_MSGS` (16) turns before sending,
     independent of the larger on-disk cap.
-  - `streamOllamaCompletion(messages, { onToken, onDone, onError })` — streams
-    `POST /api/chat` (NDJSON), falling back to a single `response.json()`
-    read if the runtime has no readable-stream body. Shared by both
-    `ollamaChat` (plain chat) and `ollamaNegotiate` (below) — they differ only
-    in the `messages` array each builds. `testOllamaConnection()` hits
-    `GET /api/tags` for the settings card's 🔌 Test button.
-  - `ollamaNegotiate(bandId, offerAmount, { onToken, onDone, onError })` —
+  - `streamOllamaCompletion(messages, { onToken, onThinking, onDone, onError },
+    think)` — streams `POST /api/chat` (NDJSON) with `think` in the request
+    body, falling back to a single `response.json()` read if the runtime has
+    no readable-stream body. Shared by both `ollamaChat` (plain chat) and
+    `ollamaNegotiate` (below) — they differ only in the `messages` array each
+    builds and pass `ensureOllamaSettings().think` through automatically.
+    `testOllamaConnection()` hits `GET /api/tags` for the settings card's
+    🔌 Test button.
+  - **Reasoning models** (Qwen3, QwQ, DeepSeek-R1, ...) can think at length
+    before answering. When Ollama honors `think`, it streams that
+    chain-of-thought separately as `message.thinking` — `parseOllamaStreamLine`
+    surfaces it as `thinkDelta` alongside the normal content `delta`, and
+    `streamOllamaCompletion` accumulates it in parallel, firing `onThinking`
+    (UI-only, never persisted) exactly like `onToken` fires for the reply
+    itself. Not every model/Ollama version honors the split, though — some
+    inline `<think>...</think>` straight into `content` regardless.
+    `stripThinkTags(text)` (pure) drops any such block — closed or left
+    dangling by a cut-off stream — from the final text `streamOllamaCompletion`
+    hands to `onDone`, so that text can never leak into the visible transcript,
+    `pirateChatHistory`, or `parseDealLine`'s negotiation parsing, whether or
+    not `think` was actually requested. `think` itself defaults to `false`
+    (a short, snappy in-character voice is the point of this feature) and is
+    a per-player, persisted preference toggled from the Talk sub-view's
+    settings card, not a per-band one.
+  - `ollamaNegotiate(bandId, offerAmount, { onToken, onThinking, onDone, onError })` —
     haggles the escort hire fee. Builds a *system prompt extended* with
     `buildNegotiationExtra(offer)`, which demands the reply end in a strict,
     machine-parseable line (`DEAL: ACCEPT <n>` / `DEAL: COUNTER <n>` /
@@ -91,6 +118,13 @@ follows for feature-detecting `fetch` and failing soft.
   struck a deal with bypasses that filter (`bandNegotiatedFee(b) != null`), so a
   negotiated hire never silently disappears from the list just for being
   flighty; the real risk % still shows right next to it.
+  `chatSettingsCard()` also carries the **🧠 Show model thinking** checkbox
+  (`toggleOllamaThink()`); while `S.ollama.think` is on and a reply is pending,
+  both `sendChatMessage` and `sendOffer` wire `onThinking` to a distinct
+  `#chatThinking` element (`.chat-thinking`, styled small/italic/muted, its own
+  scrollable block) rendered above the pending reply bubble — never mixed into
+  the actual `.chat-bubble` prose, and never written through `pushChatMessage`,
+  so it can't bloat `pirateChatHistory` or bleed into a future turn's context.
 - **`persistence.js`** — `sanitizeLoadedState()` treats `S.pirateChat` like
   `S.journal`: plain-text sanitizing (tags stripped, apostrophes/quotes kept)
   instead of the generic `stripUnsafeStrings` pass every other field gets,
@@ -129,10 +163,19 @@ use, a flighty band appearing in the Escort recruit list only once negotiated,
 `setBandNegotiatedFee` refreshing an *already-rendered* Escort panel with no
 explicit re-render in between (the exact staleness bug a narrower
 `renderContacts()`-only call would reintroduce), and `ollamaNegotiate` failing
-soft with no `fetch`. The streaming network
-path itself (token-by-token UI updates, the CORS/timeout error copy, the
-`#chatPending` → persisted-bubble handoff, and the full negotiate
-ACCEPT/COUNTER/malformed round-trip through to the Escort tab's hire button)
-was verified by hand against a local mock Ollama server, not by an automated
-test — genuine network I/O against a real server isn't something the Node
-`vm` sandbox does anywhere else in this suite either.
+soft with no `fetch`. Thinking-mode coverage: `parseOllamaStreamLine` reading a
+`message.thinking` delta alongside `content`, `stripThinkTags` on a closed
+block, an unclosed one left dangling, and plain prose with none at all, and an
+`ollamaChat` call (against a mocked `fetch` injected straight into the sandbox,
+since the request/response shape — not real network I/O — is what's under
+test) asserting the request body carries `S.ollama.think` and that an inlined
+`<think>` block never survives into `onDone`'s text.
+
+The streaming network path itself (token-by-token UI updates, the
+CORS/timeout error copy, the `#chatPending` → persisted-bubble handoff, the
+full negotiate ACCEPT/COUNTER/malformed round-trip through to the Escort tab's
+hire button, and the 🧠 thinking toggle showing a live `message.thinking`
+stream in its own block while off-by-default hides it entirely) was verified
+by hand against a local mock Ollama server, not by an automated test —
+genuine network I/O against a real server isn't something the Node `vm`
+sandbox does anywhere else in this suite either.
