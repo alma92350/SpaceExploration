@@ -1,5 +1,5 @@
 {
-  "version": "2.108.0",
+  "version": "2.110.0",
   "saveVersion": "v2",
-  "notes": "Changed: hire negotiation in 💬 Talk is now decided by the game itself, not the model — it narrates the decision in character, but never determines it. Works the same on any model, or with no model at all."
+  "notes": "Added: the offense side of raiding — from the Raider tab, hit a faction world's own orbital defenses and sack the surface for credits. A real act of war: heavy Wanted and a deep rep hit, scaled to how lawful and developed the world is."
 }

@@ -151,6 +151,28 @@ function raidWinMerchant(prey, noQuarter) {
   toast(`Plundered ${prey.name}!`, "good");
   if (betray) revokeCommission(true);
 }
+// beating down a planet's own defense fleet (combat.js's genPlanetDefense/raidPlanet) is a
+// bigger act than robbing one ship: heavier Dread/Wanted and a much deeper rep hit, and the
+// real prize is the ground plunder (planetRaidHaul) on top of whatever the fleet itself carried
+function raidWinPlanet(prey, noQuarter) {
+  const betray = S.commission && prey.faction === S.commission.patron;
+  const taken = plunder(prey);
+  const planet = PLANETS.find(p => p.id === prey.planetId) || currentPlanet();
+  const haul = Math.round(planetRaidHaul(planet) * lootShare());
+  S.res.credits += haul;
+  const dread = noQuarter ? 22 : 15;
+  const sanctioned = applyCommissionRaid(prey);
+  const wanted = sanctioned ? (noQuarter ? 15 : 10) : prey.wantedGain + (noQuarter ? 10 : 0);
+  S.pirate.dread += dread; S.pirate.wanted += wanted;
+  addRep(prey.faction, noQuarter ? -28 : -20);
+  if (!sanctioned) addRep("core", -(prey.faction === "core" ? 15 : 8));
+  addRep("frontier", 4);
+  FACTION_KEYS.filter(f => f !== prey.faction && factionsAreRivals(f, prey.faction)).forEach(f => addRep(f, 3));
+  clampPirate();
+  log(`🏴‍☠️ You broke ${prey.planetName}'s orbital defenses${noQuarter ? " and gave no quarter" : ""} and sacked the surface! Plundered ${taken.join(" ") || "their war chest"} + ${fmt(haul)} cr in ground plunder${lootShare() < 1 ? ` <span class="hint">(split ${1 / lootShare()} ways)</span>` : ""}.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Dread +${dread}, Wanted +${wanted})`, "good");
+  toast(`Sacked ${prey.planetName}! +${fmt(haul)} cr`, "good");
+  if (betray) revokeCommission(true);
+}
 function promoteOrEnd(prey) {
   if (prey.pack && prey.pack.length) {
     const next = prey.pack.shift();
@@ -215,7 +237,7 @@ function combatStrike(noQuarter, wkey) {
   const dmgNote = `${allyDmg > 0 ? ` · 🤝 allies +${Math.round(allyDmg)}` : ""}${bgDmg > 0 ? ` · ✦ battle fleet +${Math.round(bgDmg)}` : ""}`;
   if (killed.length) {
     sfx("explode");
-    killed.forEach(h => { if (h.isPirate) raidWinPirate(h); else raidWinMerchant(h, noQuarter); });
+    killed.forEach(h => { if (h.isPlanetRaid) raidWinPlanet(h, noQuarter); else if (h.isPirate) raidWinPirate(h); else raidWinMerchant(h, noQuarter); });
     raidResolveKills(prey, killed);
     log(`⚔️ You hit ${hits.join("; ")}${dmgNote} — destroyed ${killed.map(h => h.name).join(", ")}!`, "good");
     return afterAction();

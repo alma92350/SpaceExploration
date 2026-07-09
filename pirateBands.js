@@ -318,3 +318,22 @@ function bandAsAlly(b) {
   return { isPirate: true, bandId: b.id, allyName: b.name, ico: b.ico, name: b.name,
     strength: Math.round(((PIRATE_RANKS[b.level] || PIRATE_RANKS[1]).str) * 0.9), share: bandLootShare(b) };
 }
+/* ---- Who's actually behind a colony/base raid (colonization.js's baseRaidRoll/
+   colonyEventRoll) — ties that event to a real band identity instead of faceless
+   "pirates" whenever one's a fit, so the whole rep/feud/negotiation economy this
+   file already models bears on your own defense too: a friendly or sworn crew
+   never raids you, and a band already hostile toward you is the likelier culprit.
+   Weighted, not uniform — lower rep means more weight. Deterministic given a
+   supplied `rand` (tests pin it down; real calls default to Math.random()), same
+   pattern as decideNegotiation. Returns null (an unnamed raid) only when no band
+   is a fit yet — a fresh game with no bands met at all shouldn't be blocked on
+   one existing. */
+function pickRaidBand(rand) {
+  const pool = bandList().filter(b => !["friendly", "sworn"].includes(bandTier(b).key) && !bandBusy(b));
+  if (!pool.length) return null;
+  const weights = pool.map(b => Math.max(1, 60 - (b.rep || 0)));
+  const total = weights.reduce((s, w) => s + w, 0);
+  let r = (rand == null ? Math.random() : rand) * total;
+  for (let i = 0; i < pool.length; i++) { r -= weights[i]; if (r <= 0) return pool[i]; }
+  return pool[pool.length - 1];
+}

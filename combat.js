@@ -588,6 +588,57 @@ function genPrey() {
   applyShipClass(foe, rollShipClass(law >= 0.5 ? 1 : 0));     // lawful lanes run bigger hulls
   return foe;
 }
+/* ---------- Raiding a planet (the offense side of the defense slice above) ----------
+   Deliberately attacking an established world, not a random sweep contact. Shaped exactly
+   like any other prey (isPlanetRaid marks it for raidWinPlanet's resolution instead of
+   raidWinPirate/raidWinMerchant once it's beaten) so the whole existing engagement UI —
+   weapon targeting, deep scan, calling allies, extort, no quarter — just works with zero
+   changes; only the win path is new. Scaled off the same PREY.patrol archetype as a single
+   escort ship, since a planet's whole garrison should out-muscle one patrol craft, not
+   just match it. The credits on the "fleet" are what plunder() pulls off its own war
+   chest; the real prize (ground plunder, scaled to how developed the world is) only
+   comes from actually winning — see raidWinPlanet, raiding.js. */
+function genPlanetDefense(planet) {
+  const law = planet.enforce;
+  const strength = Math.round(PREY.patrol.base * (1.3 + law * 1.2) * (0.85 + Math.random() * 0.3) * foeStrengthMult());
+  const prof = genFoeProfile("patrol", strength, law);
+  const foe = {
+    type: "garrison", isPlanetRaid: true, planetId: planet.id, planetName: planet.name,
+    name: `${planet.name} Defense Fleet`, ico: "🏰",
+    faction: planet.faction,
+    cargo: {}, credits: rint(300, 700) * (1 + Math.round(law * 2)),
+    strength, def: prof.def, wtype: prof.wtype,
+    bounty: 0,
+    wantedGain: Math.round(25 + law * 35),
+  };
+  applyShipClass(foe, rollShipClass(law >= 0.5 ? 2 : law >= 0.25 ? 1 : 0));   // a lawful world's garrison runs heavier hulls
+  return foe;
+}
+// what sacking the surface itself is worth, once its defense fleet is actually beaten —
+// scales with how developed the world is, same spirit as colonyTaxIncome/navyBribeCost
+function planetRaidHaul(planet) {
+  return Math.round((400 + planet.industry * 220 + planet.tech * 140) * (0.75 + Math.random() * 0.5));
+}
+const PLANET_RAID_FUEL = 8;
+// deliberately target the CURRENT planet's own defenses — not a sweep for random contacts
+function raidPlanet() {
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  if (S.interdiction) return toast("There's a navy cutter on your tail — deal with it first.", "bad");
+  if (S.encounter) return toast("A pirate has you in its sights — deal with it first.", "bad");
+  if (S.prey) return toast("You're already engaged — finish that fight first.", "bad");
+  if (S.preyChoices && S.preyChoices.length) return toast("You already have contacts on the scope — engage one or stand down.", "bad");
+  const p = currentPlanet();
+  if (!p.faction) return toast("This world has no faction garrison worth raiding.", "bad");
+  if ((S.bases && S.bases[p.id]) || (S.colonies && S.colonies[p.id])) return toast("You can't raid your own settlement.", "bad");
+  if (S.res.fuel < PLANET_RAID_FUEL) return toast(`Need ${PLANET_RAID_FUEL} fuel to run the blockade.`, "bad");
+  S.res.fuel -= PLANET_RAID_FUEL; useAction();
+  S.prey = genPlanetDefense(p);
+  S.prey._others = []; S.prey.pack = []; S.allies = null; S.raidTargets = [];
+  raidJoinFollowers();
+  log(`🏴‍☠️ You make your move on <span class="c">${p.name}</span> — its ${S.prey.ico} ${S.prey.name} scrambles to meet you.`, "event");
+  toast(`Raiding ${p.name}!`, "event");
+  afterAction();
+}
 /* unified sweep: one scan turns up a handful of contacts — pirates AND coalition
    traffic together — shown by faction + hull class only. Pick one to engage. */
 function prowl() {

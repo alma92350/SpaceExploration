@@ -268,12 +268,19 @@ function renderRaid() {
     const armed = S.upgrades.cannons >= 1;
     const lvl = pirateLevel(p.id);
     const richness = p.enforce >= 0.5 ? "fat, well-escorted lawful traffic — and bigger hulls" : p.enforce >= 0.25 ? "mixed traffic" : "lean rim runners, smugglers & pirates";
-    action = `<div class="card">
+    const sweepCard = `<div class="card">
       <h4>🔭 Sweep the lanes near ${p.name} ${lvl > 0 ? `<span class="pill ${lvl >= 2 ? "bad" : ""}">pirate activity ${lvl}</span>` : '<span class="pill good">lanes quiet</span>'}</h4>
       <div class="desc">One sweep turns up several contacts — coalition traffic and pirates alike (${richness}). You'll see each one's faction and <b>hull class</b>; pick your mark. Lawful space runs richer and heavier; the lawless rim is leaner. Costs ${PROWL_FUEL} ⛽ and one action.</div>
       ${armed ? "" : `<div class="hint" style="color:var(--warn)">Install 🔫 Weapon Systems (Ship tab) to raid with any real teeth.</div>`}
       <button class="btn btn-primary" ${al > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="prowl()">Sweep (1 action)</button>
     </div>`;
+    const canRaidPlanet = !!p.faction && !(S.bases && S.bases[p.id]) && !(S.colonies && S.colonies[p.id]);
+    const planetCard = canRaidPlanet ? `<div class="card" style="border-color:var(--bad)">
+      <h4>🏴‍☠️ Raid ${p.name} <span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)">${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}</span></h4>
+      <div class="desc">Break its orbital defenses and sack the surface outright — a real act of war on ${FACTIONS[p.faction].name}: heavy Wanted, a deep rep hit, and defenses that scale with how lawful this world is (${Math.round(p.enforce * 100)}%). The payoff scales with how developed it is too (Industry ${p.industry}, Tech ${p.tech}). Costs ${PLANET_RAID_FUEL} ⛽ and one action.</div>
+      <button class="btn btn-bad" ${al > 0 && S.res.fuel >= PLANET_RAID_FUEL ? "" : "disabled"} onclick="raidPlanet()">Raid this world (1 action)</button>
+    </div>` : "";
+    action = sweepCard + planetCard;
   }
   // ---- Pirate haven ----
   let havenCard = "";
