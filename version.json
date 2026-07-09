@@ -1,5 +1,5 @@
 {
-  "version": "2.109.0",
+  "version": "2.110.0",
   "saveVersion": "v2",
-  "notes": "Added: Bases can now be raided just like colonies always could — build a Garrison to defend one. Every raid is now claimed by an actual pirate band from your Contacts when one's a fit, instead of always faceless \"Pirates\"."
+  "notes": "Added: the offense side of raiding — from the Raider tab, hit a faction world's own orbital defenses and sack the surface for credits. A real act of war: heavy Wanted and a deep rep hit, scaled to how lawful and developed the world is."
 }
