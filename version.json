@@ -1,5 +1,5 @@
 {
-  "version": "2.107.1",
+  "version": "2.107.2",
   "saveVersion": "v2",
-  "notes": "Fix: a hire-negotiation reply's machine-readable price line no longer leaks into the chat as raw text when a model appends a unit word to the number or writes more than one such line."
+  "notes": "Fix: 💬 Talk no longer times out a slow-but-still-answering reply after a fixed 60s — it now only gives up on real silence, with a longer allowance for reasoning models."
 }

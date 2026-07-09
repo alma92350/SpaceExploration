@@ -139,6 +139,56 @@ test("ollamaChat sends S.ollama.think in the request body, and defensively strip
   assert.deepEqual(out.results, ["Ahoy, matey!"], "onDone must receive the already-cleaned text");
 });
 
+test("a timed-out (idle) request gets a distinct, actionable message instead of the generic CORS/connection copy", async () => {
+  const { run } = createSandbox();
+  run(`
+    S = freshState();
+    S.pirateBands = {}; const b = newBand(1); S.pirateBands[b.id] = b; globalThis.__bandId = b.id;
+    globalThis.fetch = async () => {
+      const e = new Error("The operation was aborted.");
+      e.name = "AbortError";
+      throw e;
+    };
+  `);
+  const errors = await run(`
+    (async () => {
+      const errors = [];
+      await ollamaChat(__bandId, "hello", { onError: m => errors.push(m) });
+      return errors;
+    })()
+  `);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /went quiet for too long/i);
+  assert.doesNotMatch(errors[0], /OLLAMA_ORIGINS/, "a timeout is not a CORS problem — it shouldn't suggest the CORS fix");
+});
+
+test("a genuine connection failure still gets the CORS/OLLAMA_ORIGINS hint, unchanged", async () => {
+  const { run } = createSandbox();
+  run(`
+    S = freshState();
+    S.pirateBands = {}; const b = newBand(1); S.pirateBands[b.id] = b; globalThis.__bandId = b.id;
+    globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+  `);
+  const errors = await run(`
+    (async () => {
+      const errors = [];
+      await ollamaChat(__bandId, "hello", { onError: m => errors.push(m) });
+      return errors;
+    })()
+  `);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /OLLAMA_ORIGINS/);
+  assert.doesNotMatch(errors[0], /went quiet/i);
+});
+
+test("createIdleAbort degrades to a harmless no-op when AbortController is unavailable (as in this sandbox)", () => {
+  const { run } = createSandbox();
+  assert.equal(run(`typeof AbortController`), "undefined", "sanity: this sandbox has no AbortController, same as abortSignalWithTimeout's own fallback path");
+  const idle = run(`createIdleAbort(1000)`);
+  assert.equal(idle.signal, undefined);
+  assert.doesNotThrow(() => run(`const i = createIdleAbort(1000); i.poke(); i.poke(); i.cancel();`));
+});
+
 test("escapeChatHtml neutralizes markup and attribute-breakout characters, plain text passes through readably", () => {
   const { run } = createSandbox();
   assert.equal(run(`escapeChatHtml('<img src=x onerror=alert(1)>')`), "&lt;img src=x onerror=alert(1)&gt;");

@@ -57,6 +57,18 @@ follows for feature-detecting `fetch` and failing soft.
     builds and pass `ensureOllamaSettings().think` through automatically.
     `testOllamaConnection()` hits `GET /api/tags` for the settings card's
     🔌 Test button.
+  - **Timeout is idle-based, not a fixed total duration**: `createIdleAbort(ms)`
+    hands back an `AbortController`-backed `{ signal, poke(), cancel() }`;
+    `poke()` (called on every chunk actually received in the streaming read
+    loop) pushes the deadline back out, so a reply only gets cut off by real
+    silence, never merely by taking a while overall — a fixed timeout would
+    cut off a reasoning model mid-thought even while it's still actively
+    answering. `OLLAMA_IDLE_TIMEOUT_MS` (60s) applies normally,
+    `OLLAMA_IDLE_TIMEOUT_THINKING_MS` (150s) while `think` is on, since a
+    reasoning model's gaps between chunks run longer. The `catch` block tells
+    an aborted request (`e.name === "AbortError"`) apart from a genuine
+    connection failure, so a timeout says so plainly instead of pointing at
+    CORS/`OLLAMA_ORIGINS`, which isn't the actual problem in that case.
   - **Reasoning models** (Qwen3, QwQ, DeepSeek-R1, ...) can think at length
     before answering. When Ollama honors `think`, it streams that
     chain-of-thought separately as `message.thinking` — `parseOllamaStreamLine`
@@ -179,13 +191,20 @@ block, an unclosed one left dangling, and plain prose with none at all, and an
 `ollamaChat` call (against a mocked `fetch` injected straight into the sandbox,
 since the request/response shape — not real network I/O — is what's under
 test) asserting the request body carries `S.ollama.think` and that an inlined
-`<think>` block never survives into `onDone`'s text.
+`<think>` block never survives into `onDone`'s text. Timeout coverage: a
+mocked `fetch` throwing an `AbortError`-shaped error gets the "went quiet"
+message (never the CORS hint), a genuine connection failure still gets the
+CORS/`OLLAMA_ORIGINS` hint (never the timeout wording), and `createIdleAbort`
+degrades to a harmless no-op when `AbortController` is unavailable — same as
+this sandbox, which stubs neither it nor real timers, so `poke()`/`cancel()`
+actually resetting/canceling a live deadline was verified separately with a
+plain `node -e` script using real `setTimeout`, not the game's own test suite.
 
 The streaming network path itself (token-by-token UI updates, the
-CORS/timeout error copy, the `#chatPending` → persisted-bubble handoff, the
-full negotiate ACCEPT/COUNTER/malformed round-trip through to the Escort tab's
-hire button, and the 🧠 thinking toggle showing a live `message.thinking`
-stream in its own block while off-by-default hides it entirely) was verified
-by hand against a local mock Ollama server, not by an automated test —
-genuine network I/O against a real server isn't something the Node `vm`
-sandbox does anywhere else in this suite either.
+`#chatPending` → persisted-bubble handoff, the full negotiate
+ACCEPT/COUNTER/malformed round-trip through to the Escort tab's hire button,
+and the 🧠 thinking toggle showing a live `message.thinking` stream in its own
+block while off-by-default hides it entirely) was verified by hand against a
+local mock Ollama server, not by an automated test — genuine network I/O
+against a real server isn't something the Node `vm` sandbox does anywhere
+else in this suite either.

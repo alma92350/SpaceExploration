@@ -151,6 +151,24 @@ function abortSignalWithTimeout(ms) {
   setTimeout(() => ctrl.abort(), ms);
   return ctrl.signal;
 }
+// A reasoning model can legitimately take a long time overall — a fixed total-duration
+// timeout would cut off a slow-but-alive stream just for taking a while, thinking or not.
+// This is an IDLE timeout instead: poke() pushes the deadline back out on every chunk
+// actually received, so only real silence (a hung connection, a crashed model) aborts it.
+// Thinking gets a longer allowance since a reasoning model's chain-of-thought can pause
+// between chunks longer than a quick in-character line ever would.
+const OLLAMA_IDLE_TIMEOUT_MS = 60000;            // 60s of silence, plain reply
+const OLLAMA_IDLE_TIMEOUT_THINKING_MS = 150000;  // 150s of silence, reasoning models
+function createIdleAbort(ms) {
+  if (typeof AbortController === "undefined") return { signal: undefined, poke() {}, cancel() {} };
+  const ctrl = new AbortController();
+  let timer = setTimeout(() => ctrl.abort(), ms);
+  return {
+    signal: ctrl.signal,
+    poke() { clearTimeout(timer); timer = setTimeout(() => ctrl.abort(), ms); },
+    cancel() { clearTimeout(timer); },
+  };
+}
 const OLLAMA_CORS_HINT = "If Ollama refuses the connection, it's likely blocking this page's origin — start it with OLLAMA_ORIGINS=* (or this page's origin) set, e.g. \"OLLAMA_ORIGINS=* ollama serve\".";
 // GET /api/tags — used by the Contacts chat settings card's Test button
 async function testOllamaConnection() {
@@ -176,21 +194,24 @@ async function streamOllamaCompletion(messages, callbacks, think) {
   const { onToken, onThinking, onDone, onError } = callbacks || {};
   if (typeof fetch !== "function") return onError && onError("This browser can't make network requests.");
   const cfg = ensureOllamaSettings();
+  const idle = createIdleAbort(think ? OLLAMA_IDLE_TIMEOUT_THINKING_MS : OLLAMA_IDLE_TIMEOUT_MS);
   let text = "", thinking = "";
   try {
     const r = await fetch(cfg.endpoint.replace(/\/+$/, "") + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: cfg.model, messages, stream: true, think: !!think }),
-      signal: abortSignalWithTimeout(60000),
+      signal: idle.signal,
     });
     if (!r.ok) {
+      idle.cancel();
       let msg = `Ollama replied with HTTP ${r.status}.`;
       try { const j = await r.json(); if (j && j.error) msg = j.error; } catch (e) {}
       return onError && onError(msg);
     }
     if (!r.body || typeof r.body.getReader !== "function") {
       const data = await r.json();   // environments without streaming bodies: take the one-shot reply
+      idle.cancel();
       text = stripThinkTags((data.message && data.message.content) || "");
       onDone && onDone(text);
       return text;
@@ -201,17 +222,19 @@ async function streamOllamaCompletion(messages, callbacks, think) {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
+      idle.poke();   // heard from the model — push the silence deadline back out
       buf += decoder.decode(value, { stream: true });
       const parts = buf.split("\n");
       buf = parts.pop();   // last (possibly incomplete) line stays buffered
       for (const line of parts) {
         const p = parseOllamaStreamLine(line);
         if (!p) continue;
-        if (p.error) return onError && onError(p.error);
+        if (p.error) { idle.cancel(); return onError && onError(p.error); }
         if (p.thinkDelta) { thinking += p.thinkDelta; onThinking && onThinking(thinking); }
         if (p.delta) { text += p.delta; onToken && onToken(text); }
       }
     }
+    idle.cancel();
     const tail = parseOllamaStreamLine(buf);
     if (tail && tail.error) return onError && onError(tail.error);
     if (tail && tail.thinkDelta) { thinking += tail.thinkDelta; onThinking && onThinking(thinking); }
@@ -220,7 +243,11 @@ async function streamOllamaCompletion(messages, callbacks, think) {
     onDone && onDone(text);
     return text;
   } catch (e) {
-    onError && onError(`Couldn't reach Ollama at ${cfg.endpoint}. ${OLLAMA_CORS_HINT}`);
+    idle.cancel();
+    const timedOut = !!(e && e.name === "AbortError");
+    onError && onError(timedOut
+      ? `${cfg.model} went quiet for too long without answering — it may be too slow for this machine or overloaded right now. Try a smaller model, or wait a moment and try again.`
+      : `Couldn't reach Ollama at ${cfg.endpoint}. ${OLLAMA_CORS_HINT}`);
     return null;
   }
 }
