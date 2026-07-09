@@ -1,5 +1,5 @@
 {
-  "version": "2.107.3",
+  "version": "2.108.0",
   "saveVersion": "v2",
-  "notes": "Fix: hire negotiation now recognizes a bare ACCEPT (no price) and a lone number with no keyword at all, and the prompt now includes a worked example for smaller models to follow."
+  "notes": "Changed: hire negotiation in 💬 Talk is now decided by the game itself, not the model — it narrates the decision in character, but never determines it. Works the same on any model, or with no model at all."
 }

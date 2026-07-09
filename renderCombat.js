@@ -567,20 +567,19 @@ function sendOffer(id) {
       const el = document.getElementById("chatThinking"); if (el) el.textContent = soFar;
       const t = document.getElementById("chatTranscript"); if (t) t.scrollTop = t.scrollHeight;
     },
+    // the game already decided ACCEPT/COUNTER/REJECT (+ price) before the LLM call ever
+    // started, so this always resolves via onDone — even with Ollama unreachable (offline:
+    // true, a generic fallback line) — never blocked on the model actually answering
     onDone: result => {
       chatUI.sending[id] = false; chatUI.pending[id] = null;
-      pushChatMessage(id, "pirate", result.clean || "…");
-      if ((result.status === "accept" || result.status === "counter") && result.amount) {
+      pushChatMessage(id, "pirate", result.clean);
+      if (result.status === "accept" || result.status === "counter") {
         const struck = setBandNegotiatedFee(id, result.amount);   // already triggers renderAll()
         chatUI.offers[id] = struck;
       } else {
-        if (!result.status) toast("Couldn't read a clear answer back — try rephrasing your offer.", "bad");
-        renderContacts();   // no deal struck, so no renderAll() from setBandNegotiatedFee — refresh this panel ourselves
+        renderContacts();   // reject: no deal struck, so no renderAll() from setBandNegotiatedFee — refresh ourselves
       }
-    },
-    onError: msg => {
-      chatUI.sending[id] = false; chatUI.pending[id] = null; chatUI.error[id] = msg;
-      renderContacts();
+      if (result.offline) toast("Ollama's offline — the outcome still applies, just without an AI-voiced reply.", "");
     },
   });
 }

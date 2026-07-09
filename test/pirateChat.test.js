@@ -243,95 +243,105 @@ test("renderContacts renders the Talk sub-view without a real Ollama connection 
   assert.doesNotThrow(() => run("openBandChat(Object.keys(S.pirateBands)[0]); renderContacts();"));
 });
 
-test("parseDealLine extracts ACCEPT/COUNTER/REJECT + amount and strips the machine line, keeping prose intact", () => {
-  const { run } = createSandbox();
-  const accept = JSON.parse(run(`JSON.stringify(parseDealLine("Ahoy, you've got a deal, matey!\\nDEAL: ACCEPT 450"))`));
-  assert.deepEqual(accept, { clean: "Ahoy, you've got a deal, matey!", status: "accept", amount: 450 });
-  const counter = JSON.parse(run(`JSON.stringify(parseDealLine("Not for that pittance. 900 or nothing.\\nDEAL: COUNTER 900"))`));
-  assert.deepEqual(counter, { clean: "Not for that pittance. 900 or nothing.", status: "counter", amount: 900 });
-  const reject = JSON.parse(run(`JSON.stringify(parseDealLine("Never in a hundred years.\\nDEAL: REJECT"))`));
-  assert.deepEqual(reject, { clean: "Never in a hundred years.", status: "reject", amount: null });
-  const garbage = JSON.parse(run(`JSON.stringify(parseDealLine("just chattering, no format followed"))`));
-  assert.deepEqual(garbage, { clean: "just chattering, no format followed", status: null, amount: null });
-  const empty = JSON.parse(run(`JSON.stringify(parseDealLine(null))`));
-  assert.deepEqual(empty, { clean: "", status: null, amount: null });
-});
-
-test("parseDealLine tolerates a trailing unit word/commas on the amount, a real bug report: 'DEAL: ACCEPT 3200 credits'", () => {
-  const { run } = createSandbox();
-  const withUnit = JSON.parse(run(`JSON.stringify(parseDealLine("Ahoy, ye have a deal!\\nDEAL: ACCEPT 3200 credits"))`));
-  assert.deepEqual(withUnit, { clean: "Ahoy, ye have a deal!", status: "accept", amount: 3200 });
-  const withCommas = JSON.parse(run(`JSON.stringify(parseDealLine("Fine, take it.\\nDEAL: COUNTER 4,000 cr"))`));
-  assert.deepEqual(withCommas, { clean: "Fine, take it.", status: "counter", amount: 4000 });
-});
-
-test("parseDealLine keeps only the LAST of several DEAL lines a model second-guessed itself into, stripping every one from the prose", () => {
-  const { run } = createSandbox();
-  // real transcript: the model wrote an ACCEPT, then immediately talked itself into a COUNTER
-  const flipFlop = JSON.parse(run(`JSON.stringify(parseDealLine(
-    "Ahoy, that'll do nicely!\\nDEAL: ACCEPT 3200 credits\\nDEAL: COUNTER 4000 credits"
-  ))`));
-  assert.deepEqual(flipFlop, { clean: "Ahoy, that'll do nicely!", status: "counter", amount: 4000 },
-    "the later COUNTER is the model's real final answer, and neither raw DEAL: line may survive into the displayed prose");
-});
-
-test("parseDealLine accepts a bare ACCEPT/COUNTER/REJECT with no DEAL: prefix, a real bug report reproduced verbatim", () => {
-  const { run } = createSandbox();
-  // real transcript: three separate replies to the same offer, none using the "DEAL:" prefix
-  const bare = JSON.parse(run(`JSON.stringify(parseDealLine("ACCEPT"))`));
-  assert.deepEqual(bare, { clean: "", status: "accept", amount: null });
-  const withColonAndUnit = JSON.parse(run(`JSON.stringify(parseDealLine("ACCEPT: 2800cr"))`));
-  assert.deepEqual(withColonAndUnit, { clean: "", status: "accept", amount: 2800 });
-  const lowerCase = JSON.parse(run(`JSON.stringify(parseDealLine("Accept"))`));
-  assert.deepEqual(lowerCase, { clean: "", status: "accept", amount: null });
-  const bareCounter = JSON.parse(run(`JSON.stringify(parseDealLine("Ahoy, not for that pittance!\\nCOUNTER 4500"))`));
-  assert.deepEqual(bareCounter, { clean: "Ahoy, not for that pittance!", status: "counter", amount: 4500 });
-  const bareReject = JSON.parse(run(`JSON.stringify(parseDealLine("REJECT"))`));
-  assert.deepEqual(bareReject, { clean: "", status: "reject", amount: null });
-});
-
-test("parseDealLine does not mistake ordinary dialogue that merely starts with one of the keywords for a decision", () => {
-  const { run } = createSandbox();
-  const prose = JSON.parse(run(`JSON.stringify(parseDealLine("Accept my apologies, this haggling business ain't easy."))`));
-  assert.deepEqual(prose, { clean: "Accept my apologies, this haggling business ain't easy.", status: null, amount: null },
-    "a full sentence that happens to start with 'Accept' must stay as ordinary dialogue, not be read as a decision");
-  const prose2 = JSON.parse(run(`JSON.stringify(parseDealLine("Reject the notion that pirates have no honor!"))`));
-  assert.equal(prose2.status, null);
-});
-
-test("parseDealLine reads a bare price with no keyword at all as a counter, a real bug report from a smaller model", () => {
-  const { run } = createSandbox();
-  const bareNumber = JSON.parse(run(`JSON.stringify(parseDealLine("2841"))`));
-  assert.deepEqual(bareNumber, { clean: "", status: "counter", amount: 2841 });
-  const bareNumberWithProse = JSON.parse(run(`JSON.stringify(parseDealLine("Aye, that'll do.\\n2,841 credits"))`));
-  assert.deepEqual(bareNumberWithProse, { clean: "Aye, that'll do.", status: "counter", amount: 2841 });
-});
-
-test("ollamaNegotiate treats a bare ACCEPT with no stated amount as accepting the player's own offer", async () => {
+test("bandNegotiationAcceptChance climbs toward the going rate, and standing/personality shift it further", () => {
   const { run } = createSandbox();
   run(`
-    S = freshState(); rollPrices();
-    S.pirateBands = {}; const b = newBand(2); S.pirateBands[b.id] = b; globalThis.__bandId = b.id;
-    globalThis.fetch = async () => ({ ok: true, body: null, json: async () => ({ message: { content: "Aye, ye have a deal!\\nACCEPT" } }) });
+    S = freshState();
+    S.pirateBands = {}; const b = newBand(2); b.rep = 0; b.pers = "bold"; S.pirateBands[b.id] = b;
+    globalThis.__b = b;
   `);
-  const bounds = JSON.parse(run(`JSON.stringify(bandNegotiationBounds(S.pirateBands[__bandId]))`));
-  const midOffer = Math.round((bounds.lo + bounds.hi) / 2);
-  const out = JSON.parse(await run(`
-    (async () => {
-      let result = null;
-      await ollamaNegotiate(__bandId, ${midOffer}, { onDone: r => { result = r; } });
-      return JSON.stringify(result);
-    })()
-  `));
-  assert.equal(out.status, "accept");
-  assert.equal(out.amount, midOffer, "a bare ACCEPT with no number must default to the amount actually offered that round");
+  const base = run("escortRecruitBaseFee(__b)");
+  const low = run(`bandNegotiationAcceptChance(__b, ${Math.round(base * 0.45)})`);
+  const mid = run(`bandNegotiationAcceptChance(__b, ${Math.round(base * 0.75)})`);
+  const atRate = run(`bandNegotiationAcceptChance(__b, ${base})`);
+  assert.ok(low < mid && mid < atRate, "acceptance odds must climb as the offer nears the going rate");
+  assert.ok(atRate >= 0.85, "an offer at or above the going rate should almost always be accepted");
+
+  run(`__b.rep = 80;`);
+  const midHighRep = run(`bandNegotiationAcceptChance(__b, ${Math.round(base * 0.75)})`);
+  assert.ok(midHighRep > mid, "a friendlier band should accept a given offer more readily");
+
+  run(`__b.rep = 0; __b.pers = "greedy";`);
+  const greedy = run(`bandNegotiationAcceptChance(__b, ${Math.round(base * 0.75)})`);
+  run(`__b.pers = "loyal";`);
+  const loyal = run(`bandNegotiationAcceptChance(__b, ${Math.round(base * 0.75)})`);
+  assert.ok(greedy < loyal, "a greedy crew should accept a given offer less readily than a loyal one");
 });
 
-test("buildNegotiationExtra states the offer and demands a trailing ACCEPT/COUNTER/REJECT decision", () => {
+test("bandNegotiationRejectChance is zero for a reasonable offer, and only rises for a real lowball", () => {
   const { run } = createSandbox();
-  const extra = run(`buildNegotiationExtra(777)`);
-  assert.ok(extra.includes("777"), "must state the offered amount");
-  assert.ok(/\bACCEPT\b/.test(extra) && /\bCOUNTER\b/.test(extra) && /\bREJECT\b/.test(extra));
+  run(`
+    S = freshState();
+    S.pirateBands = {}; const b = newBand(2); b.rep = 0; S.pirateBands[b.id] = b; globalThis.__b = b;
+  `);
+  const base = run("escortRecruitBaseFee(__b)");
+  assert.equal(run(`bandNegotiationRejectChance(__b, ${base})`), 0);
+  assert.equal(run(`bandNegotiationRejectChance(__b, ${Math.round(base * 0.75)})`), 0);
+  const lowballReject = run(`bandNegotiationRejectChance(__b, ${Math.round(base * 0.4)})`);
+  assert.ok(lowballReject > 0, "a genuine lowball must carry a real chance of outright refusal");
+});
+
+test("bandNegotiationCounterPrice always lands within bandNegotiationBounds, and pushes higher for a greedier crew", () => {
+  const { run } = createSandbox();
+  run(`
+    S = freshState();
+    S.pirateBands = {}; const b = newBand(2); b.rep = 0; S.pirateBands[b.id] = b; globalThis.__b = b;
+  `);
+  const bounds = JSON.parse(run("JSON.stringify(bandNegotiationBounds(__b))"));
+  const offer = bounds.lo;
+  run(`__b.pers = "greedy";`);
+  const greedyCounter = run(`bandNegotiationCounterPrice(__b, ${offer})`);
+  run(`__b.pers = "loyal";`);
+  const loyalCounter = run(`bandNegotiationCounterPrice(__b, ${offer})`);
+  assert.ok(greedyCounter >= bounds.lo && greedyCounter <= bounds.hi);
+  assert.ok(loyalCounter >= bounds.lo && loyalCounter <= bounds.hi);
+  assert.ok(greedyCounter > loyalCounter, "a greedier crew should counter higher than a more generous one, from the same lowball");
+});
+
+test("decideNegotiation is deterministic given rand, and rolls ACCEPT/COUNTER/REJECT from the expected bands", () => {
+  const { run } = createSandbox();
+  run(`
+    S = freshState();
+    S.pirateBands = {}; const b = newBand(2); b.rep = 0; b.pers = "bold"; S.pirateBands[b.id] = b; globalThis.__b = b;
+  `);
+  const base = run("escortRecruitBaseFee(__b)");
+  const accept = JSON.parse(run(`JSON.stringify(decideNegotiation(__b, ${base}, 0))`));
+  assert.deepEqual(accept, { status: "accept", amount: base }, "rand=0 must always fall inside the accept band at the going rate");
+
+  const lowball = Math.round(base * 0.4);
+  const reject = JSON.parse(run(`JSON.stringify(decideNegotiation(__b, ${lowball}, 0.999))`));
+  assert.equal(reject.status, "reject");
+  assert.equal(reject.amount, null);
+
+  const mid = Math.round(base * 0.75);
+  const counter = JSON.parse(run(`JSON.stringify(decideNegotiation(__b, ${mid}, 0.999))`));
+  assert.equal(counter.status, "counter");
+  assert.ok(Number.isInteger(counter.amount));
+});
+
+test("buildNegotiationNarration states the offer and gives decision-specific instructions with no ambiguity about the actual number", () => {
+  const { run } = createSandbox();
+  const accept = run(`buildNegotiationNarration(500, { status: "accept", amount: 500 })`);
+  assert.ok(accept.includes("500") && /\bACCEPT\b/.test(accept));
+  const counter = run(`buildNegotiationNarration(500, { status: "counter", amount: 700 })`);
+  assert.ok(counter.includes("500") && counter.includes("700") && /\bCOUNTER\b/.test(counter));
+  const reject = run(`buildNegotiationNarration(500, { status: "reject", amount: null })`);
+  assert.ok(reject.includes("500") && /\bREJECT\b/.test(reject));
+});
+
+test("fallbackNegotiationLine gives a sensible line for each outcome, naming the band and the amount", () => {
+  const { run } = createSandbox();
+  run(`
+    S = freshState();
+    S.pirateBands = {}; const b = newBand(1); S.pirateBands[b.id] = b; globalThis.__b = b;
+  `);
+  const name = run("__b.name");
+  const accept = run(`fallbackNegotiationLine(__b, { status: "accept", amount: 900 })`);
+  assert.ok(accept.includes("900") && accept.includes(name));
+  const counter = run(`fallbackNegotiationLine(__b, { status: "counter", amount: 1200 })`);
+  assert.ok(counter.includes(run("fmt(1200)")), "must show the amount formatted the same way as everywhere else (fmt)");
+  const reject = run(`fallbackNegotiationLine(__b, { status: "reject", amount: null })`);
+  assert.ok(reject.length > 0);
 });
 
 test("bandNegotiationBounds brackets 40%-150% of the BASE fee, unaffected by any already-struck deal", () => {
@@ -418,16 +428,45 @@ test("renderEscort's hire list excludes a flighty band normally, but includes it
   assert.ok(after.includes(`Hire (${feeStr} cr)`), "the button must show the negotiated fee");
 });
 
-test("ollamaNegotiate fails soft (onError, no throw) when fetch is unavailable, same as ollamaChat", async () => {
+test("ollamaNegotiate resolves via onDone with the model's own words when Ollama is reachable", async () => {
   const { run } = createSandbox();
-  run(`S = freshState(); S.pirateBands = {}; const b = newBand(1); S.pirateBands[b.id] = b; globalThis.__bandId = b.id;`);
-  const errors = await run(`
-    (async () => {
-      const errors = [];
-      await ollamaNegotiate(__bandId, 500, { onError: m => errors.push(m) });
-      return errors;
-    })()
+  run(`
+    S = freshState(); rollPrices();
+    S.pirateBands = {}; const b = newBand(2); b.rep = 0; b.pers = "bold"; S.pirateBands[b.id] = b; globalThis.__bandId = b.id;
+    globalThis.fetch = async () => ({ ok: true, body: null, json: async () => ({ message: { content: "Ye drive a hard bargain, but it's a deal!" } }) });
+    Math.random = () => 0;   // force the ACCEPT band
   `);
-  assert.equal(errors.length, 1);
-  assert.match(errors[0], /can't make network requests/i);
+  const base = run("escortRecruitBaseFee(S.pirateBands[__bandId])");
+  const out = JSON.parse(await run(`
+    (async () => {
+      let result = null;
+      await ollamaNegotiate(__bandId, ${base}, { onDone: r => { result = r; } });
+      return JSON.stringify(result);
+    })()
+  `));
+  assert.equal(out.status, "accept");
+  assert.equal(out.amount, base, "the price is the app's own decision, never something parsed out of the model's text");
+  assert.equal(out.offline, false);
+  assert.equal(out.clean, "Ye drive a hard bargain, but it's a deal!", "the model's own words are used verbatim as flavor when available");
+});
+
+test("ollamaNegotiate still resolves the app's decision via onDone (never onError, no throw) when fetch is unavailable — the outcome doesn't depend on the model", async () => {
+  const { run } = createSandbox();
+  run(`
+    S = freshState(); rollPrices();
+    S.pirateBands = {}; const b = newBand(2); b.rep = 0; b.pers = "bold"; S.pirateBands[b.id] = b; globalThis.__bandId = b.id;
+    Math.random = () => 0;   // force the ACCEPT band; fetch stays undefined (this sandbox's default)
+  `);
+  const base = run("escortRecruitBaseFee(S.pirateBands[__bandId])");
+  const out = JSON.parse(await run(`
+    (async () => {
+      let result = null;
+      await ollamaNegotiate(__bandId, ${base}, { onDone: r => { result = r; } });
+      return JSON.stringify(result);
+    })()
+  `));
+  assert.equal(out.status, "accept");
+  assert.equal(out.amount, base);
+  assert.equal(out.offline, true, "a connection failure must still resolve the decision, flagged offline");
+  assert.ok(out.clean && out.clean.length, "a fallback narration line must stand in for the missing AI reply");
 });
