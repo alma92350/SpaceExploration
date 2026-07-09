@@ -1,5 +1,5 @@
 {
-  "version": "2.104.0",
+  "version": "2.105.0",
   "saveVersion": "v2",
-  "notes": "Internal hardening: saves are sanitized on load, autosave failures warn instead of silently losing progress, and an unreadable autosave is kept for recovery. No gameplay changes."
+  "notes": "New: talk to your pirate bands in the Contacts tab, voiced by a locally-running Ollama model. Nothing leaves your machine; off by default and harmless if Ollama isn't installed."
 }

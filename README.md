@@ -135,6 +135,27 @@ Spot trouble on the route after a tanker's already left? The Assign tab's
 at the same home port the tanker departed from — to join its escort
 mid-transit, cutting the odds for whatever's left of the trip.
 
+## 💬 Talk to your pirate bands (optional, local Ollama)
+
+The **🏴‍☠️ Contacts** tab has a **💬 Talk** sub-view for free-form, in-character
+chat with any band you've crossed paths with, voiced by a model running on
+your own machine via [Ollama](https://ollama.com). Each captain's tone is
+grounded in that band's real standing, personality and rates (hire fee, loot
+cut) from `pirateBands.js` — for now it's banter and haggling only, with no
+mechanical effect; the numbered buttons elsewhere on the Contacts card still
+move credits and standing.
+
+It's entirely optional and entirely local: the page talks straight to
+Ollama's HTTP API on your machine (default `http://localhost:11434`, model
+`llama3.2:1b` — change either in the Talk sub-view), never through any
+server of this game's own. If Ollama isn't installed or reachable, the rest
+of the game is unaffected — you'll just see a connection error in the chat
+pane. Install Ollama, pull a model (`ollama pull llama3.2:1b`), and make
+sure it accepts requests from this page's origin — Ollama's default CORS
+policy only allows `localhost`/`127.0.0.1` origins, so if you're serving the
+game from anywhere else, start it with `OLLAMA_ORIGINS=*` (or your page's
+exact origin) set, e.g. `OLLAMA_ORIGINS=* ollama serve`.
+
 ## 🪐 The core worlds — a rotating roster
 
 There are **15 core trade worlds**, but **each new game features a random 9 of
@@ -489,6 +510,7 @@ feedback.js  — ship log, captain's journal, sound effects, toasts, fireworks/a
 resources.js — extraction, deposit reserves/depletion, pollution/climate
 combat.js    — piracy/combat: subsystems, typed weapons, matchmaking, ambushes
 pirateBands.js — named pirate crews: standing, feuds/truces, tags, call-for-support
+pirateChat.js — in-character band chat via a local Ollama model: persona, streaming, settings
 raiding.js   — raid resolution, plunder, dockside/field ship repair
 sector4x.js  — sector 4X layer: rising pirate powers, territory contest, faction relations
 outlaw.js    — the outlaw path: navy interdiction, Pirate Haven, Privateer Commissions, capstone legacies
@@ -511,10 +533,10 @@ test/        — automated tests (Node's built-in test runner, no dependencies)
 ```
 
 `data.js`, `galaxygen.js`, `catalogs.js`, `crises.js`, `state.js`, `pricing.js`,
-`feedback.js`, `resources.js`, `combat.js`, `pirateBands.js`, `raiding.js`,
-`sector4x.js`, `outlaw.js`, `politics.js`, `economy.js`, `colonization.js`,
-`fleet.js`, `fortunes.js`, `frontier.js`, `mandates.js`, `escort.js`,
-`renderCore.js`, `renderProgression.js`, `renderCombat.js`,
+`feedback.js`, `resources.js`, `combat.js`, `pirateBands.js`, `pirateChat.js`,
+`raiding.js`, `sector4x.js`, `outlaw.js`, `politics.js`, `economy.js`,
+`colonization.js`, `fleet.js`, `fortunes.js`, `frontier.js`, `mandates.js`,
+`escort.js`, `renderCore.js`, `renderProgression.js`, `renderCombat.js`,
 `renderSettlement.js`, `renderFleetFortunes.js`, `persistence.js` and
 `game.js`
 are all plain classic `<script>` tags (no `type="module"`, no bundler)

@@ -293,6 +293,21 @@ tr:hover td { background: rgba(255,255,255,0.03); }
 .win-banner { text-align:center; padding: 40px; }
 .win-banner h2 { font-size: 28px; color: var(--gold); }
 
+/* ===== Pirate chat (Ollama) ===== */
+.chat-transcript { max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; }
+.chat-bubble { display: flex; max-width: 80%; }
+.chat-bubble .chat-text { padding: 6px 10px; border-radius: 10px; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
+.chat-bubble.pirate { align-self: flex-start; }
+.chat-bubble.pirate .chat-text { background: var(--panel-2); border: 1px solid var(--border); }
+.chat-bubble.you { align-self: flex-end; }
+.chat-bubble.you .chat-text { background: var(--accent-2); color: #05070f; }
+.chat-bubble.error { align-self: center; }
+.chat-bubble.error .chat-text { background: rgba(248,113,113,0.12); color: var(--bad); border: 1px solid var(--bad); }
+.chat-input-row { margin-top: 8px; }
+.chat-field { flex: 1; min-width: 0; background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  border-radius: 7px; padding: 6px 8px; font-size: 13px; }
+code { background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+
 @media (max-width: 860px) {
   #main { flex-direction: column; }
   #sidebar { width: 100%; }
@@ -381,6 +396,8 @@ body.eink .tab:hover:not(.active),
 body.eink .btn:hover:not(:disabled) { background: #e8e8e8; color: #000000; border-color: #000000; }
 body.eink .btn-primary:hover:not(:disabled),
 body.eink .btn-turn:hover:not(:disabled) { background: #2a2a2a; color: #ffffff; }
+body.eink .chat-bubble.you .chat-text { background: #000000; color: #ffffff; }
+body.eink .chat-bubble.pirate .chat-text, body.eink .chat-transcript { border-color: #000000; }
 /* good/bad buttons: white fill, colored text + 2px border (no muddy translucency) */
 body.eink .btn-good { background: #ffffff; border: 2px solid var(--good); color: var(--good); }
 body.eink .btn-bad  { background: #ffffff; border: 2px solid var(--bad);  color: var(--bad); }
