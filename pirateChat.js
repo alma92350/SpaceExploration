@@ -7,11 +7,17 @@
    to Stellar Frontier's own servers, and the feature quietly does nothing if
    Ollama isn't reachable. The pirate banters, brags and haggles in character,
    grounded in the real numbers (standing, hire fee, loot cut) from
-   pirateBands.js. Free chat never touches state; a struck hire-price deal
-   (ollamaNegotiate) is the one exception — an ACCEPT/COUNTER becomes a real,
-   bounded discount via pirateBands.js's setBandNegotiatedFee, honored the
-   next time the player actually hires that band from the Escort tab. The
-   model still can't complete a hire, spend credits, or act on its own.
+   pirateBands.js. Free chat never touches state.
+
+   Hire-price negotiation (ollamaNegotiate) is decided by the GAME, not the
+   model: decideNegotiation (pirateBands.js) rolls ACCEPT/COUNTER/REJECT and
+   the resulting price from the band's economics, personality and standing,
+   entirely independent of anything an LLM says. The model's only job is to
+   narrate that already-made decision in character — its words are pure
+   flavor and are never parsed back out for the actual outcome, which is why
+   the mechanic works the same on a tiny model, a chatty one, or with Ollama
+   unreachable altogether (resolves with a generic fallback line instead).
+   The model still can't complete a hire, spend credits, or act on its own.
 
    Reasoning models (Qwen3, QwQ, DeepSeek-R1, ...) can think at length before
    answering. S.ollama.think (default off, toggled in the Talk sub-view) asks
@@ -20,7 +26,7 @@
    as a distinct "🧠 thinking…" block, never stored in chat history. Either
    way, stripThinkTags defensively drops a <think> block a model embedded
    directly in its content, since not every model/Ollama version honors the
-   split — that text must never reach the transcript, history, or DEAL: parsing.
+   split — that text must never reach the transcript or save history.
 
    Loaded after pirateBands.js, before raiding.js. saveGame, toast and
    renderContacts still live in persistence.js/game.js/renderCombat.js at
@@ -260,58 +266,54 @@ function ollamaChat(bandId, userText, callbacks) {
   return streamOllamaCompletion(messages, callbacks, ensureOllamaSettings().think);
 }
 
-/* ---- Negotiation: haggle the escort hire fee in character. A dedicated call (not
-   plain chat) so the model gets a strict, machine-parseable line to close with —
-   a 1B model won't reliably volunteer that format unprompted mid-conversation. A
-   struck ACCEPT/COUNTER becomes a real, bounded discount via setBandNegotiatedFee
-   (pirateBands.js); an unparseable reply is treated as no deal, never a crash. ---- */
-function buildNegotiationExtra(offerAmount) {
-  return [
-    `The player is now offering ${offerAmount} credits to hire your crew as an escort for a run.`,
-    `Reply in character in 1-2 short sentences, then on the very last line write exactly ONE of:`,
-    `DEAL: ACCEPT <credits>`,
-    `DEAL: COUNTER <credits>`,
-    `DEAL: REJECT`,
-    `<credits> must be ONLY digits — no commas, no symbols, and no unit word like "credits" or "cr" after the number. Write exactly one such line, never more than one, and put nothing after it.`,
-  ].join("\n");
+/* ---- Negotiation: haggle the escort hire fee. The GAME decides ACCEPT/COUNTER/REJECT
+   and the resulting price (decideNegotiation, pirateBands.js) — every prior version of
+   this feature asked the model to both roleplay AND emit a reliable, parseable price,
+   and a parade of bug reports (missing/duplicated/reworded decision lines from one small
+   model after another) made clear that's not a contract a model can be trusted to honor.
+   The model's only job now is narrating a decision the game already made, in character;
+   its own words are pure flavor and are never parsed back out for the actual outcome —
+   so the negotiation mechanic works identically well on a tiny model, a chatty one, or no
+   model at all (Ollama unreachable still resolves the decision, just without AI flavor). ---- */
+function buildNegotiationNarration(offer, decision) {
+  const lead = `The player just offered ${offer} credits to hire your crew as an escort for a run. You have already decided how to respond — just say so in character, 1-2 short sentences, nothing else.`;
+  if (decision.status === "accept") return `${lead}\nYour decision: ACCEPT their offer of exactly ${decision.amount} credits. Don't name any other figure.`;
+  if (decision.status === "counter") return `${lead}\nYour decision: turn down ${offer} but COUNTER with exactly ${decision.amount} credits instead. State that figure, not theirs.`;
+  return `${lead}\nYour decision: REJECT the offer outright. Don't name a price at all.`;
 }
-// pure: pull every "DEAL: ACCEPT/COUNTER/REJECT ..." line out of a reply and strip all of
-// them from the visible/stored prose — a model doesn't always cleanly emit just one at the
-// very end: some tack a unit word onto the number ("3200 credits"), some second-guess
-// themselves mid-reply and write an ACCEPT then a COUNTER. The LAST such line found is
-// treated as the model's final word (closest thing to "what it actually decided"); amount
-// extraction tolerates a leading unit word/comma-grouping/trailing prose on that line, since
-// a model rarely follows "digits only" to the letter. `clean` never contains a raw DEAL:
-// line regardless of how many the model produced, so nothing mechanical leaks into dialogue.
-const DEAL_LINE_RE = /^[ \t]*DEAL:\s*(ACCEPT|COUNTER|REJECT)\b(.*)$/i;
-function parseDealLine(text) {
-  const t = String(text == null ? "" : text);
-  let status = null, amount = null;
-  const kept = t.split("\n").filter(line => {
-    const m = DEAL_LINE_RE.exec(line.trim());
-    if (!m) return true;
-    status = m[1].toLowerCase();
-    const amtMatch = /(\d[\d,]*)/.exec(m[2]);
-    amount = amtMatch ? parseInt(amtMatch[1].replace(/,/g, ""), 10) : null;
-    return false;   // drop this line from the kept prose — it's always a machine line, never dialogue
-  });
-  return { clean: kept.join("\n").replace(/\n{3,}/g, "\n\n").trim(), status, amount };
+const NEGOTIATION_FALLBACK_LINES = {
+  accept: (b, amount) => `The ${b.name} agree to your terms — ${fmt(amount)} cr, and you've got a deal.`,
+  counter: (b, amount) => `The ${b.name} won't take a credit under ${fmt(amount)} cr.`,
+  reject: b => `The ${b.name} aren't interested in your credits right now.`,
+};
+function fallbackNegotiationLine(b, decision) {
+  const fn = NEGOTIATION_FALLBACK_LINES[decision.status];
+  return fn ? fn(b, decision.amount) : "…";
 }
 // callbacks: onToken(deltaSoFar), onThinking(thinkingSoFar),
-// onDone({ userText, clean, status, amount }), onError(message)
+// onDone({ userText, clean, status, amount, offline }). No onError — the outcome is decided
+// before the network call even starts, so a connection failure still resolves via onDone
+// (offline: true, a generic fallback line) rather than blocking the mechanic entirely.
 function ollamaNegotiate(bandId, offerAmount, callbacks) {
-  const { onToken, onThinking, onDone, onError } = callbacks || {};
+  const { onToken, onThinking, onDone } = callbacks || {};
   const b = bandById(bandId);
-  if (!b) return onError && onError("That crew isn't on your books anymore.");
+  if (!b) return;
   const bounds = bandNegotiationBounds(b);
   const offer = Math.max(bounds.lo, Math.min(bounds.hi, Math.round(offerAmount)));
+  const decision = decideNegotiation(b, offer);
   const userText = `I'll offer ${offer} credits to hire your crew as my escort.`;
-  const sysPrompt = buildPirateSystemPrompt(b) + "\n" + buildNegotiationExtra(offer);
+  const sysPrompt = buildPirateSystemPrompt(b) + "\n" + buildNegotiationNarration(offer, decision);
   const messages = buildOllamaMessages(sysPrompt, pirateChatHistory(bandId), userText, CHAT_CONTEXT_MSGS);
+  const resolve = (full, offline) => {
+    // streamOllamaCompletion's own onDone already stripped <think> content; stripThinkTags
+    // here is just a harmless no-op safety net for the onError path's raw "" input
+    const clean = stripThinkTags(full) || fallbackNegotiationLine(b, decision);
+    onDone && onDone(Object.assign({ userText, clean, offline: !!offline }, decision));
+  };
   return streamOllamaCompletion(messages, {
     onToken,
     onThinking,
-    onDone: full => { onDone && onDone(Object.assign({ userText }, parseDealLine(full))); },
-    onError,
+    onDone: full => resolve(full, false),
+    onError: () => resolve("", true),   // Ollama down/unreachable — the decision still applies
   }, ensureOllamaSettings().think);
 }

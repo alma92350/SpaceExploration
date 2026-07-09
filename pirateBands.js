@@ -178,6 +178,49 @@ function setBandNegotiatedFee(id, amount) {
   if (typeof renderAll === "function") renderAll();
   return fee;
 }
+/* ---- Negotiation outcome: decided here, not by the LLM (see pirateChat.js's
+   ollamaNegotiate) — an AI model asked to both roleplay AND emit a reliable,
+   parseable price has, in practice, been the persistent source of every
+   negotiation bug filed against this feature (missing/duplicated/reworded
+   decision lines from one small model after another). The model's only job
+   now is narrating a decision the game already made; the actual price
+   players hire at can never depend on how faithfully a model followed an
+   output format. Deterministic given a supplied `rand` (tests can pin it
+   down); real calls default to Math.random(). ---- */
+// odds of an outright ACCEPT at the offered price — climbs steeply as the offer
+// approaches (and passes) the going rate; friendlier standing nudges it up further,
+// personality reuses its existing loot-cut lean as a proxy for negotiating generosity
+function bandNegotiationAcceptChance(b, offer) {
+  const ratio = offer / escortRecruitBaseFee(b);
+  let p = ratio >= 1 ? 0.92 : ratio >= 0.85 ? 0.65 : ratio >= 0.7 ? 0.35 : ratio >= 0.55 ? 0.12 : 0.02;
+  p += ((b.rep || 0) / 100) * 0.15;
+  p += bandPers(b).cut < 0 ? 0.06 : bandPers(b).cut > 0.03 ? -0.08 : 0;
+  return Math.max(0.02, Math.min(0.97, p));
+}
+// odds of a flat REJECT (drawn from what's left after an ACCEPT roll fails) — only a
+// genuine lowball risks this; a fair-ish offer is always at least countered, never refused
+function bandNegotiationRejectChance(b, offer) {
+  const ratio = offer / escortRecruitBaseFee(b);
+  if (ratio >= 0.7) return 0;
+  let p = ratio >= 0.55 ? 0.10 : ratio >= 0.4 ? 0.35 : 0.65;
+  p -= ((b.rep || 0) / 100) * 0.2;
+  return Math.max(0, Math.min(0.85, p));
+}
+// the price named back when neither ACCEPT nor REJECT fires — splits the gap between the
+// offer and the going rate (greedier personalities push closer to, or past, the full rate)
+function bandNegotiationCounterPrice(b, offer) {
+  const base = escortRecruitBaseFee(b), bounds = bandNegotiationBounds(b);
+  const push = 0.5 + (bandPers(b).cut > 0.03 ? 0.25 : bandPers(b).cut < 0 ? -0.15 : 0);
+  const price = offer + Math.max(0, base - offer) * push + (offer >= base ? base * 0.08 : 0);
+  return Math.max(bounds.lo, Math.min(bounds.hi, Math.round(price)));
+}
+// the single entry point: { status: "accept"|"counter"|"reject", amount }
+function decideNegotiation(b, offer, rand) {
+  const r = rand == null ? Math.random() : rand;
+  if (r < bandNegotiationAcceptChance(b, offer)) return { status: "accept", amount: Math.round(offer) };
+  if (r >= 1 - bandNegotiationRejectChance(b, offer)) return { status: "reject", amount: null };
+  return { status: "counter", amount: bandNegotiationCounterPrice(b, offer) };
+}
 function escortRecruitableBands() { return bandList().filter(b => ["neutral", "friendly", "sworn"].includes(bandTier(b).key) && !bandOnMandate(b) && !bandBusy(b)); }   // crews under contract / tied up can't be hired
 function bandBetrayChance(b) { return Math.max(0, Math.min(0.6, 0.26 - ((b.rep || 0) / 100) * 0.32 - Math.min(0.18, ((S.pirate && S.pirate.dread) || 0) / 100 * 0.18) + bandPers(b).betray)); }
 /* ---- Tags (your loose brotherhood) + location + call-for-support ---- */

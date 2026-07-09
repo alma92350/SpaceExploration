@@ -1,5 +1,5 @@
 {
-  "version": "2.107.2",
+  "version": "2.108.0",
   "saveVersion": "v2",
-  "notes": "Fix: 💬 Talk no longer times out a slow-but-still-answering reply after a fixed 60s — it now only gives up on real silence, with a longer allowance for reasoning models."
+  "notes": "Changed: hire negotiation in 💬 Talk is now decided by the game itself, not the model — it narrates the decision in character, but never determines it. Works the same on any model, or with no model at all."
 }
