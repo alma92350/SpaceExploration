@@ -645,7 +645,7 @@ function renderEscort() {
         <span class="v"><button class="btn btn-sm btn-good" onclick="escortRallyFleet('${s.id}')">✦ Assign (free)</button></span></div>`).join("");
     const avail = escortRecruitableBands()
       .filter(b => !e.fleet.some(s => s.hired && s.alive && s.bandId === b.id))
-      .filter(b => bandBetrayChance(b) < 0.05)            // only trustworthy crews (desert risk < 5%)
+      .filter(b => bandBetrayChance(b) < 0.05 || bandNegotiatedFee(b) != null)   // trustworthy crews, or anyone you've struck a hire deal with (💬 Talk) regardless of risk
       .sort((a, b) => bandBetrayChance(a) - bandBetrayChance(b));   // most reliable first
     const rows = avail.map(b => {
       const fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100), rival = bandFoe(b);
@@ -654,7 +654,7 @@ function renderEscort() {
         <span class="v"><button class="btn btn-sm" ${hiredN < ESCORT_MAX_HIRED && S.res.credits >= fee && !blocked ? "" : "disabled"} title="${blocked ? "Won't fly with their rival aboard" : bandNegotiatedFee(b) != null ? "Honoring the rate you haggled in 💬 Talk (Contacts tab)" : ""}" onclick="escortRecruitBand('${b.id}')">${bandNegotiatedFee(b) != null ? "🤝 " : ""}Hire (${fmt(fee)} cr)</button></span></div>`;
     }).join("");
     recruit = `<div class="card"><h4>🤝 Hire pirate escorts <span class="hint">${hiredN}/${ESCORT_MAX_HIRED} hired</span></h4>
-      <div class="hint">Trustworthy crews (desert risk under 5%) from your 🏴‍☠️ Pirate Contacts will fly escort for a fee — higher standing &amp; your Dread make a crew cheaper and more loyal; flightier bands won't sign on. Listed most reliable first. Crews you've <b>📣 called for support</b> (Contacts tab) stand by to join free. Dismiss a crew to free a slot for another.</div>
+      <div class="hint">Trustworthy crews (desert risk under 5%) from your 🏴‍☠️ Pirate Contacts will fly escort for a fee — higher standing &amp; your Dread make a crew cheaper and more loyal; flightier bands won't sign on <b>unless you've struck a hire deal with them in 💬 Talk</b> (Contacts tab) — a band you've haggled with shows up here regardless of desert risk, so mind the % before you sign. Listed most reliable first. Crews you've <b>📣 called for support</b> (Contacts tab) stand by to join free. Dismiss a crew to free a slot for another.</div>
       ${fleetRows ? `<div class="hint" style="margin:2px 0">✦ Your own warships will escort the convoy for free — loyal, and they take any damage back to your fleet:</div>${fleetRows}` : ""}
       ${onCallRows}${hiredRows}${rows || (onCallRows || hiredRows || fleetRows ? "" : '<div class="hint">No dependable bands will sign on right now — raise standing (and Dread), or call for support, in the Raider/Contacts tabs.</div>')}</div>`;
   }

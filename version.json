@@ -1,5 +1,5 @@
 {
-  "version": "2.106.0",
+  "version": "2.106.2",
   "saveVersion": "v2",
-  "notes": "New: haggle a pirate band's hire fee in the 💬 Talk chat — a struck deal becomes a real, bounded discount honored the next time you hire that crew from the Escort tab."
+  "notes": "Fix: a hire-price deal struck in 💬 Talk now refreshes the Escort tab immediately too, instead of only showing up there after some other action redraws it."
 }
