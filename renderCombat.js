@@ -379,10 +379,12 @@ let mandateForm = { band: null, planet: null, task: "cull", dur: 6 };
 function setMandateField(k, v) { mandateForm[k] = (k === "dur") ? (parseInt(v, 10) || 6) : v; renderContacts(); }
 function renderContacts() {
   const el = document.getElementById("panel-contacts"); if (!el) return;
-  const views = [["all", "🤝 All contacts"], ["around", "📍 Around here"], ["mandates", "📜 Mandates"]];
+  const views = [["all", "🤝 All contacts"], ["around", "📍 Around here"], ["mandates", "📜 Mandates"], ["chat", "💬 Talk"]];
   const view = subView("contacts", views);
-  const body = view === "around" ? renderContactsAround() : view === "mandates" ? renderContactsMandates() : renderContactsAll();
+  const body = view === "around" ? renderContactsAround() : view === "mandates" ? renderContactsMandates() : view === "chat" ? renderContactsChat() : renderContactsAll();
   el.innerHTML = `<h2>🏴‍☠️ Pirate Contacts</h2>${subTabBar("contacts", views)}${body}`;
+  const transcript = document.getElementById("chatTranscript");   // keep the newest chat line in view
+  if (transcript) transcript.scrollTop = transcript.scrollHeight;
 }
 function contactCard(b) {
   const giftCargo = ["weapons", "fuel", "luxury", "ai", "drones"].filter(c => (S.res[c] || 0) > 0);
@@ -421,6 +423,7 @@ function contactCard(b) {
         </div>`; })() : ""}
       <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px"><span class="hint">Tag:</span> ${tagBtns}</div>
       <div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px">
+        <button class="btn btn-sm" title="Chat in character with this crew's captain (runs on your local Ollama)" onclick="openBandChat('${b.id}')">💬 Talk</button>
         <button class="btn btn-sm" ${callDisabled ? "disabled" : ""} title="Call them to your side — nearby crews come at once, distant ones may travel in" onclick="callBandSupport('${b.id}')">📣 Call for support</button>
         ${followBtn}${standDownBtn}
         <button class="btn btn-sm" ${S.res.credits >= 500 ? "" : "disabled"} title="Pay a 500 cr tribute" onclick="giftBandCredits('${b.id}',500)">💰 500</button>
@@ -502,6 +505,102 @@ function renderContactsMandates() {
   return `<div class="subtitle">Put a crew to work: send them to a system for a set run to <b>cull pirates</b>, <b>guard the lanes</b> or <b>prey on shipping</b>. You pay an upfront fee and take a cut of what they bring in. Lawful tasks thin out pirate activity there; raiding pays more but is piracy in your name.</div>
     ${active ? `<div class="cards">${active}</div>` : '<div class="card"><div class="hint">No active mandates. Commission one below.</div></div>'}
     ${form}`;
+}
+/* ---- Talk: free-form in-character chat with a band's captain, voiced by a
+   locally-running Ollama model (pirateChat.js owns the persona/network side).
+   UI-only runtime state, same pattern as mandateForm — never saved. ---- */
+let chatUI = { bandId: null, drafts: {}, sending: {}, pending: {}, error: {}, testing: false, testStatus: null };
+function openBandChat(id) { chatUI.bandId = id; setSubView("contacts", "chat"); }
+function setChatBand(id) { chatUI.bandId = id; renderContacts(); }
+function updateChatDraft(id, v) { chatUI.drafts[id] = v; }   // captured without a re-render, so typing never loses focus
+function clearBandChat(id) { chatUI.error[id] = null; chatUI.pending[id] = null; clearPirateChat(id); }
+function runOllamaTest() {
+  if (chatUI.testing) return;
+  chatUI.testing = true; chatUI.testStatus = null; renderContacts();
+  testOllamaConnection().then(res => { chatUI.testing = false; chatUI.testStatus = res; renderContacts(); });
+}
+function sendChatMessage(id) {
+  const b = bandById(id); if (!b || chatUI.sending[id]) return;
+  const inputEl = document.getElementById("chatInputBox");
+  const text = ((inputEl && inputEl.value) || chatUI.drafts[id] || "").trim();
+  if (!text) return;
+  chatUI.drafts[id] = ""; chatUI.error[id] = null;
+  pushChatMessage(id, "you", text);
+  chatUI.sending[id] = true; chatUI.pending[id] = "";
+  renderContacts();
+  ollamaChat(id, text, {
+    onToken: soFar => {
+      const el = document.getElementById("chatPending"); if (el) el.textContent = soFar;
+      const t = document.getElementById("chatTranscript"); if (t) t.scrollTop = t.scrollHeight;
+    },
+    onDone: full => {
+      chatUI.sending[id] = false; chatUI.pending[id] = null;
+      pushChatMessage(id, "pirate", (full || "").trim() || "…");
+      renderContacts();
+    },
+    onError: msg => {
+      chatUI.sending[id] = false; chatUI.pending[id] = null; chatUI.error[id] = msg;
+      renderContacts();
+    },
+  });
+}
+function chatBubble(who, text, id) {
+  const mine = who === "you";
+  return `<div class="chat-bubble ${mine ? "you" : "pirate"}"><span class="chat-text"${id ? ` id="${id}"` : ""}>${escapeChatHtml(text)}</span></div>`;
+}
+function chatSettingsCard() {
+  const cfg = ensureOllamaSettings();
+  const status = chatUI.testing ? `<span class="hint">Checking…</span>`
+    : !chatUI.testStatus ? `<span class="hint">Not tested yet.</span>`
+    : chatUI.testStatus.ok
+      ? `<span style="color:var(--good)">✅ Connected${chatUI.testStatus.hasModel ? "" : ` — model "${escapeChatHtml(cfg.model)}" isn't pulled yet: run <code>ollama pull ${escapeChatHtml(cfg.model)}</code>`}</span>`
+      : `<span style="color:var(--bad)">❌ ${escapeChatHtml(chatUI.testStatus.error)}</span>`;
+  return `<div class="card">
+    <h4>⚙️ Ollama connection</h4>
+    <div class="desc">Chat runs entirely on your machine — straight from this page to a local Ollama server, never through Stellar Frontier's own servers.</div>
+    <div class="row" style="flex-wrap:wrap;gap:6px;align-items:center">
+      <span class="hint">Endpoint</span><input class="chat-field" style="width:200px" type="text" value="${escapeChatHtml(cfg.endpoint)}" onchange="setOllamaSetting('endpoint', this.value)" />
+      <span class="hint">Model</span><input class="chat-field" style="width:130px" type="text" value="${escapeChatHtml(cfg.model)}" onchange="setOllamaSetting('model', this.value)" />
+      <button class="btn btn-sm" ${chatUI.testing ? "disabled" : ""} onclick="runOllamaTest()">🔌 Test</button>
+    </div>
+    <div class="hint">${status}</div>
+    <div class="hint">Can't connect? Make sure <code>ollama serve</code> is running, and that it allows this page's origin — e.g. start it with <code>OLLAMA_ORIGINS=*</code> set.</div>
+  </div>`;
+}
+function renderContactsChat() {
+  const bands = bandList().sort((a, b) => (b.rep || 0) - (a.rep || 0));
+  if (!bands.length) {
+    return `${chatSettingsCard()}<div class="card"><div class="hint">No pirate bands on your books yet — hunt or ally with them from the ⚔️ Raider tab, then come back to talk.</div></div>`;
+  }
+  if (!chatUI.bandId || !bandById(chatUI.bandId)) chatUI.bandId = bands[0].id;
+  const b = bandById(chatUI.bandId);
+  const picker = bands.map(x => `<option value="${x.id}" ${x.id === b.id ? "selected" : ""}>${x.ico} ${x.name} · ${bandTier(x).label}</option>`).join("");
+  const pr = bandPers(b), tier = bandTier(b), rival = bandFoe(b);
+  const fee = escortRecruitFee(b), cut = Math.round(bandLootShare(b) * 100);
+  const history = pirateChatHistory(b.id);
+  const sending = !!chatUI.sending[b.id], pending = chatUI.pending[b.id], err = chatUI.error[b.id];
+  const bubbles = history.map(m => chatBubble(m.who, m.text)).join("")
+    + (pending != null ? chatBubble("pirate", pending, "chatPending") : "")
+    + (err ? `<div class="chat-bubble error"><span class="chat-text">⚠️ ${escapeChatHtml(err)}</span></div>` : "");
+  const draft = chatUI.drafts[b.id] || "";
+  return `${chatSettingsCard()}
+    <div class="card">
+      <h4>${b.ico} ${b.name} <span class="hint">${pirateRankName(b)} · ${pr.ico} ${pr.name} · ${tier.label} (${b.rep})</span></h4>
+      ${rival ? `<div class="hint" style="color:var(--bad)">⚔️ feuding with the ${rival.name}</div>` : ""}
+      <div class="hint">Ballpark: hire ~${fmt(fee)} cr · loot cut ~${cut}%. Chat is in character and doesn't move credits by itself — use the buttons under 🤝 All contacts for that.</div>
+      <div class="row" style="align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="hint">Talking to</span>
+        <select onchange="setChatBand(this.value)">${picker}</select>
+        <button class="btn btn-sm" onclick="clearBandChat('${b.id}')">🗑️ Clear</button>
+      </div>
+      <div id="chatTranscript" class="chat-transcript">${bubbles || '<div class="hint">Say something to break the ice.</div>'}</div>
+      <div class="row chat-input-row">
+        <input id="chatInputBox" class="chat-field" type="text" placeholder="${sending ? "Waiting for a reply…" : "Say something…"}" value="${escapeChatHtml(draft)}"
+          ${sending ? "disabled" : ""} oninput="updateChatDraft('${b.id}', this.value)"
+          onkeydown="if(event.key==='Enter'){event.preventDefault();sendChatMessage('${b.id}');}" />
+        <button class="btn btn-primary" ${sending ? "disabled" : ""} onclick="sendChatMessage('${b.id}')">${sending ? "…" : "Send"}</button>
+      </div>
+    </div>`;
 }
 /* ---------- Generic in-panel sub-tabs ----------
    A lightweight tab strip inside a panel. View state is UI-only (not saved);

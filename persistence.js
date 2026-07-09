@@ -267,7 +267,23 @@ function sanitizeLoadedState(s) {
     cat: sanitizePlainText(e.cat == null ? "" : e.cat).replace(/[<>"'`]/g, ""),
     text: sanitizePlainText(e.text == null ? "" : e.text),   // never rendered as HTML (download-only), so quotes stay
   }));
-  stripUnsafeStrings(s, new Set([s.log, s.journal]));   // rich/plain handling above already covered these two
+  // pirate chat transcripts (player + Ollama dialogue): plain text like the journal, so an
+  // apostrophe or quote in a line of banter isn't silently mangled on every load. Like
+  // S.pirateBands, a save predating this feature simply lacks the key — leave it absent
+  // (game.js's init() backfills it) rather than manufacturing one, so a healthy save that
+  // never had chat data still sanitizes as a byte-identical no-op.
+  if (s.pirateChat && typeof s.pirateChat === "object") {
+    Object.keys(s.pirateChat).forEach(id => {
+      if (UNSAFE_CHARS.test(id)) { delete s.pirateChat[id]; return; }   // a band id never legitimately needs one
+      const arr = Array.isArray(s.pirateChat[id]) ? s.pirateChat[id] : [];
+      s.pirateChat[id] = arr.filter(e => e && typeof e === "object").map(e => ({
+        who: e.who === "pirate" ? "pirate" : "you",
+        text: sanitizePlainText(e.text == null ? "" : e.text),
+        turn: Number.isFinite(e.turn) ? e.turn : 0,
+      }));
+    });
+  }
+  stripUnsafeStrings(s, new Set([s.log, s.journal, s.pirateChat]));   // rich/plain handling above already covered these
   return s;
 }
 let _saveIndicatorTimer = null;
