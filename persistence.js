@@ -2,9 +2,11 @@
    STELLAR FRONTIER — persistence
    Saving and loading the run: the localStorage autosave (saveGame/
    loadGame), the Captain's Log narrative-dossier export for handing
-   to an LLM (playerArchetype/buildJournalText/downloadJournal), and
-   the portable save-file export/import as a downloadable .json a
-   captain owns (buildSaveText/parseSaveText/exportSave/importSave).
+   to an LLM (playerArchetype/buildJournalText/downloadJournal), the
+   portable save-file export/import as a downloadable .json a captain
+   owns (buildSaveText/parseSaveText/exportSave/importSave), and the
+   load-boundary sanitizer (sanitizeLoadedState) every loaded save
+   passes through before anything in it can reach the DOM.
    newGame(), init(), and the rest of the game shell (tab disclosure,
    version check, help/changelog UI) stay in game.js — this file is
    purely the read/write side of game state.
@@ -183,13 +185,14 @@ function exportSave() {
   if (typeof toast === "function") toast("Game saved to disk.", "good");
   return text;
 }
-// testable core: validate text, persist to the autosave slot. Returns {ok,error}.
+// testable core: validate text, sanitize, persist to the autosave slot. Returns {ok,error}.
 function importSaveText(text) {
   const res = parseSaveText(text);
   if (!res.ok) return res;
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(res.state)); }
+  const clean = sanitizeLoadedState(res.state);   // loadGame() sanitizes too — this just keeps the stored blob clean
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(clean)); }
   catch (e) { return { ok: false, error: "Could not write the save to this browser." }; }
-  return { ok: true, state: res.state };
+  return { ok: true, state: clean };
 }
 function importSave() {
   if (typeof document === "undefined" || !document.createElement || typeof FileReader === "undefined") {
@@ -215,6 +218,58 @@ function importSave() {
   if (document.body) document.body.appendChild(input);
   input.click();
 }
+/* ============================================================
+   LOAD-BOUNDARY SANITIZING — a save file is the one input the game accepts
+   from outside (players share them), and much of what's inside ends up in
+   innerHTML or interpolated into onclick="fn('${id}')" attributes. Everything
+   read from the autosave slot passes through sanitizeLoadedState() first:
+   - log entries keep only the markup the game itself writes (<b>, <i>,
+     <span class="…">) — every other tag (scripts, images, handlers) is
+     stripped — and their type must be one of the game's own log classes;
+   - journal entries stay plain text (jot() already writes them that way; it's
+     enforced here so a crafted file can't smuggle tags into the dossier);
+   - every other string VALUE anywhere in the state loses the characters that
+     could break out of markup or a handler-string argument (< > " ' `), and
+     an object KEY containing one drops its whole entry — keys become the
+     '${id}' onclick arguments, and no legitimate save has such keys.
+   A healthy save passes through byte-identical (see test/sanitize.test.js).
+   ============================================================ */
+const LOG_TYPES = ["", "good", "bad", "event"];
+const UNSAFE_CHARS = /[<>"'`]/;
+function sanitizeRichText(html) {
+  return String(html).replace(/<[^>]*>?/g, tag => {
+    const m = /^<(\/?)(b|i|span)(?:\s+class="([\w -]*)")?\s*>$/i.exec(tag);
+    if (!m) return "";
+    const name = m[2].toLowerCase();
+    return m[1] ? `</${name}>` : (m[3] != null ? `<${name} class="${m[3]}">` : `<${name}>`);
+  });
+}
+function sanitizePlainText(text) { return String(text).replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim(); }
+function stripUnsafeStrings(node, seen) {
+  if (!node || typeof node !== "object" || seen.has(node)) return;
+  seen.add(node);
+  for (const k of Object.keys(node)) {
+    if (UNSAFE_CHARS.test(k)) { delete node[k]; continue; }
+    const v = node[k];
+    if (typeof v === "string") { if (UNSAFE_CHARS.test(v)) node[k] = v.replace(/[<>"'`]/g, ""); }
+    else stripUnsafeStrings(v, seen);
+  }
+}
+function sanitizeLoadedState(s) {
+  if (!s || typeof s !== "object") return s;
+  s.log = (Array.isArray(s.log) ? s.log : []).filter(e => e && typeof e === "object").map(e => ({
+    msg: sanitizeRichText(e.msg == null ? "" : e.msg),
+    type: LOG_TYPES.includes(e.type) ? e.type : "",
+    turn: Number.isFinite(e.turn) ? e.turn : 0,
+  }));
+  s.journal = (Array.isArray(s.journal) ? s.journal : []).filter(e => e && typeof e === "object").map(e => ({
+    turn: Number.isFinite(e.turn) ? e.turn : 0,
+    cat: sanitizePlainText(e.cat == null ? "" : e.cat).replace(/[<>"'`]/g, ""),
+    text: sanitizePlainText(e.text == null ? "" : e.text),   // never rendered as HTML (download-only), so quotes stay
+  }));
+  stripUnsafeStrings(s, new Set([s.log, s.journal]));   // rich/plain handling above already covered these two
+  return s;
+}
 let _saveIndicatorTimer = null;
 function flashSaveIndicator() {
   if (typeof document === "undefined") return;
@@ -224,10 +279,35 @@ function flashSaveIndicator() {
   clearTimeout(_saveIndicatorTimer);
   _saveIndicatorTimer = setTimeout(() => el.classList.remove("show"), 1500);
 }
+let _autosaveFailing = false;   // warn once per failure streak, not on every action
 function saveGame() {
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); flashSaveIndicator(); } catch (e) {}
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(S));
+    _autosaveFailing = false;
+    flashSaveIndicator();
+  } catch (e) {
+    if (_autosaveFailing) return;
+    _autosaveFailing = true;
+    if (typeof console !== "undefined" && console.warn) console.warn("Autosave failed:", e);
+    if (typeof toast === "function") toast("⚠️ Autosave failed — this browser couldn't store the game. Use 💾 Save to keep your progress.", "bad");
+  }
 }
+const RECOVERY_KEY = SAVE_KEY + "-recovery";
 function loadGame() {
-  try { const raw = localStorage.getItem(SAVE_KEY); if (raw) { S = JSON.parse(raw); return true; } } catch (e) {}
-  return false;
+  let raw = null;
+  try { raw = localStorage.getItem(SAVE_KEY); } catch (e) { return false; }
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!looksLikeState(parsed)) throw new Error("not a game state");
+    S = sanitizeLoadedState(parsed);
+    return true;
+  } catch (e) {
+    // An unreadable autosave would otherwise be overwritten by the fresh game's
+    // first autosave — keep the blob so the run stays recoverable by hand.
+    try { localStorage.setItem(RECOVERY_KEY, raw); } catch (e2) {}
+    if (typeof console !== "undefined" && console.warn) console.warn(`Could not read the autosave — a copy was kept under "${RECOVERY_KEY}".`, e);
+    if (typeof toast === "function") toast("⚠️ Your saved game couldn't be read, so a fresh one is starting. The old save was preserved for recovery.", "bad");
+    return false;
+  }
 }

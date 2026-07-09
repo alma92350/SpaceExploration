@@ -1,5 +1,5 @@
 {
-  "version": "2.103.0",
+  "version": "2.104.0",
   "saveVersion": "v2",
-  "notes": "New: send protection to a Tanker Run already under way — reinforce it mid-transit with an idle warship from its home port."
+  "notes": "Internal hardening: saves are sanitized on load, autosave failures warn instead of silently losing progress, and an unreadable autosave is kept for recovery. No gameplay changes."
 }

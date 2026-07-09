@@ -168,7 +168,7 @@ const TAB_LADDER = [
     test: s => Object.keys(s.colonies || {}).length > 0 || (Array.isArray(s.fleet) && s.fleet.length > 0)
       || Object.values(s.bases || {}).some(b => (b.modules || {}).shipyard_small > 0) },
 ];
-const RAW_IDS = ["ore", "crystals", "radioactives", "ice", "biomass", "spice", "gas", "relics"];
+const RAW_IDS = COM_IDS.filter(id => COM[id].tier === "Raw");   // derived from the commodity table — a new raw good joins automatically
 function tabUnlocked(id) { return S.showAllTabs || ALWAYS_TABS.includes(id) || !!(S.unlocked && S.unlocked[id]); }
 function tabHint(id) { const g = TAB_LADDER.find(t => t.id === id); return g ? g.hint : ""; }
 function unlock(id, announceIt) {
@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.103.0";
+const APP_VERSION = "2.104.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.104.0", notes: "Internal: hardening & guardrails. Every loaded or imported save is now sanitized before anything in it reaches the UI (a shared save file can't smuggle scripts into the log), a failing autosave warns instead of silently losing progress, and an unreadable autosave is preserved for recovery instead of being overwritten by the fresh game. CI now syntax-checks every script on Node 20 & 24, and new tests lock the version/cache-busters together, forbid duplicate top-level declarations across files, and drive a seeded 120-cycle simulation. No gameplay changes." },
   { version: "2.103.0", notes: "New: send protection to a 🛢️ Tanker Run already under way — the ✦ Fleet tab's Assign view gets a 🛡️ Reinforce a tanker run card listing every active run with a button per idle warship docked at its home port, joining the trip mid-transit and cutting the odds of a pirate ambush for whatever's left of the journey." },
   { version: "2.102.0", notes: "New: ⬆️⛽ Load and ⬇️⛽ Unload buttons for tankers (✦ Fleet tab) — top off an idle tanker's own cargo from the base/colony it's docked at (base first, then colony), or drain it back out (your own tank first, then the base, then the colony, selling anything left over). Dispatching a Tanker Run now tops off whatever's already loaded instead of starting from scratch, and turning a run back before it clears port keeps the fuel aboard the ship rather than refunding it to storage." },
   { version: "2.101.1", notes: "New: the 🗺️ Starmap now tracks any 🛢️ Tanker Run in progress with its own dotted route and a live progress marker, so a fuel convoy en route shows up right alongside the Escort tab's own dashed convoy line." },
@@ -671,8 +672,9 @@ function init() {
   if (S.pirate && S.pirate.bountyKills == null) { S.pirate.bountyKills = 0; S.pirate.bountyEarned = 0; }
   // backfill every commodity added since this save was made (drones, ai, antimatter,
   // plasmatorp, ...) and repair NaN-corrupted stocks — an undefined S.res[c] slips
-  // straight past guards like `S.res[c] < qty` and poisons `+=` into NaN
-  if (S.res) CARGO_IDS.forEach(c => { if (S.res[c] == null || !Number.isFinite(S.res[c])) S.res[c] = 0; });
+  // straight past guards like `S.res[c] < qty` and poisons `+=` into NaN. The four
+  // core scalars get the same repair: a NaN credits/fuel poisons every += after it.
+  if (S.res) [...CARGO_IDS, "credits", "fuel", "tech", "influence"].forEach(c => { if (S.res[c] == null || !Number.isFinite(S.res[c])) S.res[c] = 0; });
   if (!S.pollution) S.pollution = {};
   if (S.climate == null) S.climate = 0;
   if (!S.pirate) S.pirate = { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0 };
