@@ -151,6 +151,24 @@ function abortSignalWithTimeout(ms) {
   setTimeout(() => ctrl.abort(), ms);
   return ctrl.signal;
 }
+// A reasoning model can legitimately take a long time overall — a fixed total-duration
+// timeout would cut off a slow-but-alive stream just for taking a while, thinking or not.
+// This is an IDLE timeout instead: poke() pushes the deadline back out on every chunk
+// actually received, so only real silence (a hung connection, a crashed model) aborts it.
+// Thinking gets a longer allowance since a reasoning model's chain-of-thought can pause
+// between chunks longer than a quick in-character line ever would.
+const OLLAMA_IDLE_TIMEOUT_MS = 60000;            // 60s of silence, plain reply
+const OLLAMA_IDLE_TIMEOUT_THINKING_MS = 150000;  // 150s of silence, reasoning models
+function createIdleAbort(ms) {
+  if (typeof AbortController === "undefined") return { signal: undefined, poke() {}, cancel() {} };
+  const ctrl = new AbortController();
+  let timer = setTimeout(() => ctrl.abort(), ms);
+  return {
+    signal: ctrl.signal,
+    poke() { clearTimeout(timer); timer = setTimeout(() => ctrl.abort(), ms); },
+    cancel() { clearTimeout(timer); },
+  };
+}
 const OLLAMA_CORS_HINT = "If Ollama refuses the connection, it's likely blocking this page's origin — start it with OLLAMA_ORIGINS=* (or this page's origin) set, e.g. \"OLLAMA_ORIGINS=* ollama serve\".";
 // GET /api/tags — used by the Contacts chat settings card's Test button
 async function testOllamaConnection() {
@@ -176,21 +194,24 @@ async function streamOllamaCompletion(messages, callbacks, think) {
   const { onToken, onThinking, onDone, onError } = callbacks || {};
   if (typeof fetch !== "function") return onError && onError("This browser can't make network requests.");
   const cfg = ensureOllamaSettings();
+  const idle = createIdleAbort(think ? OLLAMA_IDLE_TIMEOUT_THINKING_MS : OLLAMA_IDLE_TIMEOUT_MS);
   let text = "", thinking = "";
   try {
     const r = await fetch(cfg.endpoint.replace(/\/+$/, "") + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model: cfg.model, messages, stream: true, think: !!think }),
-      signal: abortSignalWithTimeout(60000),
+      signal: idle.signal,
     });
     if (!r.ok) {
+      idle.cancel();
       let msg = `Ollama replied with HTTP ${r.status}.`;
       try { const j = await r.json(); if (j && j.error) msg = j.error; } catch (e) {}
       return onError && onError(msg);
     }
     if (!r.body || typeof r.body.getReader !== "function") {
       const data = await r.json();   // environments without streaming bodies: take the one-shot reply
+      idle.cancel();
       text = stripThinkTags((data.message && data.message.content) || "");
       onDone && onDone(text);
       return text;
@@ -201,17 +222,19 @@ async function streamOllamaCompletion(messages, callbacks, think) {
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
+      idle.poke();   // heard from the model — push the silence deadline back out
       buf += decoder.decode(value, { stream: true });
       const parts = buf.split("\n");
       buf = parts.pop();   // last (possibly incomplete) line stays buffered
       for (const line of parts) {
         const p = parseOllamaStreamLine(line);
         if (!p) continue;
-        if (p.error) return onError && onError(p.error);
+        if (p.error) { idle.cancel(); return onError && onError(p.error); }
         if (p.thinkDelta) { thinking += p.thinkDelta; onThinking && onThinking(thinking); }
         if (p.delta) { text += p.delta; onToken && onToken(text); }
       }
     }
+    idle.cancel();
     const tail = parseOllamaStreamLine(buf);
     if (tail && tail.error) return onError && onError(tail.error);
     if (tail && tail.thinkDelta) { thinking += tail.thinkDelta; onThinking && onThinking(thinking); }
@@ -220,7 +243,11 @@ async function streamOllamaCompletion(messages, callbacks, think) {
     onDone && onDone(text);
     return text;
   } catch (e) {
-    onError && onError(`Couldn't reach Ollama at ${cfg.endpoint}. ${OLLAMA_CORS_HINT}`);
+    idle.cancel();
+    const timedOut = !!(e && e.name === "AbortError");
+    onError && onError(timedOut
+      ? `${cfg.model} went quiet for too long without answering — it may be too slow for this machine or overloaded right now. Try a smaller model, or wait a moment and try again.`
+      : `Couldn't reach Ollama at ${cfg.endpoint}. ${OLLAMA_CORS_HINT}`);
     return null;
   }
 }
@@ -241,21 +268,34 @@ function ollamaChat(bandId, userText, callbacks) {
 function buildNegotiationExtra(offerAmount) {
   return [
     `The player is now offering ${offerAmount} credits to hire your crew as an escort for a run.`,
-    `Reply in character in 1-2 short sentences, then on the very last line write exactly one of:`,
+    `Reply in character in 1-2 short sentences, then on the very last line write exactly ONE of:`,
     `DEAL: ACCEPT <credits>`,
     `DEAL: COUNTER <credits>`,
     `DEAL: REJECT`,
-    `<credits> must be a plain whole number, no symbols or commas. Always end with that exact final line and nothing after it.`,
+    `<credits> must be ONLY digits — no commas, no symbols, and no unit word like "credits" or "cr" after the number. Write exactly one such line, never more than one, and put nothing after it.`,
   ].join("\n");
 }
-// pure: pull a trailing "DEAL: ACCEPT/COUNTER/REJECT <n>" line off a reply, if the model
-// followed the format — `clean` is always safe to show/store even when status is null
-const DEAL_LINE_RE = /\n?[ \t]*DEAL:\s*(ACCEPT|COUNTER|REJECT)\s*:?\s*(\d+)?[ \t]*$/i;
+// pure: pull every "DEAL: ACCEPT/COUNTER/REJECT ..." line out of a reply and strip all of
+// them from the visible/stored prose — a model doesn't always cleanly emit just one at the
+// very end: some tack a unit word onto the number ("3200 credits"), some second-guess
+// themselves mid-reply and write an ACCEPT then a COUNTER. The LAST such line found is
+// treated as the model's final word (closest thing to "what it actually decided"); amount
+// extraction tolerates a leading unit word/comma-grouping/trailing prose on that line, since
+// a model rarely follows "digits only" to the letter. `clean` never contains a raw DEAL:
+// line regardless of how many the model produced, so nothing mechanical leaks into dialogue.
+const DEAL_LINE_RE = /^[ \t]*DEAL:\s*(ACCEPT|COUNTER|REJECT)\b(.*)$/i;
 function parseDealLine(text) {
   const t = String(text == null ? "" : text);
-  const m = DEAL_LINE_RE.exec(t);
-  if (!m) return { clean: t.trim(), status: null, amount: null };
-  return { clean: t.slice(0, m.index).trim(), status: m[1].toLowerCase(), amount: m[2] ? parseInt(m[2], 10) : null };
+  let status = null, amount = null;
+  const kept = t.split("\n").filter(line => {
+    const m = DEAL_LINE_RE.exec(line.trim());
+    if (!m) return true;
+    status = m[1].toLowerCase();
+    const amtMatch = /(\d[\d,]*)/.exec(m[2]);
+    amount = amtMatch ? parseInt(amtMatch[1].replace(/,/g, ""), 10) : null;
+    return false;   // drop this line from the kept prose — it's always a machine line, never dialogue
+  });
+  return { clean: kept.join("\n").replace(/\n{3,}/g, "\n\n").trim(), status, amount };
 }
 // callbacks: onToken(deltaSoFar), onThinking(thinkingSoFar),
 // onDone({ userText, clean, status, amount }), onError(message)

@@ -57,6 +57,18 @@ follows for feature-detecting `fetch` and failing soft.
     builds and pass `ensureOllamaSettings().think` through automatically.
     `testOllamaConnection()` hits `GET /api/tags` for the settings card's
     🔌 Test button.
+  - **Timeout is idle-based, not a fixed total duration**: `createIdleAbort(ms)`
+    hands back an `AbortController`-backed `{ signal, poke(), cancel() }`;
+    `poke()` (called on every chunk actually received in the streaming read
+    loop) pushes the deadline back out, so a reply only gets cut off by real
+    silence, never merely by taking a while overall — a fixed timeout would
+    cut off a reasoning model mid-thought even while it's still actively
+    answering. `OLLAMA_IDLE_TIMEOUT_MS` (60s) applies normally,
+    `OLLAMA_IDLE_TIMEOUT_THINKING_MS` (150s) while `think` is on, since a
+    reasoning model's gaps between chunks run longer. The `catch` block tells
+    an aborted request (`e.name === "AbortError"`) apart from a genuine
+    connection failure, so a timeout says so plainly instead of pointing at
+    CORS/`OLLAMA_ORIGINS`, which isn't the actual problem in that case.
   - **Reasoning models** (Qwen3, QwQ, DeepSeek-R1, ...) can think at length
     before answering. When Ollama honors `think`, it streams that
     chain-of-thought separately as `message.thinking` — `parseOllamaStreamLine`
@@ -80,9 +92,16 @@ follows for feature-detecting `fetch` and failing soft.
     `DEAL: REJECT`) — a dedicated call rather than parsing plain chat, because
     a 1B-class model won't reliably volunteer that format unprompted mid-
     conversation. `onDone` receives `{ userText, clean, status, amount }` from
-    `parseDealLine(text)` (pure), which strips the machine line off before the
-    prose is ever shown or stored — an unparseable reply just comes back with
-    `status: null` and the full text as `clean`, never a crash.
+    `parseDealLine(text)` (pure), which scans every line for `DEAL:
+    ACCEPT/COUNTER/REJECT` and strips *all* of them from `clean` before the
+    prose is ever shown or stored, regardless of how many a reply contains —
+    models don't reliably stick to exactly one: some tack a unit word onto the
+    number ("3200 credits", tolerated — only the leading digits/commas are
+    read), some second-guess themselves mid-reply and write an ACCEPT
+    immediately followed by a contradicting COUNTER. The *last* matching line
+    is treated as the model's real final answer; an unparseable reply (no
+    matching line at all) comes back with `status: null` and the full text as
+    `clean`, never a crash.
   - `escapeChatHtml(s)` — every chat bubble's text is player-typed or
     model-generated, unlike the rest of this innerHTML-templated UI (which
     only ever renders developer-authored strings), so it's the one place in
@@ -154,8 +173,11 @@ and personality plus feud naming, `parseOllamaStreamLine` on a good line, an
 `{"error":...}` line and garbage, `escapeChatHtml`, and the sanitizer's
 handling of chat transcripts (apostrophes survive, markup and hostile
 band-id keys don't; a save without the key stays byte-identical). Negotiation
-adds: `parseDealLine` on ACCEPT/COUNTER/REJECT and unparseable text,
-`buildNegotiationExtra`, `bandNegotiationBounds` staying pinned to the base fee
+adds: `parseDealLine` on ACCEPT/COUNTER/REJECT and unparseable text, a real
+bug report reproduced verbatim (a trailing unit word/comma on the amount, and
+a self-contradicting ACCEPT-then-COUNTER reply — the last line wins and
+neither raw line survives into `clean`), `buildNegotiationExtra`,
+`bandNegotiationBounds` staying pinned to the base fee
 even after a deal is struck, `setBandNegotiatedFee` clamping an absurd ask into
 bounds and lapsing after `NEGOTIATED_DEAL_DURATION`, `escortRecruitBand`
 charging the negotiated price (not the base one) and consuming the deal on
@@ -169,13 +191,20 @@ block, an unclosed one left dangling, and plain prose with none at all, and an
 `ollamaChat` call (against a mocked `fetch` injected straight into the sandbox,
 since the request/response shape — not real network I/O — is what's under
 test) asserting the request body carries `S.ollama.think` and that an inlined
-`<think>` block never survives into `onDone`'s text.
+`<think>` block never survives into `onDone`'s text. Timeout coverage: a
+mocked `fetch` throwing an `AbortError`-shaped error gets the "went quiet"
+message (never the CORS hint), a genuine connection failure still gets the
+CORS/`OLLAMA_ORIGINS` hint (never the timeout wording), and `createIdleAbort`
+degrades to a harmless no-op when `AbortController` is unavailable — same as
+this sandbox, which stubs neither it nor real timers, so `poke()`/`cancel()`
+actually resetting/canceling a live deadline was verified separately with a
+plain `node -e` script using real `setTimeout`, not the game's own test suite.
 
 The streaming network path itself (token-by-token UI updates, the
-CORS/timeout error copy, the `#chatPending` → persisted-bubble handoff, the
-full negotiate ACCEPT/COUNTER/malformed round-trip through to the Escort tab's
-hire button, and the 🧠 thinking toggle showing a live `message.thinking`
-stream in its own block while off-by-default hides it entirely) was verified
-by hand against a local mock Ollama server, not by an automated test —
-genuine network I/O against a real server isn't something the Node `vm`
-sandbox does anywhere else in this suite either.
+`#chatPending` → persisted-bubble handoff, the full negotiate
+ACCEPT/COUNTER/malformed round-trip through to the Escort tab's hire button,
+and the 🧠 thinking toggle showing a live `message.thinking` stream in its own
+block while off-by-default hides it entirely) was verified by hand against a
+local mock Ollama server, not by an automated test — genuine network I/O
+against a real server isn't something the Node `vm` sandbox does anywhere
+else in this suite either.

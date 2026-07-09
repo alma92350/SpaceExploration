@@ -139,6 +139,56 @@ test("ollamaChat sends S.ollama.think in the request body, and defensively strip
   assert.deepEqual(out.results, ["Ahoy, matey!"], "onDone must receive the already-cleaned text");
 });
 
+test("a timed-out (idle) request gets a distinct, actionable message instead of the generic CORS/connection copy", async () => {
+  const { run } = createSandbox();
+  run(`
+    S = freshState();
+    S.pirateBands = {}; const b = newBand(1); S.pirateBands[b.id] = b; globalThis.__bandId = b.id;
+    globalThis.fetch = async () => {
+      const e = new Error("The operation was aborted.");
+      e.name = "AbortError";
+      throw e;
+    };
+  `);
+  const errors = await run(`
+    (async () => {
+      const errors = [];
+      await ollamaChat(__bandId, "hello", { onError: m => errors.push(m) });
+      return errors;
+    })()
+  `);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /went quiet for too long/i);
+  assert.doesNotMatch(errors[0], /OLLAMA_ORIGINS/, "a timeout is not a CORS problem — it shouldn't suggest the CORS fix");
+});
+
+test("a genuine connection failure still gets the CORS/OLLAMA_ORIGINS hint, unchanged", async () => {
+  const { run } = createSandbox();
+  run(`
+    S = freshState();
+    S.pirateBands = {}; const b = newBand(1); S.pirateBands[b.id] = b; globalThis.__bandId = b.id;
+    globalThis.fetch = async () => { throw new TypeError("Failed to fetch"); };
+  `);
+  const errors = await run(`
+    (async () => {
+      const errors = [];
+      await ollamaChat(__bandId, "hello", { onError: m => errors.push(m) });
+      return errors;
+    })()
+  `);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0], /OLLAMA_ORIGINS/);
+  assert.doesNotMatch(errors[0], /went quiet/i);
+});
+
+test("createIdleAbort degrades to a harmless no-op when AbortController is unavailable (as in this sandbox)", () => {
+  const { run } = createSandbox();
+  assert.equal(run(`typeof AbortController`), "undefined", "sanity: this sandbox has no AbortController, same as abortSignalWithTimeout's own fallback path");
+  const idle = run(`createIdleAbort(1000)`);
+  assert.equal(idle.signal, undefined);
+  assert.doesNotThrow(() => run(`const i = createIdleAbort(1000); i.poke(); i.poke(); i.cancel();`));
+});
+
 test("escapeChatHtml neutralizes markup and attribute-breakout characters, plain text passes through readably", () => {
   const { run } = createSandbox();
   assert.equal(run(`escapeChatHtml('<img src=x onerror=alert(1)>')`), "&lt;img src=x onerror=alert(1)&gt;");
@@ -205,6 +255,24 @@ test("parseDealLine extracts ACCEPT/COUNTER/REJECT + amount and strips the machi
   assert.deepEqual(garbage, { clean: "just chattering, no format followed", status: null, amount: null });
   const empty = JSON.parse(run(`JSON.stringify(parseDealLine(null))`));
   assert.deepEqual(empty, { clean: "", status: null, amount: null });
+});
+
+test("parseDealLine tolerates a trailing unit word/commas on the amount, a real bug report: 'DEAL: ACCEPT 3200 credits'", () => {
+  const { run } = createSandbox();
+  const withUnit = JSON.parse(run(`JSON.stringify(parseDealLine("Ahoy, ye have a deal!\\nDEAL: ACCEPT 3200 credits"))`));
+  assert.deepEqual(withUnit, { clean: "Ahoy, ye have a deal!", status: "accept", amount: 3200 });
+  const withCommas = JSON.parse(run(`JSON.stringify(parseDealLine("Fine, take it.\\nDEAL: COUNTER 4,000 cr"))`));
+  assert.deepEqual(withCommas, { clean: "Fine, take it.", status: "counter", amount: 4000 });
+});
+
+test("parseDealLine keeps only the LAST of several DEAL lines a model second-guessed itself into, stripping every one from the prose", () => {
+  const { run } = createSandbox();
+  // real transcript: the model wrote an ACCEPT, then immediately talked itself into a COUNTER
+  const flipFlop = JSON.parse(run(`JSON.stringify(parseDealLine(
+    "Ahoy, that'll do nicely!\\nDEAL: ACCEPT 3200 credits\\nDEAL: COUNTER 4000 credits"
+  ))`));
+  assert.deepEqual(flipFlop, { clean: "Ahoy, that'll do nicely!", status: "counter", amount: 4000 },
+    "the later COUNTER is the model's real final answer, and neither raw DEAL: line may survive into the displayed prose");
 });
 
 test("buildNegotiationExtra states the offer and demands the strict trailing DEAL format", () => {

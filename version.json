@@ -1,5 +1,5 @@
 {
-  "version": "2.107.0",
+  "version": "2.107.2",
   "saveVersion": "v2",
-  "notes": "New: an optional 🧠 Show model thinking toggle in 💬 Talk, for reasoning models like Qwen3/QwQ/DeepSeek-R1 — off by default, watch the model's reasoning live when you turn it on."
+  "notes": "Fix: 💬 Talk no longer times out a slow-but-still-answering reply after a fixed 60s — it now only gives up on real silence, with a longer allowance for reasoning models."
 }
