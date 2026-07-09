@@ -35,11 +35,22 @@ to rally at all.
 Friendly/neutral bands hire on as escort ships (`escortRecruitBand`, up to
 `ESCORT_MAX_HIRED` = 5; `escortDismissBand` releases one to free a slot, no
 refund, returning any outfitted gear to the fleet pool):
-`escortRecruitFee = (800 + level·700)·(1 − rep/100·0.4)` — friends cheaper. The
+`escortRecruitBaseFee = (800 + level·700)·(1 − rep/100·0.4)` — friends cheaper. The
 hired ship's hull/firepower scale with band level. Each leg, `escortBetrayalCheck`
 rolls desertion at `bandBetrayChance = clamp(0..0.5, 0.26 − rep/100·0.32 −
 min(.18, dread/100·.18))` — low standing deserts, your dread keeps them honest.
 Surviving a delivery raises the band's rep (+8); deserting drops it (−12).
+
+**Haggling the fee** (💬 Talk, `ollamaNegotiate`/`setBandNegotiatedFee` — see
+`docs/PIRATE_CHAT.md`): make an offer in chat and an in-character ACCEPT/COUNTER
+becomes a real discount, `b.negotiatedFee`, bounded to 40%–150% of
+`escortRecruitBaseFee` (`bandNegotiationBounds`) and valid for
+`NEGOTIATED_DEAL_DURATION` (5) cycles or until spent. `escortRecruitFee` returns
+`bandNegotiatedFee(b)` when one is active, else falls back to the base formula —
+so the struck price is what every hire button (Contacts card, Escort tab) already
+shows, no separate UI needed to "confirm" it. `escortRecruitBand` clears
+`negotiatedFee`/`negotiatedUntil` the moment the crew is actually hired, the same
+one-shot-then-lapse pattern as a bought feud truce.
 
 ## Surfacing
 - **🏴‍☠️ Contacts** sidebar tab (`renderContacts`, ladder-gated: unlocks once

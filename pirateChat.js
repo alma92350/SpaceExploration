@@ -5,10 +5,13 @@
    every request goes straight from this browser to the Ollama endpoint the
    player configures (default http://localhost:11434) — nothing is ever sent
    to Stellar Frontier's own servers, and the feature quietly does nothing if
-   Ollama isn't reachable. First pass is chat only: the pirate can banter,
-   brag and haggle in character, grounded in the real numbers (standing, hire
-   fee, loot cut) from pirateBands.js, but it can't itself move credits or
-   change state — the numbered buttons on the Contacts card still do that.
+   Ollama isn't reachable. The pirate banters, brags and haggles in character,
+   grounded in the real numbers (standing, hire fee, loot cut) from
+   pirateBands.js. Free chat never touches state; a struck hire-price deal
+   (ollamaNegotiate) is the one exception — an ACCEPT/COUNTER becomes a real,
+   bounded discount via pirateBands.js's setBandNegotiatedFee, honored the
+   next time the player actually hires that band from the Escort tab. The
+   model still can't complete a hire, spend credits, or act on its own.
 
    Loaded after pirateBands.js, before raiding.js. saveGame, toast and
    renderContacts still live in persistence.js/game.js/renderCombat.js at
@@ -132,14 +135,12 @@ async function testOllamaConnection() {
     return { ok: false, error: `Couldn't reach Ollama at ${cfg.endpoint}. ${OLLAMA_CORS_HINT}` };
   }
 }
-// POST /api/chat, streamed. callbacks: onToken(deltaSoFar), onDone(fullText), onError(message)
-async function ollamaChat(bandId, userText, callbacks) {
+// POST /api/chat, streamed. callbacks: onToken(deltaSoFar), onDone(fullText), onError(message).
+// Shared by both plain chat and negotiation — they differ only in the messages they build.
+async function streamOllamaCompletion(messages, callbacks) {
   const { onToken, onDone, onError } = callbacks || {};
-  const b = bandById(bandId);
-  if (!b) return onError && onError("That crew isn't on your books anymore.");
   if (typeof fetch !== "function") return onError && onError("This browser can't make network requests.");
   const cfg = ensureOllamaSettings();
-  const messages = buildOllamaMessages(buildPirateSystemPrompt(b), pirateChatHistory(bandId), userText, CHAT_CONTEXT_MSGS);
   let text = "";
   try {
     const r = await fetch(cfg.endpoint.replace(/\/+$/, "") + "/api/chat", {
@@ -184,4 +185,52 @@ async function ollamaChat(bandId, userText, callbacks) {
     onError && onError(`Couldn't reach Ollama at ${cfg.endpoint}. ${OLLAMA_CORS_HINT}`);
     return null;
   }
+}
+// POST /api/chat, streamed. callbacks: onToken(deltaSoFar), onDone(fullText), onError(message)
+function ollamaChat(bandId, userText, callbacks) {
+  const b = bandById(bandId);
+  if (!b) return (callbacks && callbacks.onError && callbacks.onError("That crew isn't on your books anymore."));
+  const messages = buildOllamaMessages(buildPirateSystemPrompt(b), pirateChatHistory(bandId), userText, CHAT_CONTEXT_MSGS);
+  return streamOllamaCompletion(messages, callbacks);
+}
+
+/* ---- Negotiation: haggle the escort hire fee in character. A dedicated call (not
+   plain chat) so the model gets a strict, machine-parseable line to close with —
+   a 1B model won't reliably volunteer that format unprompted mid-conversation. A
+   struck ACCEPT/COUNTER becomes a real, bounded discount via setBandNegotiatedFee
+   (pirateBands.js); an unparseable reply is treated as no deal, never a crash. ---- */
+function buildNegotiationExtra(offerAmount) {
+  return [
+    `The player is now offering ${offerAmount} credits to hire your crew as an escort for a run.`,
+    `Reply in character in 1-2 short sentences, then on the very last line write exactly one of:`,
+    `DEAL: ACCEPT <credits>`,
+    `DEAL: COUNTER <credits>`,
+    `DEAL: REJECT`,
+    `<credits> must be a plain whole number, no symbols or commas. Always end with that exact final line and nothing after it.`,
+  ].join("\n");
+}
+// pure: pull a trailing "DEAL: ACCEPT/COUNTER/REJECT <n>" line off a reply, if the model
+// followed the format — `clean` is always safe to show/store even when status is null
+const DEAL_LINE_RE = /\n?[ \t]*DEAL:\s*(ACCEPT|COUNTER|REJECT)\s*:?\s*(\d+)?[ \t]*$/i;
+function parseDealLine(text) {
+  const t = String(text == null ? "" : text);
+  const m = DEAL_LINE_RE.exec(t);
+  if (!m) return { clean: t.trim(), status: null, amount: null };
+  return { clean: t.slice(0, m.index).trim(), status: m[1].toLowerCase(), amount: m[2] ? parseInt(m[2], 10) : null };
+}
+// callbacks: onToken(deltaSoFar), onDone({ userText, clean, status, amount }), onError(message)
+function ollamaNegotiate(bandId, offerAmount, callbacks) {
+  const { onToken, onDone, onError } = callbacks || {};
+  const b = bandById(bandId);
+  if (!b) return onError && onError("That crew isn't on your books anymore.");
+  const bounds = bandNegotiationBounds(b);
+  const offer = Math.max(bounds.lo, Math.min(bounds.hi, Math.round(offerAmount)));
+  const userText = `I'll offer ${offer} credits to hire your crew as my escort.`;
+  const sysPrompt = buildPirateSystemPrompt(b) + "\n" + buildNegotiationExtra(offer);
+  const messages = buildOllamaMessages(sysPrompt, pirateChatHistory(bandId), userText, CHAT_CONTEXT_MSGS);
+  return streamOllamaCompletion(messages, {
+    onToken,
+    onDone: full => { onDone && onDone(Object.assign({ userText }, parseDealLine(full))); },
+    onError,
+  });
 }

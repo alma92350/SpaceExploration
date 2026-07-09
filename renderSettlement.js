@@ -651,7 +651,7 @@ function renderEscort() {
       const fee = escortRecruitFee(b), risk = Math.round(bandBetrayChance(b) * 100), rival = bandFoe(b);
       const blocked = rival && e.fleet.some(s => s.hired && s.alive && s.bandId === rival.id);
       return `<div class="ship-stat" style="align-items:center"><span class="k">${bandTagMark(b)}${b.ico} ${b.name} <span class="hint">${bandPers(b).ico}${bandPers(b).name} · ${bandTier(b).label} · L${b.level} · desert risk ${risk}%${blocked ? ` · ⚔️ rivals ${rival.name}` : ""}</span></span>
-        <span class="v"><button class="btn btn-sm" ${hiredN < ESCORT_MAX_HIRED && S.res.credits >= fee && !blocked ? "" : "disabled"} title="${blocked ? "Won't fly with their rival aboard" : ""}" onclick="escortRecruitBand('${b.id}')">Hire (${fmt(fee)} cr)</button></span></div>`;
+        <span class="v"><button class="btn btn-sm" ${hiredN < ESCORT_MAX_HIRED && S.res.credits >= fee && !blocked ? "" : "disabled"} title="${blocked ? "Won't fly with their rival aboard" : bandNegotiatedFee(b) != null ? "Honoring the rate you haggled in 💬 Talk (Contacts tab)" : ""}" onclick="escortRecruitBand('${b.id}')">${bandNegotiatedFee(b) != null ? "🤝 " : ""}Hire (${fmt(fee)} cr)</button></span></div>`;
     }).join("");
     recruit = `<div class="card"><h4>🤝 Hire pirate escorts <span class="hint">${hiredN}/${ESCORT_MAX_HIRED} hired</span></h4>
       <div class="hint">Trustworthy crews (desert risk under 5%) from your 🏴‍☠️ Pirate Contacts will fly escort for a fee — higher standing &amp; your Dread make a crew cheaper and more loyal; flightier bands won't sign on. Listed most reliable first. Crews you've <b>📣 called for support</b> (Contacts tab) stand by to join free. Dismiss a crew to free a slot for another.</div>

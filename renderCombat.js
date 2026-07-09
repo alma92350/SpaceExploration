@@ -413,7 +413,7 @@ function contactCard(b) {
       <div class="ship-stat"><span class="k">Based at</span><span class="v">${bandLocName(b)} <span class="hint">${dist === 0 ? "(here)" : dist + " ly"}</span></span></div>
       <div class="ship-stat"><span class="k">History</span><span class="v">🤝 ${b.allied || 0} allied · ⚔️ ${b.fought || 0} fought · 🎁 ${fmt(b.gifted || 0)} cr</span></div>
       <div class="ship-stat"><span class="k">As an ally</span><span class="v">${bandWillAlly(b) ? `wants ${cut}% of loot` : "won't fight for you"}</span></div>
-      <div class="ship-stat"><span class="k">As a hire</span><span class="v">${fmt(fee)} cr · ${risk}% desert risk</span></div>
+      <div class="ship-stat"><span class="k">As a hire</span><span class="v">${bandNegotiatedFee(b) != null ? `🤝 ${fmt(fee)} cr (haggled)` : `${fmt(fee)} cr`} · ${risk}% desert risk</span></div>
       <div class="ship-stat"><span class="k">Support</span><span class="v">${supStatus}</span></div>
       ${rival ? (() => { const truce = bandTruceActive(b), tc = bandTruceCost(b), pc = bandReconcileCost(b);
         return `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px;align-items:center">
@@ -509,10 +509,11 @@ function renderContactsMandates() {
 /* ---- Talk: free-form in-character chat with a band's captain, voiced by a
    locally-running Ollama model (pirateChat.js owns the persona/network side).
    UI-only runtime state, same pattern as mandateForm — never saved. ---- */
-let chatUI = { bandId: null, drafts: {}, sending: {}, pending: {}, error: {}, testing: false, testStatus: null };
+let chatUI = { bandId: null, drafts: {}, sending: {}, pending: {}, error: {}, testing: false, testStatus: null, offers: {} };
 function openBandChat(id) { chatUI.bandId = id; setSubView("contacts", "chat"); }
 function setChatBand(id) { chatUI.bandId = id; renderContacts(); }
 function updateChatDraft(id, v) { chatUI.drafts[id] = v; }   // captured without a re-render, so typing never loses focus
+function updateOfferAmount(id, v) { chatUI.offers[id] = v; }
 function clearBandChat(id) { chatUI.error[id] = null; chatUI.pending[id] = null; clearPirateChat(id); }
 function runOllamaTest() {
   if (chatUI.testing) return;
@@ -536,6 +537,37 @@ function sendChatMessage(id) {
     onDone: full => {
       chatUI.sending[id] = false; chatUI.pending[id] = null;
       pushChatMessage(id, "pirate", (full || "").trim() || "…");
+      renderContacts();
+    },
+    onError: msg => {
+      chatUI.sending[id] = false; chatUI.pending[id] = null; chatUI.error[id] = msg;
+      renderContacts();
+    },
+  });
+}
+// haggle the escort hire fee: a struck ACCEPT/COUNTER becomes a real, bounded discount
+// (setBandNegotiatedFee, pirateBands.js) that the Escort tab's own hire button honors later —
+// this view never hires anyone itself. Not shown as a live token stream (the reply ends in a
+// machine-readable line we strip out), just a "haggling" placeholder until it resolves.
+function sendOffer(id) {
+  const b = bandById(id); if (!b || chatUI.sending[id]) return;
+  const bounds = bandNegotiationBounds(b);
+  const raw = parseInt(chatUI.offers[id], 10);
+  const offer = Math.max(bounds.lo, Math.min(bounds.hi, Number.isFinite(raw) ? raw : escortRecruitFee(b)));
+  chatUI.error[id] = null;
+  pushChatMessage(id, "you", `I'll offer ${fmt(offer)} cr to hire your crew as my escort.`);
+  chatUI.sending[id] = true; chatUI.pending[id] = "🤝 haggling…";
+  renderContacts();
+  ollamaNegotiate(id, offer, {
+    onDone: result => {
+      chatUI.sending[id] = false; chatUI.pending[id] = null;
+      pushChatMessage(id, "pirate", result.clean || "…");
+      if ((result.status === "accept" || result.status === "counter") && result.amount) {
+        const struck = setBandNegotiatedFee(id, result.amount);
+        chatUI.offers[id] = struck;
+      } else if (!result.status) {
+        toast("Couldn't read a clear answer back — try rephrasing your offer.", "bad");
+      }
       renderContacts();
     },
     onError: msg => {
@@ -576,18 +608,32 @@ function renderContactsChat() {
   const b = bandById(chatUI.bandId);
   const picker = bands.map(x => `<option value="${x.id}" ${x.id === b.id ? "selected" : ""}>${x.ico} ${x.name} · ${bandTier(x).label}</option>`).join("");
   const pr = bandPers(b), tier = bandTier(b), rival = bandFoe(b);
-  const fee = escortRecruitFee(b), cut = Math.round(bandLootShare(b) * 100);
+  const fee = escortRecruitFee(b), cut = Math.round(bandLootShare(b) * 100), deal = bandNegotiatedFee(b);
   const history = pirateChatHistory(b.id);
   const sending = !!chatUI.sending[b.id], pending = chatUI.pending[b.id], err = chatUI.error[b.id];
   const bubbles = history.map(m => chatBubble(m.who, m.text)).join("")
     + (pending != null ? chatBubble("pirate", pending, "chatPending") : "")
     + (err ? `<div class="chat-bubble error"><span class="chat-text">⚠️ ${escapeChatHtml(err)}</span></div>` : "");
   const draft = chatUI.drafts[b.id] || "";
+  const canNegotiate = ["neutral", "friendly", "sworn"].includes(tier.key);
+  const bounds = bandNegotiationBounds(b);
+  const offerVal = chatUI.offers[b.id] || fee;
+  const dealLine = deal != null
+    ? `<div class="hint" style="color:var(--good)">🤝 Agreed rate: ${fmt(deal)} cr — holds ${b.negotiatedUntil - S.turn} more cycle${b.negotiatedUntil - S.turn === 1 ? "" : "s"}, or until you sign them on from the 🛡️ Escort tab.</div>`
+    : "";
+  const offerRow = !canNegotiate
+    ? `<div class="hint">Too ${tier.key === "hostile" ? "hostile" : "wary of you"} to talk hiring terms — improve standing first.</div>`
+    : `<div class="row" style="margin-top:6px;align-items:center;gap:6px;flex-wrap:wrap">
+        <span class="hint">Offer (${fmt(bounds.lo)}-${fmt(bounds.hi)} cr)</span>
+        <input id="dealOfferBox" class="chat-field" style="width:100px" type="number" min="${bounds.lo}" max="${bounds.hi}" value="${offerVal}" ${sending ? "disabled" : ""} oninput="updateOfferAmount('${b.id}', this.value)" />
+        <button class="btn btn-sm" ${sending ? "disabled" : ""} onclick="sendOffer('${b.id}')">💰 Make offer</button>
+      </div>`;
   return `${chatSettingsCard()}
     <div class="card">
       <h4>${b.ico} ${b.name} <span class="hint">${pirateRankName(b)} · ${pr.ico} ${pr.name} · ${tier.label} (${b.rep})</span></h4>
       ${rival ? `<div class="hint" style="color:var(--bad)">⚔️ feuding with the ${rival.name}</div>` : ""}
       <div class="hint">Ballpark: hire ~${fmt(fee)} cr · loot cut ~${cut}%. Chat is in character and doesn't move credits by itself — use the buttons under 🤝 All contacts for that.</div>
+      ${dealLine}
       <div class="row" style="align-items:center;gap:6px;flex-wrap:wrap">
         <span class="hint">Talking to</span>
         <select onchange="setChatBand(this.value)">${picker}</select>
@@ -600,6 +646,7 @@ function renderContactsChat() {
           onkeydown="if(event.key==='Enter'){event.preventDefault();sendChatMessage('${b.id}');}" />
         <button class="btn btn-primary" ${sending ? "disabled" : ""} onclick="sendChatMessage('${b.id}')">${sending ? "…" : "Send"}</button>
       </div>
+      ${offerRow}
     </div>`;
 }
 /* ---------- Generic in-panel sub-tabs ----------

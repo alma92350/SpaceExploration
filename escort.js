@@ -496,6 +496,7 @@ function escortRecruitBand(id) {
   const fee = escortRecruitFee(b);
   if ((S.res.credits || 0) < fee) return toast(`The ${b.name} wants ${fmt(fee)} cr up front.`, "bad");
   S.res.credits -= fee;
+  b.negotiatedFee = null; b.negotiatedUntil = 0;            // a struck bargain is spent the moment it's used
   const sh = { role: "escort", hired: true, bandId: id, name: b.name, ico: b.ico,
     hullMax: Math.round(ESCORT_ESCORT_HULL * (0.9 + b.level * 0.25)),
     str: Math.round(ESCORT_ESCORT_FP * (0.9 + b.level * 0.3) * bandPers(b).fp), alive: true,
