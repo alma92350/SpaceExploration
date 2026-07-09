@@ -4,7 +4,8 @@
   "private": true,
   "description": "Test harness for Stellar Frontier. The game itself has no dependencies and no build step — see README.md.",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "arena": "node tools/modelArena.mjs"
   },
   "engines": {
     "node": ">=20"

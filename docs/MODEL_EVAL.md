@@ -1,11 +1,13 @@
 # Model Arena — finding the right small Ollama model for each NPC role
 
-**Status: proposal / brainstorm.** Nothing in this document is implemented.
-It's the design space for one question: of the local Ollama models a player
+**Status: phase 1 shipped; phases 2–5 still proposals.** This document maps
+the design space for one question: of the local Ollama models a player
 can realistically run (~0.8B–4B parameters), which is best for each of the
 roles we want a model to play — today's in-character narrator, and the
 planned bigger ones: an autonomous pirate with a hidden agenda, or a full
-rival captain ("second player")?
+rival captain ("second player")? Phase 1 — the `tools/modelArena.mjs`
+runner plus the two fully deterministic batteries — is implemented; see
+"Running it" below.
 
 ## The lesson that shapes everything here
 
@@ -64,17 +66,46 @@ principle).
   `fetch` against `http://localhost:11434`), since the sandbox has no fetch
   and no-op timers.
 - **Model auto-discovery.** `GET /api/tags` reports each installed model's
-  `details.parameter_size`, so `--models auto` can mean "everything
-  installed between 0.5B and 4.5B". Explicit `--models a,b,c` overrides.
-- **CLI sketch:**
-  `node tools/modelArena.mjs --models auto --batteries banter,negotiation,agent,secret,memory --samples 5`
+  `details.parameter_size`, so `--models auto` (the default) means
+  "everything installed between 0.5B and 4.5B". Explicit `--models a,b,c`
+  overrides.
 - **Output:** one JSON blob per run (every raw reply kept, for re-scoring
   later without re-running inference) plus a rendered markdown leaderboard —
-  per model × battery × metric, with a weighted per-role headline score.
+  per model × battery, with per-check pass rates so it says *why* a model
+  loses, not just that it does.
+
+### Running it (phase 1)
+
+```bash
+npm run arena                              # every installed 0.5B-4.5B model, both batteries
+npm run arena -- --models llama3.2:1b,qwen3:1.7b --samples 3
+npm run arena -- --think                   # reasoning models: chain-of-thought on
+node tools/modelArena.mjs --help           # all flags
+```
+
+Each run writes `arena-results/run-<stamp>/results.json` (raw replies,
+per-call checks, timing) and `leaderboard.md`, and prints the leaderboard.
+Scores are pass *rates* over `--samples` tries per probe (default 5) —
+single pass/fail is meaningless at this model size. Requests mirror
+`pirateChat.js` exactly: `think` always in the body (off unless `--think`),
+no sampler options unless you pass `--temperature`/`--seed`. Calls run one
+at a time so latency numbers mean something; a model that errors ten times
+in a row is abandoned and reported, and each model is unloaded when it
+finishes (`--keep-loaded` skips that).
+
+The pieces: `tools/modelArena.mjs` (the I/O shell — CLI, streaming, files;
+deliberately outside `node --test`), `tools/arenaScenarios.js` (builds both
+batteries from the game's own functions via `test/helpers/sandbox.js`),
+`tools/arenaChecks.js` (the deterministic checkers), `tools/arenaReport.js`
+(aggregation + markdown). Everything except the I/O shell is covered by
+`test/arena.test.js` — including that two scenario builds are
+byte-identical and that the arena's `stripThinkTags` copy stays in lockstep
+with `pirateChat.js`'s. `arena-results/` is gitignored: numbers are
+per-machine by design.
 
 ## The batteries
 
-### 1. Banter / persona (deterministic + judge)
+### 1. Banter / persona (deterministic + judge) — shipped
 
 Seeded bands across every personality × tier, probed with a fixed set:
 
@@ -94,7 +125,7 @@ the reply must be one of the figures the prompt actually contains (fee,
 cut, rep, offer; tolerant of thousands separators), so invented prices
 score as failures; no `<think>` leakage; no degenerate repetition loop.
 
-### 2. Negotiation narration (fully deterministic)
+### 2. Negotiation narration (fully deterministic) — shipped
 
 For each status (accept/counter/reject) × personality: pin
 `decideNegotiation`'s outcome, build the shipped narration prompt, and
@@ -233,8 +264,9 @@ and wall-clock per cycle (is it *playable*?).
 
 ## Phasing
 
-1. **`modelArena.mjs` + batteries 1–2** (all deterministic) — immediately
-   answers "best narrator in range" and guards the shipped feature.
+1. **`modelArena.mjs` + batteries 1–2** (all deterministic) — **shipped**:
+   immediately answers "best narrator in range" and guards the shipped
+   feature.
 2. **Battery 3** (action quiz, structured outputs) — answers "is *any*
    0.8–4B model trustworthy enough to drive an NPC, and with which
    guardrails".
