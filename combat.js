@@ -289,7 +289,9 @@ function deepScan() {
     if (Math.random() < cls.flee * 0.5) {
       log(`🏃 Your active scan spooked the ${t.ico} ${t.name} — it lit its drive and jumped clear before you could close. Should've crippled its 🚀 engines first.`, "bad");
       toast(`${t.name} bolted during the scan!`, "bad");
-      if (S.encounter === t) S.encounter = null; else if (S.prey === t) S.prey = null;
+      // a fled anchor hands the fight to its surviving pack (and lets a planetary
+      // assault advance) instead of silently dissolving the whole engagement
+      if (S.encounter === t) S.encounter = null; else if (S.prey === t) promoteOrEnd(t);
       return afterAction();
     }
     t.jumpPrimed = true;     // spooked — readier to run
@@ -441,7 +443,7 @@ function applyShipClass(foe, clsId) {
   if (cls.escort) foe.escorts = (foe.escorts || 0) + cls.escort;
   return foe;
 }
-function classLabel(foe) { const c = SHIP_CLASSES[foe.cls] || SHIP_CLASSES.corvette; return `${c.ico} ${c.name}`; }
+function classLabel(foe) { if (foe.ground) return "🏰 Bastion"; const c = SHIP_CLASSES[foe.cls] || SHIP_CLASSES.corvette; return `${c.ico} ${c.name}`; }
 function genPirate(level) {
   const lv = Math.max(1, Math.min(5, level));
   const R = PIRATE_RANKS[lv];
@@ -589,29 +591,71 @@ function genPrey() {
   return foe;
 }
 /* ---------- Raiding a planet (the offense side of the defense slice above) ----------
-   Deliberately attacking an established world, not a random sweep contact. Shaped exactly
-   like any other prey (isPlanetRaid marks it for raidWinPlanet's resolution instead of
-   raidWinPirate/raidWinMerchant once it's beaten) so the whole existing engagement UI —
-   weapon targeting, deep scan, calling allies, extort, no quarter — just works with zero
-   changes; only the win path is new. Scaled off the same PREY.patrol archetype as a single
-   escort ship, since a planet's whole garrison should out-muscle one patrol craft, not
-   just match it. The credits on the "fleet" are what plunder() pulls off its own war
-   chest; the real prize (ground plunder, scaled to how developed the world is) only
-   comes from actually winning — see raidWinPlanet, raiding.js. */
+   Deliberately attacking an established world, not a random sweep contact — and a real
+   CAMPAIGN, not one blob fight. Phase 1: the world's orbital patrols scramble as a wave
+   of several vessels (S.prey + pack), fought with the same pooled-fire Target/Focus
+   roster the Escort tab's wave combat uses — clear every one before anything else.
+   Phase 2: only once the skies are empty does the ground garrison come into reach
+   (promoteOrEnd, raiding.js, swaps it in); only beating THAT pays the ground plunder
+   (raidWinPlanet). All through the fight the coalition's OTHER worlds can answer the
+   distress call with reinforcements (maybePlanetReinforce, raiding.js). Every foe is
+   shaped as a normal prey object so the whole existing engagement UI — weapon targeting,
+   deep scan, calling allies, extort, no quarter — just works; only the win paths and the
+   S.planetAssault phase tracker are new. */
+// one vessel of a world's orbital picket — the same PREY.patrol archetype the lanes run,
+// but individually lighter than a lone hunter-killer: the picket's menace is its numbers
+const PATROL_WING_NAMES = ["Orbital Picket", "Customs Cutter", "System Monitor", "Harbor Guard", "Response Wing"];
+const PATROL_HULL_TRIM = 0.55;   // picket craft fly lighter hulls than a lone patrol (foeHp rubber-bands per foe, so an untrimmed wave would out-tank the old single fleet several times over)
+function genPlanetPatrol(planet, heavy) {
+  const law = planet.enforce;
+  const strength = Math.round(PREY.patrol.base * ((heavy ? 0.7 : 0.5) + law * 0.45) * (0.85 + Math.random() * 0.3) * foeStrengthMult());
+  const prof = genFoeProfile("patrol", strength, law);
+  const foe = {
+    type: "patrol", isPlanetPatrol: true, planetId: planet.id, planetName: planet.name,
+    name: `${planet.name} Patrol`, ico: "🚔",
+    faction: planet.faction,
+    cargo: { weapons: rint(1, 3), fuel: rint(2, 5) }, credits: rint(80, 240),
+    strength, def: prof.def, wtype: prof.wtype,
+    bounty: 0,
+    wantedGain: Math.round(5 + law * 8),
+  };
+  applyShipClass(foe, rollShipClass(heavy ? (law >= 0.5 ? 2 : 1) : (law >= 0.5 ? 1 : 0)));
+  foeHp(foe);                                                     // init now, then trim: picket hulls run light
+  foe.maxhp = Math.max(8, Math.round(foe.maxhp * PATROL_HULL_TRIM));
+  foe.hp = foe.maxhp;
+  return foe;
+}
+// how many vessels hold a world's orbit: 2 on the lawless rim, up to 4 over a high-law world
+function planetPatrolCount(planet) { return Math.max(2, Math.min(4, 2 + Math.round(planet.enforce * 2))); }
+function genPlanetPatrolWave(planet) {
+  const n = planetPatrolCount(planet);
+  return Array.from({ length: n }, (_, i) => {
+    const v = genPlanetPatrol(planet, false);
+    v.name = `${planet.name} ${PATROL_WING_NAMES[i % PATROL_WING_NAMES.length]}`;
+    return v;
+  });
+}
+/* The ground garrison — phase 2's boss, only reachable once the orbit is swept clean.
+   Keeps the old Defense Fleet's scaling (a planet's garrison out-muscles one patrol
+   craft), but it's a fortress, not a ship: no engines, so it can never jump away, and
+   `ground: true` re-flavors the class label and pills. The credits are what plunder()
+   pulls off its war chest; the real prize (ground plunder, scaled to how developed the
+   world is) only comes from actually winning — see raidWinPlanet, raiding.js. */
 function genPlanetDefense(planet) {
   const law = planet.enforce;
   const strength = Math.round(PREY.patrol.base * (1.3 + law * 1.2) * (0.85 + Math.random() * 0.3) * foeStrengthMult());
   const prof = genFoeProfile("patrol", strength, law);
   const foe = {
-    type: "garrison", isPlanetRaid: true, planetId: planet.id, planetName: planet.name,
-    name: `${planet.name} Defense Fleet`, ico: "🏰",
+    type: "garrison", isPlanetRaid: true, ground: true, planetId: planet.id, planetName: planet.name,
+    name: `${planet.name} Ground Garrison`, ico: "🏰",
     faction: planet.faction,
     cargo: {}, credits: rint(300, 700) * (1 + Math.round(law * 2)),
     strength, def: prof.def, wtype: prof.wtype,
     bounty: 0,
     wantedGain: Math.round(25 + law * 35),
   };
-  applyShipClass(foe, rollShipClass(law >= 0.5 ? 2 : law >= 0.25 ? 1 : 0));   // a lawful world's garrison runs heavier hulls
+  applyShipClass(foe, rollShipClass(law >= 0.5 ? 2 : law >= 0.25 ? 1 : 0));   // a lawful world's garrison runs heavier batteries
+  foe.engines = 0; foe.enginesMax = 0;                            // a fortress doesn't run — and can't be "pinned" either
   return foe;
 }
 // what sacking the surface itself is worth, once its defense fleet is actually beaten —
@@ -620,7 +664,8 @@ function planetRaidHaul(planet) {
   return Math.round((400 + planet.industry * 220 + planet.tech * 140) * (0.75 + Math.random() * 0.5));
 }
 const PLANET_RAID_FUEL = 8;
-// deliberately target the CURRENT planet's own defenses — not a sweep for random contacts
+// deliberately target the CURRENT planet's own defenses — not a sweep for random contacts.
+// Opens phase 1 of the assault: the world's whole orbital picket scrambles as one wave.
 function raidPlanet() {
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   if (S.interdiction) return toast("There's a navy cutter on your tail — deal with it first.", "bad");
@@ -632,11 +677,15 @@ function raidPlanet() {
   if ((S.bases && S.bases[p.id]) || (S.colonies && S.colonies[p.id])) return toast("You can't raid your own settlement.", "bad");
   if (S.res.fuel < PLANET_RAID_FUEL) return toast(`Need ${PLANET_RAID_FUEL} fuel to run the blockade.`, "bad");
   S.res.fuel -= PLANET_RAID_FUEL; useAction();
-  S.prey = genPlanetDefense(p);
-  S.prey._others = []; S.prey.pack = []; S.allies = null; S.raidTargets = [];
+  const wave = genPlanetPatrolWave(p);
+  S.planetAssault = { planetId: p.id, phase: "patrols", called: 0 };
+  S.prey = wave[0];
+  S.prey.pack = wave.slice(1);
+  S.prey._others = []; S.allies = null; S.raidTargets = [];
   raidJoinFollowers();
-  log(`🏴‍☠️ You make your move on <span class="c">${p.name}</span> — its ${S.prey.ico} ${S.prey.name} scrambles to meet you.`, "event");
-  toast(`Raiding ${p.name}!`, "event");
+  log(`🏴‍☠️ You make your move on <span class="c">${p.name}</span> — its orbital patrols scramble to meet you: <b>${wave.length} vessels</b> rise to hold the sky. Sweep them all aside before the ground garrison — and its plunder — is in reach. Their coalition may send help from other worlds.`, "event");
+  toast(`Raiding ${p.name} — ${wave.length} patrols scramble!`, "event");
+  sfx("alarm");
   afterAction();
 }
 /* unified sweep: one scan turns up a handful of contacts — pirates AND coalition
@@ -709,7 +758,7 @@ function shipCrippled() {
   S.res.credits -= tow;
   S.pirate.hull = 30; clampPirate();
   SUBSYS.forEach(k => damageSubsys(k, 15 + Math.random() * 20));   // a wreck damages everything
-  S.prey = null; S.encounter = null; S.allies = null;             // the fight is over — you're towed off
+  S.prey = null; S.encounter = null; S.allies = null; S.planetAssault = null;   // the fight is over — you're towed off (any planetary assault collapses with you)
   if (typeof releaseBattleGroup === "function") releaseBattleGroup();
   S.actionsUsed = ACTIONS_PER_CYCLE;                               // the tow eats the rest of the cycle
   log(`💥 Your hull buckled! A tow drags you off — lost ${jettisoned.join(" ") || "no cargo"}, paid ${fmt(tow)} cr, systems battered, and the cycle is gone. End the cycle to limp on.`, "bad");
@@ -730,4 +779,4 @@ function lootShare() {                                   // the PLAYER's cut = w
   return Math.max(0.1, 1 - taken);
 }
 function allHostiles(prey) { return [prey].concat((prey && prey.pack) || []); }
-function clearEngagement() { S.prey = null; S.encounter = null; S.allies = null; S.raidTargets = null; if (typeof releaseBattleGroup === "function") releaseBattleGroup(); }
+function clearEngagement() { S.prey = null; S.encounter = null; S.allies = null; S.raidTargets = null; S.planetAssault = null; if (typeof releaseBattleGroup === "function") releaseBattleGroup(); }

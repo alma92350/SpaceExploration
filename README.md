@@ -117,6 +117,26 @@ together — pick which hostile(s) to focus fire on, same as the Escort tab's
 convoy combat, instead of being forced to kill them one at a time in a fixed
 order.
 
+The boldest play of all is **🏴‍☠️ Raid this world** — assaulting a faction
+planet itself, a real two-phase **campaign**:
+
+1. **Clear the orbital patrols.** The world's whole picket scrambles at once
+   (2–4 vessels, more over lawful worlds), fought with the same pooled-fire
+   **Target/Focus** wave combat as an Escort ambush. Every space defender must
+   be destroyed (or routed) before anything on the surface is in reach.
+2. **Break the ground garrison.** With the sky swept, the 🏰 garrison — a
+   dug-in fortress that never flees — is all that stands between you and the
+   surface. Only beating it **sacks the world** and pays the ground plunder
+   (scaled to the world's Industry and Tech).
+
+All the while the defender's **coalition** may answer its distress call:
+vessels from its faction's *other* worlds — or from a faction currently in
+🤝 **Alliance** with it — can jump in mid-fight and join the defense (an
+allied wing flies its own flag, so destroying it angers *that* faction too).
+Each patrol kill pays its own salvage with a modest Wanted/rep sting; the
+sack itself remains the full act of war — heavy Wanted, deep rep damage —
+and breaking off mid-campaign abandons the whole assault.
+
 The ✦ Fleet tab builds three families of hull at a colony **Shipyard** (or a
 base's smaller **Small Shipyard** for the lightest tiers): **freighters**
 haul goods, **warships** fight or work system missions, and **🛢️ tankers**

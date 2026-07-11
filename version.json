@@ -1,5 +1,5 @@
 {
-  "version": "2.110.0",
+  "version": "2.111.0",
   "saveVersion": "v2",
-  "notes": "Added: the offense side of raiding — from the Raider tab, hit a faction world's own orbital defenses and sack the surface for credits. A real act of war: heavy Wanted and a deep rep hit, scaled to how lawful and developed the world is."
+  "notes": "Changed: raiding a world is now a two-phase campaign — sweep its orbital patrol picket first (pooled-fire wave combat, Escort-style target picking), then break the dug-in ground garrison to sack the surface. Its coalition can jump in reinforcements from other worlds mid-fight."
 }

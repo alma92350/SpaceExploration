@@ -94,7 +94,21 @@ function preyCombatCard(prey, al) {
   const pinned = (prey.engines || 0) <= 0;
   const lawNote = isPirate
     ? `A <b>lawful kill</b> — bounty, salvage, faction goodwill, no Wanted.`
+    : prey.isPlanetPatrol || prey.isPlanetRaid
+    ? `An <b>act of war</b> on ${FACTIONS[prey.faction] ? FACTIONS[prey.faction].name : "the coalition"} — every kill earns <b>Wanted</b>, and the sack itself far more.`
     : `Raiding coalition shipping earns <b>Wanted</b>. ${pinned ? "" : "Cripple its 🚀 engines so it can't run."}`;
+  // planetary assault: a phase banner over the same wave-combat UI the Escort tab uses —
+  // phase 1 clear the orbital picket, phase 2 break the ground garrison, THEN the loot
+  let assaultLine = "";
+  const A = S.planetAssault;
+  if (A && (prey.isPlanetPatrol || prey.isPlanetRaid)) {
+    const ap = PLANETS.find(x => x.id === A.planetId);
+    const defenders = allHostiles(prey).filter(h => h.hp == null || h.hp > 0).length;
+    const moreComing = (A.called || 0) < ASSAULT_REINFORCE_CAP && assaultCoalitionSources(ap || currentPlanet()).length > 0;
+    assaultLine = A.phase === "patrols"
+      ? `<div class="hint" style="margin-top:4px;color:var(--warn)">🛰️ <b>Planetary assault — phase 1: the orbital picket.</b> <b>${defenders}</b> space defender${defenders === 1 ? "" : "s"} hold${defenders === 1 ? "s" : ""} the sky over ${ap ? ap.name : "the world"}. Clear them <b>all</b> — the 🏰 ground garrison (and the plunder behind it) is out of reach until the orbit is yours.${moreComing ? " ⚠️ Their coalition may jump in reinforcements from other worlds." : ""}</div>`
+      : `<div class="hint" style="margin-top:4px;color:var(--warn)">🏰 <b>Planetary assault — phase 2: the ground garrison.</b> The orbit over ${ap ? ap.name : "the world"} is swept clean. Break the garrison to sack the surface and take the plunder.${moreComing ? " ⚠️ Watch the sky — coalition ships may still jump in." : ""}</div>`;
+  }
   // pirates loitering in the area you can recruit (loot shared); rescuers already engaged
   const areaPirates = (prey._others || []).filter(o => o.isPirate).length;
   const allyN = (S.allies && S.allies.length) || 0;
@@ -175,10 +189,10 @@ function preyCombatCard(prey, al) {
     bgBlock = `<div class="row" style="margin-top:6px"><button class="btn btn-sm btn-good" title="Deploy every warship following you (${bgIdle.length}) as a pooled formation — no loot cut, escort-style posture, but they take real damage and can be lost" onclick="deployBattleGroup()">✦ Deploy Battle Fleet (${bgIdle.length})</button></div>`;
   }
   return `<div class="card" style="border-color:${isPirate ? "var(--good)" : "var(--warn)"}">
-    <h4>${preyBand ? bandTagMark(preyBand) : ""}${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>
+    <h4>${preyBand ? bandTagMark(preyBand) : ""}${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${prey.ground ? ' <span class="pill bad">🏔️ dug in</span>' : pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>
     ${bandLine}
     <div class="hint">${lawNote}</div>
-    ${allyLine}${hostileRoster}${patrolHint}${crewHint}
+    ${assaultLine}${allyLine}${hostileRoster}${patrolHint}${crewHint}
     ${tacticalHTML(prey, "raidAttack")}
     <div class="row" style="margin-top:6px">${buttons}</div>
     ${bgBlock}
@@ -277,7 +291,7 @@ function renderRaid() {
     const canRaidPlanet = !!p.faction && !(S.bases && S.bases[p.id]) && !(S.colonies && S.colonies[p.id]);
     const planetCard = canRaidPlanet ? `<div class="card" style="border-color:var(--bad)">
       <h4>🏴‍☠️ Raid ${p.name} <span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)">${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}</span></h4>
-      <div class="desc">Break its orbital defenses and sack the surface outright — a real act of war on ${FACTIONS[p.faction].name}: heavy Wanted, a deep rep hit, and defenses that scale with how lawful this world is (${Math.round(p.enforce * 100)}%). The payoff scales with how developed it is too (Industry ${p.industry}, Tech ${p.tech}). Costs ${PLANET_RAID_FUEL} ⛽ and one action.</div>
+      <div class="desc">A two-phase campaign, not a smash-and-grab: first sweep its <b>orbital patrols</b> (${planetPatrolCount(p)} vessels — pooled-fire wave combat, pick your targets like an Escort ambush), and only once the sky is clear can you break the 🏰 <b>ground garrison</b> and sack the surface. Mid-fight, its coalition may jump in <b>reinforcements from other worlds</b>. A real act of war on ${FACTIONS[p.faction].name}: heavy Wanted, a deep rep hit, and defenses that scale with how lawful this world is (${Math.round(p.enforce * 100)}%). The payoff scales with how developed it is too (Industry ${p.industry}, Tech ${p.tech}). Costs ${PLANET_RAID_FUEL} ⛽ and one action.</div>
       <button class="btn btn-bad" ${al > 0 && S.res.fuel >= PLANET_RAID_FUEL ? "" : "disabled"} onclick="raidPlanet()">Raid this world (1 action)</button>
     </div>` : "";
     action = sweepCard + planetCard;

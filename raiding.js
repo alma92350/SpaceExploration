@@ -4,7 +4,10 @@
    combat (each attack is a free round — no cycle-actions spent, the hunt
    that found the foe already paid that cost), allied bands and coalition
    reinforcements joining a fight, plunder and the pirate/merchant win
-   paths, sparing a beaten crew, ship + subsystem repair (dockside and
+   paths, the phased planetary assault (patrol-picket and ground-garrison
+   win paths, the patrols→garrison phase change in promoteOrEnd, and the
+   coalition answering a raided world's distress call from its OTHER
+   worlds), sparing a beaten crew, ship + subsystem repair (dockside and
    field patches mid-fight), and the Wanted/Dread cooldown with its bounty-
    hunter counterplay.
 
@@ -57,6 +60,51 @@ function maybeRescue(prey) {
     log(`🆘 The ${prey.name} sent a distress call — ${names} answer${reinforcements.length === 1 ? "s" : ""} together! You now face ${prey.pack.length + 1} vessels, all defending as one.`, "bad");
     toast(`Reinforcements: ${reinforcements.map(r => r.name).join(", ")}!`, "bad");
   }
+}
+/* ---------- Coalition reinforcements during a planetary assault ----------
+   A raided world screams for help on every open channel, and its coalition answers:
+   each round of the assault (either phase) there's a chance vessels from OTHER
+   worlds of the same faction — or of factions in 🤝 Alliance with it (factionRelTier,
+   sector4x.js) — jump in and join the defense. Capped per assault AND by how many
+   hostiles are already on the field, so a long siege escalates without drowning
+   the player. Arrivals are heavy response wings (genPlanetPatrol's heavy roll) and
+   fight — and die (raidWinPatrol) — like any other space defender, which also means
+   phase 2 can't begin until they're swept aside with the rest of the picket. */
+const ASSAULT_REINFORCE_CAP = 3;        // vessels per assault that the coalition can send, total
+const ASSAULT_REINFORCE_CHANCE = 0.18;  // per-round chance the distress call is answered
+const ASSAULT_FIELD_CAP = 4;            // no arrivals while this many hostiles already hold the field
+// the worlds that would answer: same faction, or one currently in Alliance with it
+// (factionRelScore(a,a) is 100, so the tier check alone covers the same-faction case)
+function assaultCoalitionSources(planet) {
+  return PLANETS.filter(o => o.id !== planet.id && isActive(o) && !o.hidden && o.faction && planet.faction &&
+      factionRelTier(factionRelScore(o.faction, planet.faction)) === "alliance")
+    .sort((a, b) => ((planet.distances || {})[a.id] || 99) - ((planet.distances || {})[b.id] || 99));
+}
+function maybePlanetReinforce() {
+  const A = S.planetAssault, prey = S.prey;
+  if (!A || !prey) return;
+  if ((A.called || 0) >= ASSAULT_REINFORCE_CAP) return;
+  if (allHostiles(prey).filter(h => h.hp > 0).length >= ASSAULT_FIELD_CAP) return;
+  const planet = PLANETS.find(p => p.id === A.planetId); if (!planet) return;
+  const sources = assaultCoalitionSources(planet);
+  if (!sources.length) return;
+  if (Math.random() >= ASSAULT_REINFORCE_CHANCE) return;
+  const n = Math.min(rint(1, 2), ASSAULT_REINFORCE_CAP - (A.called || 0));
+  const arrivals = [];
+  for (let i = 0; i < n; i++) {
+    const src = sources[Math.min(i, sources.length - 1)];
+    const v = genPlanetPatrol(planet, true);              // a heavy response wing, scaled to the world under attack
+    v.name = `${src.name} Response Wing`;
+    v.faction = src.faction;                              // an ALLIED faction's ship carries its own flag — killing it angers THEM
+    v.fromPlanet = src.id;
+    prey.pack = prey.pack || [];
+    prey.pack.push(v);
+    arrivals.push(`${classLabel(v)} <b>${v.name}</b>${src.faction !== planet.faction ? ` (${FACTIONS[src.faction].ico} ${FACTIONS[src.faction].name})` : ""}`);
+  }
+  A.called = (A.called || 0) + arrivals.length;
+  log(`🆘 ${planet.name}'s distress call is answered — ${arrivals.join(", ")} jump${arrivals.length === 1 ? "s" : ""} in from ${arrivals.length === 1 ? "a" : ""} coalition world${arrivals.length === 1 ? "" : "s"} to join the defense!`, "bad");
+  toast(`Coalition reinforcements: ${arrivals.length} vessel${arrivals.length === 1 ? "" : "s"}!`, "bad");
+  sfx("alarm");
 }
 function raidCallAllies() {
   if (!S.prey) return toast("No engagement.", "bad");
@@ -151,11 +199,33 @@ function raidWinMerchant(prey, noQuarter) {
   toast(`Plundered ${prey.name}!`, "good");
   if (betray) revokeCommission(true);
 }
-// beating down a planet's own defense fleet (combat.js's genPlanetDefense/raidPlanet) is a
+// one vessel of a raided world's orbital picket goes down (phase 1 of a planetary assault,
+// combat.js's genPlanetPatrol) — salvage and a modest heat bump per kill, deliberately far
+// lighter than raidWinPlanet: the picket is the DOOR to the prize, not the prize itself.
+// No per-kill commission bounty either — the sack itself (raidWinPlanet) counts once.
+function raidWinPatrol(prey, noQuarter) {
+  const betray = S.commission && prey.faction === S.commission.patron;
+  const taken = plunder(prey);
+  S.pirate.dread += noQuarter ? 4 : 2;
+  S.pirate.wanted += prey.wantedGain + (noQuarter ? 3 : 0);
+  addRep(prey.faction, noQuarter ? -7 : -4);
+  clampPirate();
+  const A = S.planetAssault;
+  const left = S.prey ? allHostiles(S.prey).filter(h => h !== prey && h.hp > 0).length : 0;
+  const skies = A && A.phase === "patrols"
+    ? (left > 0 ? ` <b>${left}</b> defender${left > 1 ? "s" : ""} still hold${left > 1 ? "" : "s"} the sky.` : "")
+    : "";
+  log(`💥 You blew the ${prey.ico} ${prey.name} out of ${prey.planetName ? prey.planetName + "'s" : "the"} sky${noQuarter ? " — no survivors" : ""}! Salvage ${taken.join(" ") || "slag only"}.${skies}`, "good");
+  if (betray) revokeCommission(true);
+}
+// beating down a planet's own defenses (combat.js's genPlanetDefense/raidPlanet) is a
 // bigger act than robbing one ship: heavier Dread/Wanted and a much deeper rep hit, and the
-// real prize is the ground plunder (planetRaidHaul) on top of whatever the fleet itself carried
+// real prize is the ground plunder (planetRaidHaul) on top of whatever the garrison carried.
+// Only fires once the ground garrison itself falls — phase 2 of the assault — so the loot
+// stays gated behind clearing the orbit first.
 function raidWinPlanet(prey, noQuarter) {
   const betray = S.commission && prey.faction === S.commission.patron;
+  S.planetAssault = null;                                 // the campaign is won — any straggler reinforcements are now just a plain fight
   const taken = plunder(prey);
   const planet = PLANETS.find(p => p.id === prey.planetId) || currentPlanet();
   const haul = Math.round(planetRaidHaul(planet) * lootShare());
@@ -179,7 +249,27 @@ function promoteOrEnd(prey) {
     next.pack = prey.pack; next._others = prey._others; next._engaged = true; foeHp(next);
     S.prey = next;
     log(`Now engaging the ${classLabel(next)} <span class="c">${next.name}</span> — ${next.pack.length + 1} hostile(s) remain.`, "bad");
-  } else { clearEngagement(); }
+    return;
+  }
+  // planetary assault, phase change: the LAST space defender is gone (killed or fled —
+  // either way the sky is clear), so the fight rolls down to the surface. The ground
+  // garrison steps in as the new engagement; the plunder stays locked behind beating it.
+  const A = S.planetAssault;
+  if (A && A.phase === "patrols") {
+    const planet = PLANETS.find(p => p.id === A.planetId);
+    if (planet) {
+      A.phase = "garrison";
+      const g = genPlanetDefense(planet);
+      g.pack = []; g._others = []; g._engaged = true; foeHp(g);
+      S.prey = g; S.raidTargets = [];
+      log(`🛰️ The skies over <span class="c">${planet.name}</span> are clear — its space defense is spent. Only the ${g.ico} <b>${g.name}</b> now stands between you and the plunder below. Break it to sack the surface.`, "event");
+      toast(`${planet.name}'s orbit is yours — ground assault!`, "event");
+      sfx("event");
+      return;
+    }
+    S.planetAssault = null;   // the world vanished from the charts mid-fight (shouldn't happen) — fail safe
+  }
+  clearEngagement();
 }
 // ---- target selection for a pooled engagement: pick any subset of allHostiles(S.prey) to
 // focus fire on this round (indices into that array). Picking none spreads pooled damage
@@ -237,7 +327,7 @@ function combatStrike(noQuarter, wkey) {
   const dmgNote = `${allyDmg > 0 ? ` · 🤝 allies +${Math.round(allyDmg)}` : ""}${bgDmg > 0 ? ` · ✦ battle fleet +${Math.round(bgDmg)}` : ""}`;
   if (killed.length) {
     sfx("explode");
-    killed.forEach(h => { if (h.isPlanetRaid) raidWinPlanet(h, noQuarter); else if (h.isPirate) raidWinPirate(h); else raidWinMerchant(h, noQuarter); });
+    killed.forEach(h => { if (h.isPlanetRaid) raidWinPlanet(h, noQuarter); else if (h.isPlanetPatrol) raidWinPatrol(h, noQuarter); else if (h.isPirate) raidWinPirate(h); else raidWinMerchant(h, noQuarter); });
     raidResolveKills(prey, killed);
     log(`⚔️ You hit ${hits.join("; ")}${dmgNote} — destroyed ${killed.map(h => h.name).join(", ")}!`, "good");
     return afterAction();
@@ -260,6 +350,7 @@ function combatStrike(noQuarter, wkey) {
   toast(`Foe hull ${frontPct}%${prey.pack && prey.pack.length ? ` · +${prey.pack.length} more` : ""}`, "");
   if (!S.prey) return afterAction();
   maybeRescue(prey);
+  maybePlanetReinforce();
   if (foeFleeCheck(prey)) {
     if (prey.isPirate) { const b = bandById(prey.bandId); if (b) bandRepAdd(b, 4); }   // they live to remember you let them go
     log(`🏃 The ${prey.ico} ${prey.name} lit its drive and jumped clear — you never crippled its 🚀 engines. The ${prey.isPirate ? "bounty" : "haul"} got away.`, "bad");
@@ -324,6 +415,10 @@ function raidDisengage() {
     toast("Broke off under fire.", "bad");
   } else {
     log("You let the target slip past, unmolested.", "");
+  }
+  if (S.planetAssault) {
+    const ap = PLANETS.find(p => p.id === S.planetAssault.planetId);
+    log(`🏳️ The assault on <span class="c">${ap ? ap.name : "the planet"}</span> collapses — its defenders regroup, and the plunder below stays out of reach.`, "bad");
   }
   clearEngagement();
   afterAction();
