@@ -173,6 +173,18 @@ off *that* supply. The Market tab flags any commodity running hot from lost
 shipments with a 🚨 **disrupted** tag. Like the alert meter itself, a
 disrupted trade only eases slowly once its ships stop dying.
 
+There's a faster way down than waiting, though: **hunting the pirates**
+plaguing that same world is a real service to its coalition, not just
+neglect of the lanes. Every pirate you take down there — whether run down
+from a **🔭 Sweep** or beaten off mid-**travel** — eases the world's alert on
+top of its usual bounty, influence and standing, and a tougher catch (a
+Dread Captain or Pirate Warlord) eases it more than a Rookie Corsair would.
+It's a genuinely active lever, not just a faster tick of the passive decay:
+a single kill can undo what several peaceful cycles alone would only dent.
+Overheat a world with raids of your own, then work off the alert by
+policing it instead — the meter doesn't care which direction you push it
+from, only that its net trend is down.
+
 The ✦ Fleet tab builds three families of hull at a colony **Shipyard** (or a
 base's smaller **Small Shipyard** for the lightest tiers): **freighters**
 haul goods, **warships** fight or work system missions, and **🛢️ tankers**

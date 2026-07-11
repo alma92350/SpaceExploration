@@ -178,12 +178,14 @@ function plunder(prey) {
 function raidWinPirate(prey) {
   const taken = plunder(prey);
   S.pirate.dread += 3; clampPirate();
+  const alertBefore = planetAlertLevel(currentPlanet().id);
   pirateKillRewards(prey);
   const share = lootShare();
   const killed = bandById(prey.bandId);
   if (killed) { killed.fought = (killed.fought || 0) + 1; bandRepAdd(killed, -30); }   // blood spilled — collaboration craters
   (S.allies || []).forEach(a => { const b = bandById(a.bandId); if (b) bandRepAdd(b, 4); });  // fought at your side
-  log(`🎯 You destroyed the ${prey.ico} ${prey.name}${killed ? ` of the ${killed.name}` : ""}! Bounty ${fmt(Math.round(prey.bounty * share))} cr + salvage ${taken.join(" ") || "none"}${share < 1 ? ` <span class="hint">(your cut ${Math.round(share * 100)}%)</span>` : ""}. (a lawful kill — no Wanted)`, "good");
+  const reliefNote = alertBefore > 0 ? ` The world's defense alert eases a little — policing its pirates counts for something.` : "";
+  log(`🎯 You destroyed the ${prey.ico} ${prey.name}${killed ? ` of the ${killed.name}` : ""}! Bounty ${fmt(Math.round(prey.bounty * share))} cr + salvage ${taken.join(" ") || "none"}${share < 1 ? ` <span class="hint">(your cut ${Math.round(share * 100)}%)</span>` : ""}. (a lawful kill — no Wanted)${reliefNote}`, "good");
   toast(`Bounty: ${fmt(Math.round(prey.bounty * share))} cr!`, "good");
 }
 function raidWinMerchant(prey, noQuarter) {
