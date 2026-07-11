@@ -461,6 +461,7 @@ function genPirate(level) {
   applyShipClass(foe, rollShipClass());
   return maybeElite(foe);
 }
+const PIRATE_HUNT_ALERT_RELIEF_BASE = 2;   // + the pirate's own rank (1-5) — a bigger catch calms the coalition more
 function pirateKillRewards(prey) {
   const p = currentPlanet();
   if (!S.pirates) S.pirates = {};
@@ -471,6 +472,7 @@ function pirateKillRewards(prey) {
   addRep("core", 3 + prey.level); addRep(p.faction, 4 + prey.level);
   S.pirates[p.id] = Math.max(0, pirateLevel(p.id) - 1);
   S.pirateCalm = Math.max(S.pirateCalm || 0, S.turn) + 4;       // the lanes breathe easier
+  lowerPlanetAlert(p.id, PIRATE_HUNT_ALERT_RELIEF_BASE + prey.level);   // policing this world's threat earns it standing down, not just staying quiet
   jot(`Hunted down a ${prey.name} near ${p.name} — ${fmt(prey.bounty)} cr bounty collected; the lanes are safer for a while.`, "deed");
 }
 /* ------------------------------------------------------------
@@ -532,9 +534,11 @@ function encounterFight(wkey) {
     sfx("explode");
     const taken = plunder(e);
     S.pirate.dread += 3; clampPirate();
+    const alertBefore = planetAlertLevel(currentPlanet().id);
     pirateKillRewards(e);
     S.encounter = null;
-    log(`⚔️ You blew the ${e.ico} ${e.name} apart! Bounty ${fmt(e.bounty)} cr + salvage ${taken.join(" ") || "none"}. (no Wanted)`, "good");
+    const reliefNote = alertBefore > 0 ? ` The world's defense alert eases a little for it.` : "";
+    log(`⚔️ You blew the ${e.ico} ${e.name} apart! Bounty ${fmt(e.bounty)} cr + salvage ${taken.join(" ") || "none"}. (no Wanted)${reliefNote}`, "good");
     toast(`Ambusher destroyed — ${fmt(e.bounty)} cr!`, "good");
     return afterAction();
   }
@@ -611,9 +615,12 @@ function genPrey() {
    peacetime (processPlanetAlert, raiding.js — deliberately far gentler than
    either gain, so hammering the same world twice running meets a measurably
    tougher defense, but leaving it be for a long stretch eventually stands it
-   down). Three places read it: space/ground defense strength & wave size
-   (here), local prices (alertPriceMul, pricing.js), and — while it stays
-   elevated — the sector's read on the faction's saber-rattling
+   down) — OR faster, on demand, if the player actively polices the world's own
+   pirate problem instead (lowerPlanetAlert, called from pirateKillRewards below):
+   chasing off the threat that justifies a heavy garrison earns real standing-
+   down, not just neglect. Three places read it: space/ground defense strength
+   & wave size (here), local prices (alertPriceMul, pricing.js), and — while it
+   stays elevated — the sector's read on the faction's saber-rattling
    (processPlanetAlert's factionRel nudge, raiding.js). */
 const PLANET_ALERT_MAX = 100;
 const PLANET_ALERT_GAIN_ASSAULT = 16;   // any attack at all prompts a defense buildup for NEXT time
@@ -624,6 +631,15 @@ function planetAlertMul(pid) { return 1 + planetAlertLevel(pid) / PLANET_ALERT_M
 function raisePlanetAlert(pid, amount) {
   if (!S.planetAlert) S.planetAlert = {};
   S.planetAlert[pid] = Math.min(PLANET_ALERT_MAX, planetAlertLevel(pid) + amount);
+}
+// the mirror image: chasing off the pirates plaguing a world is a real service to its
+// coalition, not just to the lanes — it stands down alert the same way peace does, only
+// faster and on demand (pirateKillRewards, below). Cleans up the entry at 0, same
+// convention processPlanetAlert's own decay uses, so a fully-calmed world leaves no clutter.
+function lowerPlanetAlert(pid, amount) {
+  if (!S.planetAlert || !S.planetAlert[pid]) return;
+  const next = Math.max(0, S.planetAlert[pid] - amount);
+  if (next <= 0) delete S.planetAlert[pid]; else S.planetAlert[pid] = next;
 }
 /* ---------- Same logic, ordinary lane traffic (genPrey's haulers/merchants/liners/
    smugglers/patrols) ----------

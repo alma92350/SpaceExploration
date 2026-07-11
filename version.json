@@ -1,5 +1,5 @@
 {
-  "version": "2.113.0",
+  "version": "2.114.0",
   "saveVersion": "v2",
-  "notes": "New: the planetary alert meter now also answers to ordinary lane traffic (freighters and patrols found sweeping) - the same shared meter a planet assault reads. Each kill disrupts the specific trade it carried, tagging that commodity 'disrupted' on the Market tab as its price runs hot."
+  "notes": "New: hunting pirates at a world now actively eases its planetary alert meter - the same shared meter raiding its shipping or assaulting it directly raises - scaled by the pirate's own rank. A real counter-play, faster than waiting out the passive decay alone."
 }
