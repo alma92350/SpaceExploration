@@ -12,7 +12,10 @@
    hunter counterplay, and the planetary alert meter's cycle tick
    (processPlanetAlert: peacetime decay + its factionRel nudge while hot;
    the meter's gain side — raisePlanetAlert — lives in combat.js next to
-   the defense-generation functions that read it).
+   the defense-generation functions that read it) alongside its commerce
+   counterpart (processTradeDisruption: the per-world, per-good price
+   meter that raiseLaneAlert/raiseTradeDisruption, both combat.js, feed
+   from ordinary lane kills).
 
    Loaded after pirateBands.js, before game.js. applyCommissionRaid,
    revokeCommission, COMM_BOUNTY, battleGroupFirepower/Ships/TakeFire,
@@ -198,6 +201,7 @@ function raidWinMerchant(prey, noQuarter) {
   // (above) still separately pays a matching commission's own patron, so this stacks with that.
   FACTION_KEYS.filter(f => f !== prey.faction && factionsAreRivals(f, prey.faction)).forEach(f => addRep(f, 2));
   clampPirate();
+  raiseLaneAlert(currentPlanet().id, prey);   // local defense stiffens a little, and the specific trade this ship carried gets scarcer/dearer
   log(`🏴‍☠️ You took the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"}${lootShare() < 1 ? ` <span class="hint">(split ${1 / lootShare()} ways)</span>` : ""}.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Dread +${dread}, Wanted +${wanted})`, "good");
   toast(`Plundered ${prey.name}!`, "good");
   if (betray) revokeCommission(true);
@@ -561,5 +565,19 @@ function processPlanetAlert() {
     }
     const next = Math.max(0, lvl - PLANET_ALERT_DECAY);
     if (next <= 0) delete S.planetAlert[pid]; else S.planetAlert[pid] = next;
+  });
+}
+// companion decay for the per-good trade-disruption meters (combat.js's raiseTradeDisruption)
+// -- no politics hook here, just the same slow fade: a specific good's supply line recovers
+// once raiders stop picking off the ships that carry it.
+function processTradeDisruption() {
+  if (!S.tradeDisruption) { S.tradeDisruption = {}; return; }
+  Object.keys(S.tradeDisruption).forEach(pid => {
+    const goods = S.tradeDisruption[pid];
+    Object.keys(goods).forEach(c => {
+      const next = Math.max(0, goods[c] - TRADE_DISRUPT_DECAY);
+      if (next <= 0) delete goods[c]; else goods[c] = next;
+    });
+    if (Object.keys(goods).length === 0) delete S.tradeDisruption[pid];
   });
 }

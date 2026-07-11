@@ -87,11 +87,13 @@ function renderMarket() {
       const bp = buyPrice(p.id, c), sp = sellPrice(p.id, c), base = COM[c].base;
       const trend = bp > base * 1.12 ? '<span class="price-up">▲</span>' : bp < base * 0.88 ? '<span class="price-down">▼</span>' : '<span class="hint">—</span>';
       const illegal = isIllegalAt(c, p.id) ? ' <span class="pill bad" title="Contraband here">illegal</span>' : '';
+      const disrupted = tradeDisruptionLevel(p.id, c) >= 15
+        ? ` <span class="pill bad" title="Raiders have been picking off the ships that carry this — supply's tight and the price runs hot. Recovers slowly if the lanes calm down.">🚨 disrupted</span>` : '';
       const flip = flipFor(c);
       const flipHint = (flip && flip.profitPerLy > 0 && flip.there > sp * 1.15)
         ? ` <span class="hint" title="Best flip: buy here, sell at ${flip.p.name} for ${fmt(flip.there)} cr (${flip.dist} ly) — ~${fmt(Math.round(flip.profitPerLy))} cr/ly profit">💡${flip.p.name}</span>` : "";
       rows += `<tr>
-        <td>${COM[c].ico} ${COM[c].name}${illegal}</td>
+        <td>${COM[c].ico} ${COM[c].name}${illegal}${disrupted}</td>
         <td class="num">${fmt(bp)}</td><td class="num">${fmt(sp)}${flipHint}</td>
         <td class="num">${fmt(S.res[c] || 0)}</td>
         <td>${showTrend ? trend : '<span class="hint">?</span>'}</td>

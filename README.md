@@ -156,6 +156,23 @@ Leaving a world alone lets it stand down — but only **slowly**, far slower
 than the alert it takes to rise in the first place: hit-and-run doesn't work
 here, and neither does treating one world as an infinite piggy bank.
 
+The **same alert meter** answers to a smaller-scale war too: ordinary lane
+traffic — the Haulers, Merchant Freighters, Luxury Liners, Smuggler Runners
+and Faction Patrols a **🔭 Sweep** turns up — is drawn from that world's alert
+level exactly like its picket and garrison are, and every non-pirate kill
+nudges the *same* meter up a little (well below a full assault's own jump).
+Hunt one world's shipping hard enough on its own and its lane escorts start
+running as heavy as a besieged world's would, whether or not you've ever
+assaulted it directly — a raid this world card and a sweep card both read
+the one shared number.
+
+Each kill also disrupts the **specific trade** that ship was carrying: pick
+off Ore Haulers and 🪨 Ore/⛓️ Metals get scarcer and dearer right there — 💠
+Luxury or ☢️ Radioactives stay exactly where they were, since nothing's cut
+off *that* supply. The Market tab flags any commodity running hot from lost
+shipments with a 🚨 **disrupted** tag. Like the alert meter itself, a
+disrupted trade only eases slowly once its ships stop dying.
+
 The ✦ Fleet tab builds three families of hull at a colony **Shipyard** (or a
 base's smaller **Small Shipyard** for the lightest tiers): **freighters**
 haul goods, **warships** fight or work system missions, and **🛢️ tankers**

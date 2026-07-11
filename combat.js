@@ -576,7 +576,7 @@ function genPrey() {
   const cargo = {};
   const picks = A.goods.slice().sort(() => Math.random() - 0.5).slice(0, rint(1, 2));
   picks.forEach(c => cargo[c] = rint(A.bulk[0], A.bulk[1]));
-  let strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5) * foeStrengthMult()); // lawful escorts tough but beatable
+  let strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5) * foeStrengthMult() * planetAlertMul(p.id)); // lawful escorts tough but beatable; a raider-plagued world's shipping and patrols run heavier too
   if (S.crises && S.crises[p.id]) strength = Math.round(strength * 0.85);                 // escorts thinned by the crisis
   const prof = genFoeProfile(key, strength, law);
   const foe = {
@@ -624,6 +624,36 @@ function planetAlertMul(pid) { return 1 + planetAlertLevel(pid) / PLANET_ALERT_M
 function raisePlanetAlert(pid, amount) {
   if (!S.planetAlert) S.planetAlert = {};
   S.planetAlert[pid] = Math.min(PLANET_ALERT_MAX, planetAlertLevel(pid) + amount);
+}
+/* ---------- Same logic, ordinary lane traffic (genPrey's haulers/merchants/liners/
+   smugglers/patrols) ----------
+   A full planet assault is a declared campaign; harassing one world's shipping and
+   patrol craft one contact at a time is a slower burn, but it's the SAME activity in
+   miniature and drives the SAME shared planetAlert meter — a modest bump per kill
+   (PREY_ALERT_GAIN, well below a single assault's own PLANET_ALERT_GAIN_ASSAULT) so
+   the whole picture (space/ground defense, prices, and, once it's hot enough, sector
+   politics) reads the player's total activity at a world, not just its set-piece
+   raids. On top of that shared meter, each kill also disrupts the SPECIFIC trade this
+   ship actually carried — S.tradeDisruption[pid][commodityId], a separate 0-100 meter
+   per world+good — because losing every Ore Hauler that flies should bid up ore, not
+   luxury goods. Both fade at peace (processPlanetAlert / processTradeDisruption,
+   raiding.js), same slow-decay convention as the meter above. */
+const PREY_ALERT_GAIN = 3;              // one lane kill's push on the SHARED world alert — a fraction of a full assault's
+const TRADE_DISRUPT_MAX = 100;
+const TRADE_DISRUPT_GAIN = 20;          // per commodity, per raided shipment that carried it
+const TRADE_DISRUPT_DECAY = 0.75;       // per peaceful cycle — far slower than the gain, same ratchet spirit as planet alert
+function tradeDisruptionLevel(pid, c) { return (S.tradeDisruption && S.tradeDisruption[pid] && S.tradeDisruption[pid][c]) || 0; }
+function tradeDisruptionMul(pid, c) { return 1 + tradeDisruptionLevel(pid, c) / TRADE_DISRUPT_MAX * 0.6; }   // up to +60% on that specific good, fully disrupted
+function raiseTradeDisruption(pid, c, amount) {
+  if (!S.tradeDisruption) S.tradeDisruption = {};
+  if (!S.tradeDisruption[pid]) S.tradeDisruption[pid] = {};
+  S.tradeDisruption[pid][c] = Math.min(TRADE_DISRUPT_MAX, tradeDisruptionLevel(pid, c) + amount);
+}
+// called on every non-pirate lane kill (raidWinMerchant, raiding.js) — coalition shipping AND
+// the patrol craft that ride the same lanes both feed this, since genPrey() draws both from one pool
+function raiseLaneAlert(pid, prey) {
+  raisePlanetAlert(pid, PREY_ALERT_GAIN);
+  Object.keys(prey.cargo || {}).forEach(c => raiseTradeDisruption(pid, c, TRADE_DISRUPT_GAIN));
 }
 // one vessel of a world's orbital picket — the same PREY.patrol archetype the lanes run,
 // but individually lighter than a lone hunter-killer: the picket's menace is its numbers

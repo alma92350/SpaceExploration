@@ -1,5 +1,5 @@
 {
-  "version": "2.112.0",
+  "version": "2.113.0",
   "saveVersion": "v2",
-  "notes": "New: raided worlds remember — a planetary alert meter climbs with every assault (more on a full sack), reinforcing the orbital picket and ground garrison, driving up local prices on war matériel, and souring the defending faction's sector standing while it stays hot. It only fades slowly at peace."
+  "notes": "New: the planetary alert meter now also answers to ordinary lane traffic (freighters and patrols found sweeping) - the same shared meter a planet assault reads. Each kill disrupts the specific trade it carried, tagging that commodity 'disrupted' on the Market tab as its price runs hot."
 }

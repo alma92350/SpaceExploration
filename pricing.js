@@ -11,9 +11,10 @@
 
    Loaded after state.js, before game.js. Reads reserveFrac/effIndustry/
    isIllegalAt/policyActive/fxAdd, which still live in game.js, and
-   planetAlertLevel, which lives in combat.js — all at this point in the
-   split — safe, since every function here is only CALLED later, once
-   every script has finished loading, same pattern as every prior slice.
+   planetAlertLevel/tradeDisruptionMul, which live in combat.js — all at
+   this point in the split — safe, since every function here is only
+   CALLED later, once every script has finished loading, same pattern as
+   every prior slice.
    ============================================================ */
 
 "use strict";
@@ -67,7 +68,7 @@ function rollPrices() {
   const targets = {};
   PLANETS.forEach(p => {
     targets[p.id] = {};
-    COM_IDS.forEach(c => { targets[p.id][c] = Math.min(COM[c].base * planetPriceMul(p, c) * crisisMul(p.id, c) * alertPriceMul(p.id, c), COM[c].base * 2.8); });
+    COM_IDS.forEach(c => { targets[p.id][c] = Math.min(COM[c].base * planetPriceMul(p, c) * crisisMul(p.id, c) * alertPriceMul(p.id, c) * tradeDisruptionMul(p.id, c), COM[c].base * 2.8); });
   });
   // pass 2: markets are regional — blend toward a distance-weighted neighborhood mean,
   // so scarcity on one world bleeds into its neighbors. Averaging is contractive: it
