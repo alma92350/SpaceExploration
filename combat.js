@@ -737,6 +737,35 @@ function genPlanetDefense(planet) {
 function planetRaidHaul(planet) {
   return Math.round((400 + planet.industry * 220 + planet.tech * 140) * (0.75 + Math.random() * 0.5));
 }
+/* Sacking the surface isn't just a credit number — you're hauling out of real warehouses
+   and stockpiles, so it also stuffs your hold with a MIX of actual goods, on top of the
+   credit haul above. The mix is weighted toward what the world is actually KNOWN for (its
+   own deposits — ore off a mining world, biomass off an agri-world, ...), with a general
+   spread of everyday trade goods scaled by how developed it is (a bigger industry+tech
+   base means bigger warehouses of everything else too), same "richer world → more" spirit
+   planetRaidHaul already uses for credits. */
+const PLANET_RAID_GENERAL_GOODS = ["metals", "chemicals", "goods", "machinery", "electronics", "medicine", "luxury"];
+// which commodities are up for grabs on this world: its own deposits (always eligible —
+// the most obviously "theirs"), plus a handful of general goods scaled by development
+function planetLootMix(planet) {
+  const own = Object.keys(planet.deposits || {});
+  const spread = Math.min(PLANET_RAID_GENERAL_GOODS.length, 1 + Math.round((planet.industry + planet.tech) / 6));
+  const general = PLANET_RAID_GENERAL_GOODS.filter(c => !own.includes(c)).sort(() => Math.random() - 0.5).slice(0, spread);
+  return own.concat(general);
+}
+// load the mix straight into your hold — same loot-share split and cargo-room capping
+// every other plunder in the game already respects (plunder(), raiding.js) — and return
+// what actually made it aboard for the log. Independent of, and on top of, planetRaidHaul.
+function planetRaidGoods(planet, share) {
+  const goods = {};
+  planetLootMix(planet).forEach(c => {
+    const qty = rint(8, 18) + Math.round((planet.industry + planet.tech) * 1.5);
+    const room = cargoFree();
+    const q = Math.min(Math.round(qty * share), room);
+    if (q > 0) { S.res[c] = (S.res[c] || 0) + q; goods[c] = q; }
+  });
+  return goods;
+}
 const PLANET_RAID_FUEL = 8;
 // deliberately target the CURRENT planet's own defenses — not a sweep for random contacts.
 // Opens phase 1 of the assault: the world's whole orbital picket scrambles as one wave.

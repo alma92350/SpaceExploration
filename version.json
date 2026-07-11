@@ -1,5 +1,5 @@
 {
-  "version": "2.114.0",
+  "version": "2.115.0",
   "saveVersion": "v2",
-  "notes": "New: hunting pirates at a world now actively eases its planetary alert meter - the same shared meter raiding its shipping or assaulting it directly raises - scaled by the pirate's own rank. A real counter-play, faster than waiting out the passive decay alone."
+  "notes": "New: sacking a planet now hauls real cargo out of its warehouses too, not just credits - a mix weighted toward the world's own deposits plus a spread of everyday goods scaled by development, loaded straight into your hold on top of the existing credit haul."
 }
