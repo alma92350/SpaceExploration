@@ -105,6 +105,7 @@ function freshState(opts = {}) {
     territoryControl: {},        // active territory contests: pid -> { owner, challenger, meter }
     territoryFlips: {},          // permanent record of world seizures: pid -> new faction id (replayed onto PLANETS on load)
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
+    planetAlert: {},             // per-world militarization 0-100: climbs when raided, fades slowly at peace
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
     pollution: {},              // per-planet industrial pollution 0–100

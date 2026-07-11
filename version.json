@@ -1,5 +1,5 @@
 {
-  "version": "2.111.0",
+  "version": "2.112.0",
   "saveVersion": "v2",
-  "notes": "Changed: raiding a world is now a two-phase campaign — sweep its orbital patrol picket first (pooled-fire wave combat, Escort-style target picking), then break the dug-in ground garrison to sack the surface. Its coalition can jump in reinforcements from other worlds mid-fight."
+  "notes": "New: raided worlds remember — a planetary alert meter climbs with every assault (more on a full sack), reinforcing the orbital picket and ground garrison, driving up local prices on war matériel, and souring the defending faction's sector standing while it stays hot. It only fades slowly at peace."
 }

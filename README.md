@@ -137,6 +137,25 @@ Each patrol kill pays its own salvage with a modest Wanted/rep sting; the
 sack itself remains the full act of war — heavy Wanted, deep rep damage —
 and breaking off mid-campaign abandons the whole assault.
 
+A world remembers being hit. Every assault — win, lose, or break off —
+raises its **🚨 alert** level (a full sack raises it further still, the
+harder wake-up call of actually being overrun), and a raid this world card
+shows the current reading: 🕊️ at ease, or 🚨 a percentage once it's visibly
+dug in. A hot world hits back on three fronts:
+
+- **Tougher next time** — its orbital picket runs bigger (up to 2 more hulls)
+  and both the picket and ground garrison fight harder.
+- **Pricier locally** — a wartime economy bids up war matériel (🔫 Weapons,
+  ⛽ Fuel, ⛓️ Metals) and squeezes consumer goods (📦 Consumer Goods, 💠
+  Luxury) as production tilts toward defense.
+- **Sector-watched** — while it stays hot, the buildup reads as saber-rattling
+  to every other faction, souring their relations with the defender a little
+  further each cycle on top of the sector's usual drift.
+
+Leaving a world alone lets it stand down — but only **slowly**, far slower
+than the alert it takes to rise in the first place: hit-and-run doesn't work
+here, and neither does treating one world as an infinite piggy bank.
+
 The ✦ Fleet tab builds three families of hull at a colony **Shipyard** (or a
 base's smaller **Small Shipyard** for the lightest tiers): **freighters**
 haul goods, **warships** fight or work system missions, and **🛢️ tankers**

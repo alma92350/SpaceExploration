@@ -10,8 +10,9 @@
    at, healed back toward equilibrium by the next rollPrices() call.
 
    Loaded after state.js, before game.js. Reads reserveFrac/effIndustry/
-   isIllegalAt/policyActive/fxAdd, which still live in game.js at this point
-   in the split — safe, since every function here is only CALLED later, once
+   isIllegalAt/policyActive/fxAdd, which still live in game.js, and
+   planetAlertLevel, which lives in combat.js — all at this point in the
+   split — safe, since every function here is only CALLED later, once
    every script has finished loading, same pattern as every prior slice.
    ============================================================ */
 
@@ -37,6 +38,18 @@ function planetPriceMul(p, comId) {
   return Math.max(0.4, Math.min(1.9, m));
 }
 
+// a world digging in under repeat raids runs a wartime economy: matériel gets dear as the
+// garrison buys it up, consumer goods get squeezed as production tilts toward defense.
+// Mirrors crisisMul's shape exactly (planetAlertLevel lives in combat.js, loaded later —
+// safe, since this is only CALLED from rollPrices(), itself only called once every script
+// has finished loading, same forward-reference pattern the rest of this file already uses).
+function alertPriceMul(pid, c) {
+  const frac = planetAlertLevel(pid) / 100;
+  if (frac <= 0) return 1;
+  if (c === "weapons" || c === "fuel" || c === "metals") return 1 + frac * 0.5;
+  if (c === "goods" || c === "luxury") return 1 + frac * 0.3;
+  return 1;
+}
 /* distance-weighted reserve health of the worlds that PRODUCE a raw good —
    an importing world's supply line. 1 = abundant nearby, 0 = region stripped. */
 function regionalSupply(p, comId) {
@@ -54,7 +67,7 @@ function rollPrices() {
   const targets = {};
   PLANETS.forEach(p => {
     targets[p.id] = {};
-    COM_IDS.forEach(c => { targets[p.id][c] = Math.min(COM[c].base * planetPriceMul(p, c) * crisisMul(p.id, c), COM[c].base * 2.8); });
+    COM_IDS.forEach(c => { targets[p.id][c] = Math.min(COM[c].base * planetPriceMul(p, c) * crisisMul(p.id, c) * alertPriceMul(p.id, c), COM[c].base * 2.8); });
   });
   // pass 2: markets are regional — blend toward a distance-weighted neighborhood mean,
   // so scarcity on one world bleeds into its neighbors. Averaging is contractive: it
