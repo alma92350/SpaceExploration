@@ -8,8 +8,14 @@
    win paths, the patrols→garrison phase change in promoteOrEnd, and the
    coalition answering a raided world's distress call from its OTHER
    worlds), sparing a beaten crew, ship + subsystem repair (dockside and
-   field patches mid-fight), and the Wanted/Dread cooldown with its bounty-
-   hunter counterplay.
+   field patches mid-fight), the Wanted/Dread cooldown with its bounty-
+   hunter counterplay, and the planetary alert meter's cycle tick
+   (processPlanetAlert: peacetime decay + its factionRel nudge while hot;
+   the meter's gain side — raisePlanetAlert — lives in combat.js next to
+   the defense-generation functions that read it) alongside its commerce
+   counterpart (processTradeDisruption: the per-world, per-good price
+   meter that raiseLaneAlert/raiseTradeDisruption, both combat.js, feed
+   from ordinary lane kills).
 
    Loaded after pirateBands.js, before game.js. applyCommissionRaid,
    revokeCommission, COMM_BOUNTY, battleGroupFirepower/Ships/TakeFire,
@@ -195,6 +201,7 @@ function raidWinMerchant(prey, noQuarter) {
   // (above) still separately pays a matching commission's own patron, so this stacks with that.
   FACTION_KEYS.filter(f => f !== prey.faction && factionsAreRivals(f, prey.faction)).forEach(f => addRep(f, 2));
   clampPirate();
+  raiseLaneAlert(currentPlanet().id, prey);   // local defense stiffens a little, and the specific trade this ship carried gets scarcer/dearer
   log(`🏴‍☠️ You took the ${prey.ico} ${prey.name}${noQuarter ? " and gave no quarter" : ""}! Plundered ${taken.join(" ") || "no cargo"}${lootShare() < 1 ? ` <span class="hint">(split ${1 / lootShare()} ways)</span>` : ""}.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Dread +${dread}, Wanted +${wanted})`, "good");
   toast(`Plundered ${prey.name}!`, "good");
   if (betray) revokeCommission(true);
@@ -226,6 +233,7 @@ function raidWinPatrol(prey, noQuarter) {
 function raidWinPlanet(prey, noQuarter) {
   const betray = S.commission && prey.faction === S.commission.patron;
   S.planetAssault = null;                                 // the campaign is won — any straggler reinforcements are now just a plain fight
+  raisePlanetAlert(prey.planetId, PLANET_ALERT_GAIN_SACK);   // being fully overrun is a harder wake-up call than the assault alone already gave it
   const taken = plunder(prey);
   const planet = PLANETS.find(p => p.id === prey.planetId) || currentPlanet();
   const haul = Math.round(planetRaidHaul(planet) * lootShare());
@@ -529,4 +537,47 @@ function processWanted() {
     }
   }
   clampPirate();
+}
+/* ---------- Cycle tick: planetary alert cools at peace, spooks the sector while hot ----------
+   Companion to raisePlanetAlert (combat.js): every world's militarization meter fades a little
+   each cycle — MUCH more gently than either of its gain triggers, so a world you keep hitting
+   stays measurably fortified for a long stretch, while one you leave alone eventually stands
+   down. While a world's alert stays above a real threshold (routine patrols don't spook anyone;
+   a visible buildup does), its saber-rattling reads as a threat to the WHOLE sector — every
+   cycle it nudges S.factionRel between that world's faction and every other faction a little
+   further toward tension, on top of processFactionRelations' own baseline drift (same "a side
+   system nudges the shared pool directly" pattern the Concordat Spire already uses). */
+const PLANET_ALERT_POLITICAL_THRESHOLD = 25;   // below this, a world's patrols are unremarkable
+const PLANET_ALERT_POLITICAL_RATE = 0.5;       // per cycle at max alert; scales down with how alarmed the world actually is
+function processPlanetAlert() {
+  if (!S.planetAlert) { S.planetAlert = {}; return; }
+  Object.keys(S.planetAlert).forEach(pid => {
+    const lvl = S.planetAlert[pid];
+    const planet = PLANETS.find(p => p.id === pid);
+    if (planet && planet.faction && lvl >= PLANET_ALERT_POLITICAL_THRESHOLD) {
+      ensureFactionRel();
+      const pull = (lvl / PLANET_ALERT_MAX) * PLANET_ALERT_POLITICAL_RATE;
+      FACTION_KEYS.forEach(f => {
+        if (f === planet.faction) return;
+        const key = factionPairKey(f, planet.faction);
+        S.factionRel[key] = Math.max(-100, S.factionRel[key] - pull);
+      });
+    }
+    const next = Math.max(0, lvl - PLANET_ALERT_DECAY);
+    if (next <= 0) delete S.planetAlert[pid]; else S.planetAlert[pid] = next;
+  });
+}
+// companion decay for the per-good trade-disruption meters (combat.js's raiseTradeDisruption)
+// -- no politics hook here, just the same slow fade: a specific good's supply line recovers
+// once raiders stop picking off the ships that carry it.
+function processTradeDisruption() {
+  if (!S.tradeDisruption) { S.tradeDisruption = {}; return; }
+  Object.keys(S.tradeDisruption).forEach(pid => {
+    const goods = S.tradeDisruption[pid];
+    Object.keys(goods).forEach(c => {
+      const next = Math.max(0, goods[c] - TRADE_DISRUPT_DECAY);
+      if (next <= 0) delete goods[c]; else goods[c] = next;
+    });
+    if (Object.keys(goods).length === 0) delete S.tradeDisruption[pid];
+  });
 }

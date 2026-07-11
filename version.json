@@ -1,5 +1,5 @@
 {
-  "version": "2.111.0",
+  "version": "2.113.0",
   "saveVersion": "v2",
-  "notes": "Changed: raiding a world is now a two-phase campaign — sweep its orbital patrol picket first (pooled-fire wave combat, Escort-style target picking), then break the dug-in ground garrison to sack the surface. Its coalition can jump in reinforcements from other worlds mid-fight."
+  "notes": "New: the planetary alert meter now also answers to ordinary lane traffic (freighters and patrols found sweeping) - the same shared meter a planet assault reads. Each kill disrupts the specific trade it carried, tagging that commodity 'disrupted' on the Market tab as its price runs hot."
 }

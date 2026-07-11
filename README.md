@@ -137,6 +137,42 @@ Each patrol kill pays its own salvage with a modest Wanted/rep sting; the
 sack itself remains the full act of war — heavy Wanted, deep rep damage —
 and breaking off mid-campaign abandons the whole assault.
 
+A world remembers being hit. Every assault — win, lose, or break off —
+raises its **🚨 alert** level (a full sack raises it further still, the
+harder wake-up call of actually being overrun), and a raid this world card
+shows the current reading: 🕊️ at ease, or 🚨 a percentage once it's visibly
+dug in. A hot world hits back on three fronts:
+
+- **Tougher next time** — its orbital picket runs bigger (up to 2 more hulls)
+  and both the picket and ground garrison fight harder.
+- **Pricier locally** — a wartime economy bids up war matériel (🔫 Weapons,
+  ⛽ Fuel, ⛓️ Metals) and squeezes consumer goods (📦 Consumer Goods, 💠
+  Luxury) as production tilts toward defense.
+- **Sector-watched** — while it stays hot, the buildup reads as saber-rattling
+  to every other faction, souring their relations with the defender a little
+  further each cycle on top of the sector's usual drift.
+
+Leaving a world alone lets it stand down — but only **slowly**, far slower
+than the alert it takes to rise in the first place: hit-and-run doesn't work
+here, and neither does treating one world as an infinite piggy bank.
+
+The **same alert meter** answers to a smaller-scale war too: ordinary lane
+traffic — the Haulers, Merchant Freighters, Luxury Liners, Smuggler Runners
+and Faction Patrols a **🔭 Sweep** turns up — is drawn from that world's alert
+level exactly like its picket and garrison are, and every non-pirate kill
+nudges the *same* meter up a little (well below a full assault's own jump).
+Hunt one world's shipping hard enough on its own and its lane escorts start
+running as heavy as a besieged world's would, whether or not you've ever
+assaulted it directly — a raid this world card and a sweep card both read
+the one shared number.
+
+Each kill also disrupts the **specific trade** that ship was carrying: pick
+off Ore Haulers and 🪨 Ore/⛓️ Metals get scarcer and dearer right there — 💠
+Luxury or ☢️ Radioactives stay exactly where they were, since nothing's cut
+off *that* supply. The Market tab flags any commodity running hot from lost
+shipments with a 🚨 **disrupted** tag. Like the alert meter itself, a
+disrupted trade only eases slowly once its ships stop dying.
+
 The ✦ Fleet tab builds three families of hull at a colony **Shipyard** (or a
 base's smaller **Small Shipyard** for the lightest tiers): **freighters**
 haul goods, **warships** fight or work system missions, and **🛢️ tankers**

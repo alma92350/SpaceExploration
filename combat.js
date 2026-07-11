@@ -576,7 +576,7 @@ function genPrey() {
   const cargo = {};
   const picks = A.goods.slice().sort(() => Math.random() - 0.5).slice(0, rint(1, 2));
   picks.forEach(c => cargo[c] = rint(A.bulk[0], A.bulk[1]));
-  let strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5) * foeStrengthMult()); // lawful escorts tough but beatable
+  let strength = Math.round(A.base * (0.7 + law * 0.85) * (0.85 + Math.random() * 0.5) * foeStrengthMult() * planetAlertMul(p.id)); // lawful escorts tough but beatable; a raider-plagued world's shipping and patrols run heavier too
   if (S.crises && S.crises[p.id]) strength = Math.round(strength * 0.85);                 // escorts thinned by the crisis
   const prof = genFoeProfile(key, strength, law);
   const foe = {
@@ -602,13 +602,66 @@ function genPrey() {
    shaped as a normal prey object so the whole existing engagement UI — weapon targeting,
    deep scan, calling allies, extort, no quarter — just works; only the win paths and the
    S.planetAssault phase tracker are new. */
+/* ---------- Planetary alert (militarization ratchet) ----------
+   The more a world is attacked, the harder it digs in. S.planetAlert[pid] is a
+   0-100 meter (same convention as Wanted/Dread) that jumps sharply the instant
+   an assault begins — being attacked at all prompts remilitarization — with a
+   further jump if the assault ends in a full sack (raidWinPlanet, raiding.js):
+   being actually overrun is the harder wake-up call. It only fades slowly in
+   peacetime (processPlanetAlert, raiding.js — deliberately far gentler than
+   either gain, so hammering the same world twice running meets a measurably
+   tougher defense, but leaving it be for a long stretch eventually stands it
+   down). Three places read it: space/ground defense strength & wave size
+   (here), local prices (alertPriceMul, pricing.js), and — while it stays
+   elevated — the sector's read on the faction's saber-rattling
+   (processPlanetAlert's factionRel nudge, raiding.js). */
+const PLANET_ALERT_MAX = 100;
+const PLANET_ALERT_GAIN_ASSAULT = 16;   // any attack at all prompts a defense buildup for NEXT time
+const PLANET_ALERT_GAIN_SACK = 14;      // being fully overrun stacks an extra jolt on top
+const PLANET_ALERT_DECAY = 0.6;         // per peaceful cycle — far slower than either gain above
+function planetAlertLevel(pid) { return (S.planetAlert && S.planetAlert[pid]) || 0; }
+function planetAlertMul(pid) { return 1 + planetAlertLevel(pid) / PLANET_ALERT_MAX * 0.7; }   // up to +70% strength, fully alarmed
+function raisePlanetAlert(pid, amount) {
+  if (!S.planetAlert) S.planetAlert = {};
+  S.planetAlert[pid] = Math.min(PLANET_ALERT_MAX, planetAlertLevel(pid) + amount);
+}
+/* ---------- Same logic, ordinary lane traffic (genPrey's haulers/merchants/liners/
+   smugglers/patrols) ----------
+   A full planet assault is a declared campaign; harassing one world's shipping and
+   patrol craft one contact at a time is a slower burn, but it's the SAME activity in
+   miniature and drives the SAME shared planetAlert meter — a modest bump per kill
+   (PREY_ALERT_GAIN, well below a single assault's own PLANET_ALERT_GAIN_ASSAULT) so
+   the whole picture (space/ground defense, prices, and, once it's hot enough, sector
+   politics) reads the player's total activity at a world, not just its set-piece
+   raids. On top of that shared meter, each kill also disrupts the SPECIFIC trade this
+   ship actually carried — S.tradeDisruption[pid][commodityId], a separate 0-100 meter
+   per world+good — because losing every Ore Hauler that flies should bid up ore, not
+   luxury goods. Both fade at peace (processPlanetAlert / processTradeDisruption,
+   raiding.js), same slow-decay convention as the meter above. */
+const PREY_ALERT_GAIN = 3;              // one lane kill's push on the SHARED world alert — a fraction of a full assault's
+const TRADE_DISRUPT_MAX = 100;
+const TRADE_DISRUPT_GAIN = 20;          // per commodity, per raided shipment that carried it
+const TRADE_DISRUPT_DECAY = 0.75;       // per peaceful cycle — far slower than the gain, same ratchet spirit as planet alert
+function tradeDisruptionLevel(pid, c) { return (S.tradeDisruption && S.tradeDisruption[pid] && S.tradeDisruption[pid][c]) || 0; }
+function tradeDisruptionMul(pid, c) { return 1 + tradeDisruptionLevel(pid, c) / TRADE_DISRUPT_MAX * 0.6; }   // up to +60% on that specific good, fully disrupted
+function raiseTradeDisruption(pid, c, amount) {
+  if (!S.tradeDisruption) S.tradeDisruption = {};
+  if (!S.tradeDisruption[pid]) S.tradeDisruption[pid] = {};
+  S.tradeDisruption[pid][c] = Math.min(TRADE_DISRUPT_MAX, tradeDisruptionLevel(pid, c) + amount);
+}
+// called on every non-pirate lane kill (raidWinMerchant, raiding.js) — coalition shipping AND
+// the patrol craft that ride the same lanes both feed this, since genPrey() draws both from one pool
+function raiseLaneAlert(pid, prey) {
+  raisePlanetAlert(pid, PREY_ALERT_GAIN);
+  Object.keys(prey.cargo || {}).forEach(c => raiseTradeDisruption(pid, c, TRADE_DISRUPT_GAIN));
+}
 // one vessel of a world's orbital picket — the same PREY.patrol archetype the lanes run,
 // but individually lighter than a lone hunter-killer: the picket's menace is its numbers
 const PATROL_WING_NAMES = ["Orbital Picket", "Customs Cutter", "System Monitor", "Harbor Guard", "Response Wing"];
 const PATROL_HULL_TRIM = 0.55;   // picket craft fly lighter hulls than a lone patrol (foeHp rubber-bands per foe, so an untrimmed wave would out-tank the old single fleet several times over)
 function genPlanetPatrol(planet, heavy) {
   const law = planet.enforce;
-  const strength = Math.round(PREY.patrol.base * ((heavy ? 0.7 : 0.5) + law * 0.45) * (0.85 + Math.random() * 0.3) * foeStrengthMult());
+  const strength = Math.round(PREY.patrol.base * ((heavy ? 0.7 : 0.5) + law * 0.45) * (0.85 + Math.random() * 0.3) * foeStrengthMult() * planetAlertMul(planet.id));
   const prof = genFoeProfile("patrol", strength, law);
   const foe = {
     type: "patrol", isPlanetPatrol: true, planetId: planet.id, planetName: planet.name,
@@ -626,7 +679,12 @@ function genPlanetPatrol(planet, heavy) {
   return foe;
 }
 // how many vessels hold a world's orbit: 2 on the lawless rim, up to 4 over a high-law world
-function planetPatrolCount(planet) { return Math.max(2, Math.min(4, 2 + Math.round(planet.enforce * 2))); }
+// (base, unchanged from before) — plus up to 2 more once a world's alert climbs from repeat attacks
+function planetPatrolCount(planet) {
+  const base = 2 + Math.round(planet.enforce * 2);
+  const alertBonus = Math.round(planetAlertLevel(planet.id) / PLANET_ALERT_MAX * 2);
+  return Math.max(2, Math.min(6, base + alertBonus));
+}
 function genPlanetPatrolWave(planet) {
   const n = planetPatrolCount(planet);
   return Array.from({ length: n }, (_, i) => {
@@ -643,7 +701,7 @@ function genPlanetPatrolWave(planet) {
    world is) only comes from actually winning — see raidWinPlanet, raiding.js. */
 function genPlanetDefense(planet) {
   const law = planet.enforce;
-  const strength = Math.round(PREY.patrol.base * (1.3 + law * 1.2) * (0.85 + Math.random() * 0.3) * foeStrengthMult());
+  const strength = Math.round(PREY.patrol.base * (1.3 + law * 1.2) * (0.85 + Math.random() * 0.3) * foeStrengthMult() * planetAlertMul(planet.id));
   const prof = genFoeProfile("patrol", strength, law);
   const foe = {
     type: "garrison", isPlanetRaid: true, ground: true, planetId: planet.id, planetName: planet.name,
@@ -677,13 +735,15 @@ function raidPlanet() {
   if ((S.bases && S.bases[p.id]) || (S.colonies && S.colonies[p.id])) return toast("You can't raid your own settlement.", "bad");
   if (S.res.fuel < PLANET_RAID_FUEL) return toast(`Need ${PLANET_RAID_FUEL} fuel to run the blockade.`, "bad");
   S.res.fuel -= PLANET_RAID_FUEL; useAction();
-  const wave = genPlanetPatrolWave(p);
+  const wave = genPlanetPatrolWave(p);   // reads the CURRENT alert level — i.e. however hard past raids left it fortified
+  raisePlanetAlert(p.id, PLANET_ALERT_GAIN_ASSAULT);   // THIS attack, in turn, prompts more digging-in for next time
   S.planetAssault = { planetId: p.id, phase: "patrols", called: 0 };
   S.prey = wave[0];
   S.prey.pack = wave.slice(1);
   S.prey._others = []; S.allies = null; S.raidTargets = [];
   raidJoinFollowers();
-  log(`🏴‍☠️ You make your move on <span class="c">${p.name}</span> — its orbital patrols scramble to meet you: <b>${wave.length} vessels</b> rise to hold the sky. Sweep them all aside before the ground garrison — and its plunder — is in reach. Their coalition may send help from other worlds.`, "event");
+  const alertNote = planetAlertLevel(p.id) >= 40 ? " Its defenses are visibly reinforced from past raids." : "";
+  log(`🏴‍☠️ You make your move on <span class="c">${p.name}</span> — its orbital patrols scramble to meet you: <b>${wave.length} vessels</b> rise to hold the sky.${alertNote} Sweep them all aside before the ground garrison — and its plunder — is in reach. Their coalition may send help from other worlds.`, "event");
   toast(`Raiding ${p.name} — ${wave.length} patrols scramble!`, "event");
   sfx("alarm");
   afterAction();
