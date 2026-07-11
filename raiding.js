@@ -229,9 +229,10 @@ function raidWinPatrol(prey, noQuarter) {
 }
 // beating down a planet's own defenses (combat.js's genPlanetDefense/raidPlanet) is a
 // bigger act than robbing one ship: heavier Dread/Wanted and a much deeper rep hit, and the
-// real prize is the ground plunder (planetRaidHaul) on top of whatever the garrison carried.
-// Only fires once the ground garrison itself falls — phase 2 of the assault — so the loot
-// stays gated behind clearing the orbit first.
+// real prize is the ground plunder — credits (planetRaidHaul) AND an actual mix of cargo
+// hauled out of the world's own warehouses (planetRaidGoods), on top of whatever the
+// garrison carried. Only fires once the ground garrison itself falls — phase 2 of the
+// assault — so the loot stays gated behind clearing the orbit first.
 function raidWinPlanet(prey, noQuarter) {
   const betray = S.commission && prey.faction === S.commission.patron;
   S.planetAssault = null;                                 // the campaign is won — any straggler reinforcements are now just a plain fight
@@ -240,6 +241,8 @@ function raidWinPlanet(prey, noQuarter) {
   const planet = PLANETS.find(p => p.id === prey.planetId) || currentPlanet();
   const haul = Math.round(planetRaidHaul(planet) * lootShare());
   S.res.credits += haul;
+  const groundGoods = planetRaidGoods(planet, lootShare());   // the surface itself: real cargo hauled from its warehouses, not just credits
+  const groundGoodsStr = Object.entries(groundGoods).map(([c, q]) => `${q}${COM[c].ico}`).join(" ");
   const dread = noQuarter ? 22 : 15;
   const sanctioned = applyCommissionRaid(prey);
   const wanted = sanctioned ? (noQuarter ? 15 : 10) : prey.wantedGain + (noQuarter ? 10 : 0);
@@ -249,8 +252,8 @@ function raidWinPlanet(prey, noQuarter) {
   addRep("frontier", 4);
   FACTION_KEYS.filter(f => f !== prey.faction && factionsAreRivals(f, prey.faction)).forEach(f => addRep(f, 3));
   clampPirate();
-  log(`🏴‍☠️ You broke ${prey.planetName}'s orbital defenses${noQuarter ? " and gave no quarter" : ""} and sacked the surface! Plundered ${taken.join(" ") || "their war chest"} + ${fmt(haul)} cr in ground plunder${lootShare() < 1 ? ` <span class="hint">(split ${1 / lootShare()} ways)</span>` : ""}.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Dread +${dread}, Wanted +${wanted})`, "good");
-  toast(`Sacked ${prey.planetName}! +${fmt(haul)} cr`, "good");
+  log(`🏴‍☠️ You broke ${prey.planetName}'s orbital defenses${noQuarter ? " and gave no quarter" : ""} and sacked the surface! Plundered ${taken.join(" ") || "their war chest"} + ${fmt(haul)} cr in ground plunder${groundGoodsStr ? ` + ${groundGoodsStr} hauled from its warehouses` : ""}${lootShare() < 1 ? ` <span class="hint">(split ${1 / lootShare()} ways)</span>` : ""}.${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""} (Dread +${dread}, Wanted +${wanted})`, "good");
+  toast(`Sacked ${prey.planetName}! +${fmt(haul)} cr${groundGoodsStr ? " + cargo" : ""}`, "good");
   if (betray) revokeCommission(true);
 }
 function promoteOrEnd(prey) {

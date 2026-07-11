@@ -127,7 +127,12 @@ planet itself, a real two-phase **campaign**:
 2. **Break the ground garrison.** With the sky swept, the 🏰 garrison — a
    dug-in fortress that never flees — is all that stands between you and the
    surface. Only beating it **sacks the world** and pays the ground plunder
-   (scaled to the world's Industry and Tech).
+   (scaled to the world's Industry and Tech) — credits **and** a real mix of
+   cargo hauled straight out of its warehouses: whatever the world is known
+   for (its own deposits — ore off a mining world, biomass off an agri-world,
+   ...) plus a spread of everyday goods that grows with how developed it is.
+   It's real cargo, not a bonus number — it fills your hold same as any other
+   plunder, capped by whatever room you actually have.
 
 All the while the defender's **coalition** may answer its distress call:
 vessels from its faction's *other* worlds — or from a faction currently in
