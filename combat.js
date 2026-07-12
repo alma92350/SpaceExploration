@@ -748,6 +748,15 @@ function planetPatrolStrengthEst(p) {
 function planetGarrisonStrengthEst(p) {
   return Math.round(PREY.patrol.base * (1.3 + p.enforce * 1.2) * foeStrengthMult() * planetAlertMul(p.id) * (S.crises && S.crises[p.id] ? 0.85 : 1));
 }
+// how hard a world's own sensors work at catching a recon drone swarm before it can relay
+// anything useful — scales with law, tech and how alarmed it already is (an edgy garrison
+// watches its sky harder). probePlanetDefenses (raiding.js) reads this against however many
+// drones the player actually commits: too few and nothing gets through; too many and the
+// swarm's own size is what gives it away, no matter how stealthy each drone is individually.
+function planetDetectionBand(p) {
+  const base = 3 + p.enforce * 9 + (p.tech || 0) * 0.5 + planetAlertLevel(p.id) * 0.12;
+  return { min: Math.max(2, Math.round(base * 0.65)), max: Math.max(4, Math.round(base * 1.7)) };
+}
 /* Sacking the surface isn't just a credit number — you're hauling out of real warehouses
    and stockpiles, so it also stuffs your hold with a MIX of actual goods, on top of the
    credit haul above. The mix is weighted toward what the world is actually KNOWN for (its

@@ -1,5 +1,5 @@
 {
-  "version": "2.118.1",
+  "version": "2.119.0",
   "saveVersion": "v2",
-  "notes": "Fix: Tanker Runs no longer auto-top-off from local storage past a manually loaded quantity."
+  "notes": "Changed: pre-assault recon is now a drone-swarm gamble - commit a chosen number of Combat Drones (not fuel) against a world's own detection band. Too few and nothing comes back; too many and the swarm itself trips the alarm (full intel, but the surprise is gone); land inside the band for an undetected read whose detail scales with how many drones you sent."
 }
