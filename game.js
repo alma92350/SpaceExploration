@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.117.1";
+const APP_VERSION = "2.117.2";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.117.2", notes: "Fix: a colony's required workforce (👷 the pop-needed figure gating output) counted every built tier regardless of whether that building was paused — pausing a hungry factory or extractor never freed up any labor for the rest of the colony. Paused buildings' tiers are now excluded from the labor-needed total, so pausing one process genuinely eases the workforce strain on everything still running, and resuming it puts that demand right back." },
   { version: "2.117.1", notes: "Fix: the Fleet tab roster's 🩹 Damaged filter (added last release) only caught ships below 60% hull — a ship sitting at, say, 80% hull already shows a 🔧 repair button and cost, so it silently missed anything short of severely battered. It now matches the repair action's own definition: any ship with less than full hull." },
   { version: "2.117.0", notes: "New: the ✦ Fleet tab's roster now scales to a big fleet. Each role group (Warships/Freighters/Tankers) shows a count and collapses with a click, ships sort by name (numeric-aware, so Corvette 2 sorts before Corvette 10), and a fleet of more than 8 ships gets an at-a-glance status line (idle/on duty/damaged/building counts) plus quick filter buttons and a name search box to cut a 30+ ship roster down to what you're looking for." },
   { version: "2.116.0", notes: "New: raid combat gets a real tactical layer. Every hostile can now telegraph a dangerous move a round before it lands — 💥 an alpha strike (near-double hit unless you kill it or gut its guns), 📡 a distress call (the ONLY way reinforcements ever arrive now — silence the transmitter or the coalition answers), 🚀 a spooling drive (jumps clear unless killed or pinned by stripping its engines). A mauled group's morale can break outright — losing the leader or half the force sends survivors into rout, hurried by your own Dread — ending a fight by terror instead of grinding every hull bar to zero. New: 🛰️ Probe defenses (⚔️ Raider tab, one action, no Wanted) charts a world before you commit — picket size and strength, garrison strength, whether a crisis or a faction's own war has thinned its response — and shows exactly which coalition worlds would answer its distress calls, so you can hire a pirate crew to tear up a responder's lanes and buy that world's silence before the first shot." },
