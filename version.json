@@ -1,5 +1,5 @@
 {
-  "version": "2.118.0",
+  "version": "2.118.1",
   "saveVersion": "v2",
-  "notes": "New: dispatch a tanker run empty, and load/unload tankers by a specific fuel quantity."
+  "notes": "Fix: Tanker Runs no longer auto-top-off from local storage past a manually loaded quantity."
 }

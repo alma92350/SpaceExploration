@@ -103,14 +103,14 @@ function renderFleet() {
         const room = shipCargoCap(s) - (s.fuel || 0);
         if (localFuel > 0 && room > 0) {
           const loadMax = Math.min(room, localFuel);
-          const loadVal = Math.max(1, Math.min(loadMax, tankerLoadQty[s.id] != null ? tankerLoadQty[s.id] : loadMax));
-          loadBtn = `<input class="qty" id="loadqty-${s.id}" type="number" min="1" max="${loadMax}" value="${loadVal}" title="Fuel to load" />
+          const loadVal = Math.max(0, Math.min(loadMax, tankerLoadQty[s.id] != null ? tankerLoadQty[s.id] : loadMax));
+          loadBtn = `<input class="qty" id="loadqty-${s.id}" type="number" min="0" max="${loadMax}" value="${loadVal}" title="Fuel to load" />
             <button class="btn btn-sm" title="Load this much fuel from the base/colony here" onclick="loadTankerQty('${s.id}')">⬆️⛽ Load</button>`;
         }
         if ((s.fuel || 0) > 0) {
           const unloadMax = s.fuel || 0;
-          const unloadVal = Math.max(1, Math.min(unloadMax, tankerUnloadQty[s.id] != null ? tankerUnloadQty[s.id] : unloadMax));
-          unloadBtn = `<input class="qty" id="unloadqty-${s.id}" type="number" min="1" max="${unloadMax}" title="Fuel to unload" value="${unloadVal}" />
+          const unloadVal = Math.max(0, Math.min(unloadMax, tankerUnloadQty[s.id] != null ? tankerUnloadQty[s.id] : unloadMax));
+          unloadBtn = `<input class="qty" id="unloadqty-${s.id}" type="number" min="0" max="${unloadMax}" title="Fuel to unload" value="${unloadVal}" />
             <button class="btn btn-sm" title="Unload this much — tops off your own tank first, then the base, then the colony, selling anything left over" onclick="unloadTankerQty('${s.id}')">⬇️⛽ Unload</button>`;
         }
       }
@@ -272,20 +272,17 @@ function renderFleet() {
       const dist = tf.planet ? ((home && home.distances && home.distances[tf.planet]) || 6) : 0;
       const speed = fleetShipSpeed(FLEET_SHIPS[ship.key]);
       const cycles = tf.planet ? tankerRunCycles(dist, speed) : 0;
-      const cap = shipCargoCap(ship);
-      const local = shipyardLocalStorage(ship.home);
-      const already = ship.fuel || 0;
-      const avail = already + Math.min(cap - already, ((local && local.fuel) || 0) + (S.res.fuel || 0));
+      const already = ship.fuel || 0;   // dispatch carries exactly this — no auto top-up from local storage/hold
       const destPlanet = tf.planet && PLANETS.find(p => p.id === tf.planet);
       const risk = tf.planet ? Math.round((0.05 + Math.max(pirateLevel(tf.planet), pirateLevel(ship.home)) * 0.04) * Math.pow(0.45, tf.escorts.length) * 100) : 0;
       const escortArgs = `[${tf.escorts.map(id => `'${id}'`).join(",")}]`;
       tankerCard = `<div class="card"><h4>⛽ Dispatch a tanker run</h4>
-        <div class="hint">Send an idle tanker to haul fuel to another world on its own — any fuel already loaded aboard (⬆️⛽ Load, in the roster) tops off first, then it draws the rest from its home's stockpile (then your hold), and takes several cycles to arrive since tankers are slow by design. Delivering to one of your own colonies/bases tops up its storage; anywhere else, the fuel is sold at the local market. Sending it with no fuel at all is fine too — it'll simply arrive empty, handy for repositioning a tanker or setting it up to load at the destination instead. The trip risks a pirate ambush (damage &amp; lost fuel — an escorting warship cuts the odds) and, if you're Wanted, a navy interception that confiscates the cargo outright.</div>
+        <div class="hint">Send an idle tanker to haul fuel to another world on its own — it carries exactly what's already loaded aboard (⬆️⛽ Load, in the roster, lets you pick a quantity), and takes several cycles to arrive since tankers are slow by design. Delivering to one of your own colonies/bases tops up its storage; anywhere else, the fuel is sold at the local market. Sending it with no fuel at all is fine too — it'll simply arrive empty, handy for repositioning a tanker or setting it up to load at the destination instead. The trip risks a pirate ambush (damage &amp; lost fuel — an escorting warship cuts the odds) and, if you're Wanted, a navy interception that confiscates the cargo outright.</div>
         <div class="row" style="margin-top:8px;flex-wrap:wrap;gap:8px;align-items:center">
           <span class="hint">Tanker</span><select onchange="setTankerRunField('ship',this.value)">${shipOpts}</select>
           <span class="hint">Destination</span><select onchange="setTankerRunField('planet',this.value)">${planetOpts}</select></div>
         ${idleWarHome.length ? `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Escort (from the same home port)</span> ${escortBtns}</div>` : ""}
-        <div class="ship-stat" style="margin-top:8px"><span class="k">Load</span><span class="v">${avail} fuel ⛽${avail <= 0 ? " (dispatching empty)" : ""} · ${cycles} cycle(s)${destPlanet ? ` to ${destPlanet.name}` : ""}</span></div>
+        <div class="ship-stat" style="margin-top:8px"><span class="k">Load</span><span class="v">${already} fuel ⛽${already <= 0 ? " (dispatching empty)" : ""} · ${cycles} cycle(s)${destPlanet ? ` to ${destPlanet.name}` : ""}</span></div>
         ${tf.planet ? `<div class="ship-stat"><span class="k">Piracy risk</span><span class="v" style="color:${risk >= 15 ? "var(--bad)" : risk > 0 ? "var(--warn)" : "var(--good)"}">${risk}%/cyc${tf.escorts.length ? " (escorted)" : ""}</span></div>` : ""}
         ${(S.pirate && S.pirate.wanted >= 25) ? `<div class="hint" style="color:var(--bad)">⚠️ You're Wanted — lawful worlds may intercept the run and confiscate its cargo.</div>` : ""}
         <div class="row" style="margin-top:8px"><button class="btn btn-primary" ${tf.planet ? "" : "disabled"} onclick="assignTankerRun('${tf.ship}','${tf.planet}',${escortArgs})">⛽ Dispatch (${cycles} cyc)</button></div>

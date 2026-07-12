@@ -25,6 +25,11 @@ test("population growth respects a stocked granary, not just this cycle's raw ha
          buildings: { farm: 3, habitat: 6 }, storage: { biomass: 5000, goods: 100, luxury: 50, medicine: 50 },
          orders: {}, unrest: 0, faction: null, idle: {} };`);
   const farmRawOutput = run(`Math.round(3 * 8)`);   // the old plateau: tier-3 farm's raw per-cycle output
+  // dodge colonyEventRoll's unseeded raid/disaster/boom rolls (and the reactor/pollution incident
+  // checks) over the 20 simulated cycles below — this test is only about the growth-cap formula,
+  // not colony-event luck, and a rare bad roll (e.g. a pirate raid gutting the biomass stockpile)
+  // was flaking the assertion despite the fix under test being correct.
+  run(`Math.random = () => 0.99;`);
   for (let i = 0; i < 20; i++) run(`processColonies();`);
   const finalPop = run(`S.colonies[S.location].pop`);
   assert.ok(finalPop > farmRawOutput + 4, `population (${finalPop}) should climb well past the old farm-output plateau (${farmRawOutput}) given a 5,000-biomass stockpile`);

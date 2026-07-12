@@ -83,7 +83,7 @@ test("assignTankerRun refuses a ship that isn't an idle tanker", () => {
   assert.equal(run(`S.fleet[1].status`), "idle", "a non-tanker hull should be refused");
 });
 
-test("assignTankerRun loads fuel from local storage before the hold, sets run state, and assigns escorts", () => {
+test("assignTankerRun carries exactly what's pre-loaded aboard (via loadTanker), sets run state, and assigns escorts", () => {
   const { run } = createSandbox();
   const t1 = tankerKeyAt(run, 1), wr = warshipKey(run);
   run(`S = freshState(); rollPrices();`);
@@ -93,15 +93,29 @@ test("assignTankerRun loads fuel from local storage before the hold, sets run st
                   { id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "idle", hull: 20, hullMax: 20 }];`);
   const destId = knownDest(run);
   const cap = run(`FLEET_SHIPS["${t1}"].cap`);
+  run(`loadTanker("t1");`); // stages the tanker to its full cap ahead of dispatch — assignTankerRun itself no longer auto-loads
   const localBefore = run(`S.colonies[S.location].storage.fuel`);
   run(`assignTankerRun("t1", "${destId}", ["w1"]);`);
   assert.equal(run(`S.fleet[0].status`), "tanker_run", "the tanker should now be running");
   assert.equal(run(`S.fleet[0].run.to`), destId);
-  assert.equal(run(`S.fleet[0].run.fuel`), cap, "the tanker should load up to its full cap when local storage covers it");
+  assert.equal(run(`S.fleet[0].run.fuel`), cap, "the run should carry exactly what was pre-loaded aboard");
   assert.equal(run(`S.fleet[0].run.cyclesLeft`), run(`S.fleet[0].run.totalCycles`), "cyclesLeft should start equal to totalCycles");
-  assert.equal(run(`S.colonies[S.location].storage.fuel`), localBefore - cap, "fuel should be drawn from local storage first");
+  assert.equal(run(`S.colonies[S.location].storage.fuel`), localBefore, "dispatch itself should not draw any further fuel from local storage");
   assert.equal(run(`S.fleet[1].status`), "tanker_run", "the escorting warship should also be marked as on the run");
   assert.equal(run(`S.fleet[1].escortFor`), "t1");
+});
+
+test("assignTankerRun never draws from local storage on its own — a tanker dispatched without being loaded first carries zero fuel", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1);
+  run(`S = freshState(); rollPrices();`);
+  withColonyShipyard(run, 4);
+  run(`S.colonies[S.location].storage.fuel = 500;
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30 }];`);
+  const destId = knownDest(run);
+  run(`assignTankerRun("t1", "${destId}", []);`);
+  assert.equal(run(`S.fleet[0].run.fuel`), 0, "with nothing manually loaded, the run should carry zero fuel");
+  assert.equal(run(`S.colonies[S.location].storage.fuel`), 500, "colony storage should be completely untouched by dispatch");
 });
 
 test("recallTankerRun restores fuel aboard the ship and frees escorts before the run has ticked, but refuses once it has", () => {
@@ -113,6 +127,7 @@ test("recallTankerRun restores fuel aboard the ship and frees escorts before the
        S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30 },
                   { id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "idle", hull: 20, hullMax: 20 }];`);
   const destId = knownDest(run);
+  run(`loadTanker("t1");`);
   run(`assignTankerRun("t1", "${destId}", ["w1"]);`);
   const loaded = run(`S.fleet[0].run.fuel`);
   const storageBefore = run(`S.colonies[S.location].storage.fuel`);
@@ -140,7 +155,7 @@ test("processTankerRuns: pirate risk damages hull and fuel, damped by an escorti
        S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 100, hullMax: 100 }];`);
   const destId = knownDest(unescorted.run);
   unescorted.run(`S.pirates = {}; S.pirates["${destId}"] = 5; S.pirates[S.location] = 0;`);
-  unescorted.run(`assignTankerRun("t1", "${destId}", []);`);
+  unescorted.run(`loadTanker("t1"); assignTankerRun("t1", "${destId}", []);`);
   const hullBefore = unescorted.run(`S.fleet[0].hull`), fuelBefore = unescorted.run(`S.fleet[0].run.fuel`);
   unescorted.run(`Math.random = () => 0.0;`); // force the ambush chance to trigger with max-severity rolls
   unescorted.run(`processTankerRuns();`);
@@ -159,7 +174,7 @@ test("processTankerRuns: pirate risk damages hull and fuel, damped by an escorti
                   { id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "idle", hull: 20, hullMax: 20 }];`);
   const destId2 = knownDest(escorted.run);
   escorted.run(`S.pirates = {}; S.pirates["${destId2}"] = 5; S.pirates[S.location] = 0;`);
-  escorted.run(`assignTankerRun("t1", "${destId2}", ["w1"]);`);
+  escorted.run(`loadTanker("t1"); assignTankerRun("t1", "${destId2}", ["w1"]);`);
   const hullBefore2 = escorted.run(`S.fleet[0].hull`), fuelBefore2 = escorted.run(`S.fleet[0].run.fuel`);
   escorted.run(`Math.random = () => 0.0;`);
   escorted.run(`processTankerRuns();`);
@@ -178,7 +193,7 @@ test("processTankerRuns: authority interception only fires once Wanted >= 25, an
        S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 100, hullMax: 100 }];`);
   const destId = knownDest(run);
   run(`S.pirates = {}; S.pirates["${destId}"] = 0; S.pirates[S.location] = 0;`);
-  run(`assignTankerRun("t1", "${destId}", []);`);
+  run(`loadTanker("t1"); assignTankerRun("t1", "${destId}", []);`);
   run(`Math.random = () => 0.0;`);
   const fuelBefore = run(`S.fleet[0].run.fuel`);
   run(`processTankerRuns();`);
@@ -201,7 +216,7 @@ test("delivery: fuel tops up a player-owned colony's storage; a foreign destinat
   const destId = knownDest(owned.run);
   owned.run(`S.colonies["${destId}"] = { pop: 5, happiness: 60, tax: 10, buildings: {}, storage: { fuel: 10 }, orders: {}, unrest: 0, faction: null, idle: {} };
        S.pirates = {}; S.pirates["${destId}"] = 0; S.pirates[S.location] = 0;`);
-  owned.run(`assignTankerRun("t1", "${destId}", []);`);
+  owned.run(`loadTanker("t1"); assignTankerRun("t1", "${destId}", []);`);
   const cycles = owned.run(`S.fleet[0].run.totalCycles`);
   const loaded = owned.run(`S.fleet[0].run.fuel`);
   owned.run(`Math.random = () => 0.99;`); // dodge risk rolls so the full cargo survives to delivery
@@ -221,7 +236,7 @@ test("delivery: fuel tops up a player-owned colony's storage; a foreign destinat
   const destId2 = knownDest(foreign.run);
   foreign.run(`S.pirates = {}; S.pirates["${destId2}"] = 0; S.pirates[S.location] = 0;`);
   const creditsBefore = foreign.run(`S.res.credits`);
-  foreign.run(`assignTankerRun("t2", "${destId2}", []);`);
+  foreign.run(`loadTanker("t2"); assignTankerRun("t2", "${destId2}", []);`);
   const cycles2 = foreign.run(`S.fleet[0].run.totalCycles`);
   foreign.run(`Math.random = () => 0.99;`);
   for (let i = 0; i < cycles2; i++) foreign.run(`processTankerRuns();`);
@@ -317,7 +332,7 @@ test("unloadTanker refuses when not idle/docked here, or when carrying nothing",
   assert.equal(run(`S.res.credits`), creditsBefore, "no credits should change when nothing was unloaded");
 });
 
-test("assignTankerRun tops off fuel already loaded aboard via loadTanker, rather than ignoring it", () => {
+test("assignTankerRun dispatches with exactly a partial pre-load, WITHOUT topping it up from local storage", () => {
   const { run } = createSandbox();
   const t1 = tankerKeyAt(run, 1);
   run(`S = freshState(); rollPrices();`);
@@ -331,8 +346,8 @@ test("assignTankerRun tops off fuel already loaded aboard via loadTanker, rather
   const localBefore = run(`S.colonies[S.location].storage.fuel`);
   const destId = knownDest(run);
   run(`assignTankerRun("t1", "${destId}", []);`);
-  assert.equal(run(`S.fleet[0].run.fuel`), cap, "the run should top the pre-loaded fuel up to the tanker's full cap");
-  assert.equal(run(`S.colonies[S.location].storage.fuel`), localBefore - (cap - preload), "only the shortfall (cap minus what was already aboard) should be drawn from local storage");
+  assert.equal(run(`S.fleet[0].run.fuel`), preload, "the run should carry exactly the partial amount pre-loaded, not the tanker's full cap");
+  assert.equal(run(`S.colonies[S.location].storage.fuel`), localBefore, "dispatch should not draw anything further from local storage, even though there's plenty of room left aboard");
   assert.equal(run(`S.fleet[0].fuel`), 0, "the ship's own fuel field should be rolled into the run and cleared");
 });
 
@@ -393,7 +408,7 @@ test("a reinforcement added mid-run dampens pirate-ambush damage the same as an 
                   { id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "idle", hull: 40, hullMax: 40 }];`);
   const destId = knownDest(run);
   run(`S.pirates = {}; S.pirates["${destId}"] = 5; S.pirates[S.location] = 0;`);
-  run(`assignTankerRun("t1", "${destId}", []);`);
+  run(`loadTanker("t1"); assignTankerRun("t1", "${destId}", []);`);
   run(`reinforceTankerRun("t1", "w1");`);
   const hullBefore = run(`S.fleet[0].hull`), fuelBefore = run(`S.fleet[0].run.fuel`);
   run(`Math.random = () => 0.0;`);
@@ -410,7 +425,7 @@ test("a reinforcement added mid-run dampens pirate-ambush damage the same as an 
   unguarded.run(`S.colonies[S.location].storage.fuel = 500;
        S.pirates = {}; S.pirates["${destId2}"] = 5; S.pirates[S.location] = 0;
        S.fleet = [{ id: "t1", key: "${t1b}", name: "Tanker", home: S.location, status: "idle", hull: 100, hullMax: 100 }];`);
-  unguarded.run(`assignTankerRun("t1", "${destId2}", []);`);
+  unguarded.run(`loadTanker("t1"); assignTankerRun("t1", "${destId2}", []);`);
   const hullBefore2 = unguarded.run(`S.fleet[0].hull`), fuelBefore2 = unguarded.run(`S.fleet[0].run.fuel`);
   unguarded.run(`Math.random = () => 0.0;`);
   unguarded.run(`processTankerRuns();`);
