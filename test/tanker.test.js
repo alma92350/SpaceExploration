@@ -439,3 +439,82 @@ test("a reinforcement escort is freed and relocated on delivery just like an ori
   assert.equal(run(`S.fleet[1].escortFor`), null);
   assert.equal(run(`S.fleet[1].home`), destId, "the reinforcement should end up at the delivered-to world alongside the tanker");
 });
+
+test("assignTankerRun allows dispatching a tanker with no fuel available anywhere", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1);
+  run(`S = freshState(); rollPrices();
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30, fuel: 0 }];
+       S.res.fuel = 0;`);
+  const destId = knownDest(run);
+  run(`assignTankerRun("t1", "${destId}", []);`);
+  assert.equal(run(`S.fleet[0].status`), "tanker_run", "an empty tanker should still be dispatchable");
+  assert.equal(run(`S.fleet[0].run.fuel`), 0, "the run should carry zero fuel");
+  assert.equal(run(`S.fleet[0].run.to`), destId);
+});
+
+test("an empty tanker run delivers without touching storage or credits at either an owned or a foreign world", () => {
+  const owned = createSandbox();
+  const t1 = tankerKeyAt(owned.run, 1);
+  owned.run(`S = freshState(); rollPrices();
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30, fuel: 0 }];
+       S.res.fuel = 0;`);
+  const destId = knownDest(owned.run);
+  owned.run(`S.colonies["${destId}"] = { pop: 5, happiness: 60, tax: 10, buildings: {}, storage: { fuel: 10 }, orders: {}, unrest: 0, faction: null, idle: {} };
+       S.pirates = {}; S.pirates["${destId}"] = 0; S.pirates[S.location] = 0;`);
+  owned.run(`assignTankerRun("t1", "${destId}", []);`);
+  const cycles = owned.run(`S.fleet[0].run.totalCycles`);
+  owned.run(`Math.random = () => 0.99;`);
+  for (let i = 0; i < cycles; i++) owned.run(`processTankerRuns();`);
+  assert.equal(owned.run(`S.fleet[0].status`), "idle", "the empty tanker should still finish its run and go idle");
+  assert.equal(owned.run(`S.fleet[0].home`), destId, "its home should still update to the delivered-to world");
+  assert.equal(owned.run(`S.colonies["${destId}"].storage.fuel`), 10, "an owned destination's storage should be untouched by an empty delivery");
+
+  const foreign = createSandbox();
+  const t1b = tankerKeyAt(foreign.run, 1);
+  foreign.run(`S = freshState(); rollPrices();
+       S.fleet = [{ id: "t1", key: "${t1b}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30, fuel: 0 }];
+       S.res.fuel = 0;`);
+  const destId2 = knownDest(foreign.run);
+  foreign.run(`S.pirates = {}; S.pirates["${destId2}"] = 0; S.pirates[S.location] = 0;`);
+  const creditsBefore = foreign.run(`S.res.credits`);
+  foreign.run(`assignTankerRun("t1", "${destId2}", []);`);
+  const cycles2 = foreign.run(`S.fleet[0].run.totalCycles`);
+  foreign.run(`Math.random = () => 0.99;`);
+  for (let i = 0; i < cycles2; i++) foreign.run(`processTankerRuns();`);
+  assert.equal(foreign.run(`S.fleet[0].status`), "idle");
+  assert.equal(foreign.run(`S.res.credits`), creditsBefore, "delivering nothing to a foreign market shouldn't pay out any credits");
+});
+
+test("loadTanker(shipId, qty) loads exactly the requested amount, clamped to available room and local fuel", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1);
+  run(`S = freshState(); rollPrices();`);
+  run(`S.colonies[S.location] = { pop: 10, happiness: 70, tax: 10, buildings: {}, storage: { fuel: 500 }, orders: {}, unrest: 0, faction: null, idle: {} };
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30, fuel: 0 }];`);
+  run(`loadTanker("t1", 25);`);
+  assert.equal(run(`S.fleet[0].fuel`), 25, "loading a specific quantity should load exactly that much");
+  assert.equal(run(`S.colonies[S.location].storage.fuel`), 475, "only the requested amount should be drawn from storage");
+
+  const cap = run(`FLEET_SHIPS["${t1}"].cap`);
+  run(`loadTanker("t1", ${cap + 1000});`);
+  assert.equal(run(`S.fleet[0].fuel`), cap, "a quantity beyond the tanker's remaining room should clamp to the cap");
+
+  run(`S.fleet[0].fuel = 0; S.colonies[S.location].storage.fuel = 10;`);
+  run(`loadTanker("t1", 999);`);
+  assert.equal(run(`S.fleet[0].fuel`), 10, "a quantity beyond what's available locally should clamp to what's actually there");
+});
+
+test("unloadTanker(shipId, qty) unloads exactly the requested amount, leaving the remainder aboard", () => {
+  const { run } = createSandbox();
+  const t1 = tankerKeyAt(run, 1);
+  run(`S = freshState(); rollPrices();
+       S.res.fuel = 0;
+       S.fleet = [{ id: "t1", key: "${t1}", name: "Tanker", home: S.location, status: "idle", hull: 30, hullMax: 30, fuel: 100 }];`);
+  run(`unloadTanker("t1", 30);`);
+  assert.equal(run(`S.fleet[0].fuel`), 70, "only the requested amount should leave the tanker");
+  assert.equal(run(`S.res.fuel`), 30, "the requested amount should land in the player's own tank first");
+
+  run(`unloadTanker("t1", 9999);`);
+  assert.equal(run(`S.fleet[0].fuel`), 0, "a quantity beyond what's carried should clamp to the full remaining amount");
+});

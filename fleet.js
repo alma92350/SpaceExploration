@@ -422,8 +422,7 @@ function assignTankerRun(shipId, destId, escortIds) {
   const already = s.fuel || 0;                // fuel loaded ahead of time via loadTanker()
   const local = shipyardLocalStorage(s.home);
   const topUp = Math.min(cap - already, ((local && local.fuel) || 0) + (S.res.fuel || 0));
-  const fuel = already + Math.max(0, topUp);
-  if (fuel <= 0) return toast("No fuel available to load — stock some at the tanker's home first.", "bad");
+  const fuel = already + Math.max(0, topUp);   // a tanker may also cast off empty (fuel === 0) — e.g. to reposition, or to load up at the destination instead
   if (topUp > 0) payMats({ fuel: topUp }, local);
   s.fuel = 0;                                  // rolled into the run's own cargo below
   const escorts = [];
@@ -434,7 +433,7 @@ function assignTankerRun(shipId, destId, escortIds) {
   });
   const speed = fleetShipSpeed(def), cycles = tankerRunCycles(dist, speed);
   s.status = "tanker_run"; s.run = { to: destId, dist, totalCycles: cycles, cyclesLeft: cycles, fuel, escorts };
-  log(`⛽ Your ${def.ico} ${s.name} casts off for <span class="c">${dest.name}</span> with ${fuel} fuel — ${cycles} cycle(s), ${escorts.length ? `escorted by ${escorts.length} warship(s)` : "unescorted"}.`, "event");
+  log(`⛽ Your ${def.ico} ${s.name} casts off for <span class="c">${dest.name}</span>${fuel > 0 ? ` with ${fuel} fuel` : " empty"} — ${cycles} cycle(s), ${escorts.length ? `escorted by ${escorts.length} warship(s)` : "unescorted"}.`, "event");
   toast(`${s.name} → ${dest.name} (${cycles} cyc)`, "good"); sfx("event"); saveGame(); renderAll();
 }
 function recallTankerRun(shipId) {
@@ -469,45 +468,51 @@ function reinforceTankerRun(tankerId, warshipId) {
 // cargo, this doesn't need a Shipyard — just a base or colony storeroom to draw from/deposit
 // into, same reasoning localStockpileAt already uses for repairs. Deliberately base-before-colony
 // on BOTH ends (unlike shipyardLocalStorage/localStockpileAt's colony-first precedence elsewhere)
-// since the player asked for that exact order.
-function loadTanker(shipId) {
+// since the player asked for that exact order. Both take an optional qty — omit it (or pass
+// null) to load/unload as much as possible, same as before this was made adjustable.
+function loadTanker(shipId, qty) {
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
   if (!s || !def || def.role !== "tanker") return;
   if (s.status !== "idle" || s.home !== S.location) return toast("Dock the tanker here to load it.", "bad");
   const room = shipCargoCap(s) - (s.fuel || 0);
   if (room <= 0) return toast(`The ${s.name} is already full.`, "bad");
+  const want = qty == null ? room : Math.max(0, Math.min(room, Math.floor(qty)));
+  if (want <= 0) return toast("Enter a quantity to load.", "bad");
   const b = S.bases[S.location], col = S.colonies[S.location];
   let loaded = 0;
-  if (b && loaded < room) { const take = Math.min(room - loaded, b.storage.fuel || 0); if (take > 0) { b.storage.fuel -= take; loaded += take; } }
-  if (col && loaded < room) { const take = Math.min(room - loaded, col.storage.fuel || 0); if (take > 0) { col.storage.fuel -= take; loaded += take; } }
+  if (b && loaded < want) { const take = Math.min(want - loaded, b.storage.fuel || 0); if (take > 0) { b.storage.fuel -= take; loaded += take; } }
+  if (col && loaded < want) { const take = Math.min(want - loaded, col.storage.fuel || 0); if (take > 0) { col.storage.fuel -= take; loaded += take; } }
   if (loaded <= 0) return toast("No fuel available here to load.", "bad");
   s.fuel = (s.fuel || 0) + loaded;
   log(`⛽ Loaded ${loaded} fuel onto the ${def.ico} ${s.name} at ${currentPlanet().name}.`, "event");
   toast(`${s.name}: +${loaded} fuel`, "good"); sfx("event"); saveGame(); renderAll();
 }
-function unloadTanker(shipId) {
+function unloadTanker(shipId, qty) {
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
   if (!s || !def || def.role !== "tanker") return;
   if (s.status !== "idle" || s.home !== S.location) return toast("Dock the tanker here to unload it.", "bad");
-  let qty = s.fuel || 0;
-  if (qty <= 0) return toast(`The ${s.name} is carrying no fuel.`, "bad");
+  const carried = s.fuel || 0;
+  if (carried <= 0) return toast(`The ${s.name} is carrying no fuel.`, "bad");
+  const amt = qty == null ? carried : Math.max(0, Math.min(carried, Math.floor(qty)));
+  if (amt <= 0) return toast("Enter a quantity to unload.", "bad");
+  let left = amt;
   const parts = [];
-  const toShip = Math.min(qty, Math.max(0, fuelCap() - (S.res.fuel || 0)));
-  if (toShip > 0) { S.res.fuel += toShip; qty -= toShip; parts.push(`${toShip} to your tank`); }
+  const toShip = Math.min(left, Math.max(0, fuelCap() - (S.res.fuel || 0)));
+  if (toShip > 0) { S.res.fuel += toShip; left -= toShip; parts.push(`${toShip} to your tank`); }
   const b = S.bases[S.location];
-  if (qty > 0 && b) {
-    const take = Math.min(qty, Math.max(0, baseStorageCap(S.location) - baseStorageUsed(b)));
-    if (take > 0) { b.storage.fuel = (b.storage.fuel || 0) + take; qty -= take; parts.push(`${take} to the base`); }
+  if (left > 0 && b) {
+    const take = Math.min(left, Math.max(0, baseStorageCap(S.location) - baseStorageUsed(b)));
+    if (take > 0) { b.storage.fuel = (b.storage.fuel || 0) + take; left -= take; parts.push(`${take} to the base`); }
   }
   const col = S.colonies[S.location];
-  if (qty > 0 && col) {
-    const take = Math.min(qty, Math.max(0, colonyStorageCap(col, currentPlanet()) - colonyStorageUsed(col)));
-    if (take > 0) { col.storage.fuel = (col.storage.fuel || 0) + take; qty -= take; parts.push(`${take} to the colony`); }
+  if (left > 0 && col) {
+    const take = Math.min(left, Math.max(0, colonyStorageCap(col, currentPlanet()) - colonyStorageUsed(col)));
+    if (take > 0) { col.storage.fuel = (col.storage.fuel || 0) + take; left -= take; parts.push(`${take} to the colony`); }
   }
-  if (qty > 0) { const pay = Math.round(qty * sellPrice(S.location, "fuel")); S.res.credits += pay; parts.push(`sold ${qty} for ${fmt(pay)} cr`); qty = 0; }
-  s.fuel = 0;
-  log(`⛽ Unloaded the ${def.ico} ${s.name} at ${currentPlanet().name} — ${parts.join(", ")}.`, "good");
-  toast(`${s.name} unloaded`, "good"); sfx("event"); saveGame(); renderAll();
+  if (left > 0) { const pay = Math.round(left * sellPrice(S.location, "fuel")); S.res.credits += pay; parts.push(`sold ${left} for ${fmt(pay)} cr`); left = 0; }
+  s.fuel = carried - amt;
+  log(`⛽ Unloaded ${amt} fuel from the ${def.ico} ${s.name} at ${currentPlanet().name} — ${parts.join(", ")}.`, "good");
+  toast(`${s.name}: -${amt} fuel`, "good"); sfx("event"); saveGame(); renderAll();
 }
 function tankerRunPirateRisk(s) {
   const r = s.run, def = FLEET_SHIPS[s.key];
@@ -544,16 +549,21 @@ function tankerRunInterceptRisk(s) {
 }
 function tankerRunDeliver(s) {
   const r = s.run, def = FLEET_SHIPS[s.key], dest = PLANETS.find(p => p.id === r.to);
-  const owned = (S.colonies && S.colonies[r.to]) || (S.bases && S.bases[r.to]);
-  if (owned) {
-    owned.storage.fuel = (owned.storage.fuel || 0) + r.fuel;
-    log(`⛽ Your ${def.ico} ${s.name} delivered ${r.fuel} fuel to ${dest.name}'s storage.`, "good");
-    toast(`${s.name}: delivered ${r.fuel} fuel`, "good");
+  if (r.fuel <= 0) {
+    log(`⛽ Your ${def.ico} ${s.name} arrived at ${dest.name} empty.`, "good");
+    toast(`${s.name}: arrived at ${dest.name}`, "good");
   } else {
-    const pay = Math.round(r.fuel * sellPrice(r.to, "fuel"));
-    S.res.credits += pay;
-    log(`⛽ Your ${def.ico} ${s.name} sold ${r.fuel} fuel at ${dest.name} for ${fmt(pay)} cr.`, "good");
-    toast(`${s.name}: +${fmt(pay)} cr`, "good");
+    const owned = (S.colonies && S.colonies[r.to]) || (S.bases && S.bases[r.to]);
+    if (owned) {
+      owned.storage.fuel = (owned.storage.fuel || 0) + r.fuel;
+      log(`⛽ Your ${def.ico} ${s.name} delivered ${r.fuel} fuel to ${dest.name}'s storage.`, "good");
+      toast(`${s.name}: delivered ${r.fuel} fuel`, "good");
+    } else {
+      const pay = Math.round(r.fuel * sellPrice(r.to, "fuel"));
+      S.res.credits += pay;
+      log(`⛽ Your ${def.ico} ${s.name} sold ${r.fuel} fuel at ${dest.name} for ${fmt(pay)} cr.`, "good");
+      toast(`${s.name}: +${fmt(pay)} cr`, "good");
+    }
   }
   digestNote("arrivals", `${s.name} completed a tanker run to ${dest.name}`);
   (r.escorts || []).forEach(id => { const w = fleetList().find(x => x.id === id); if (w) { w.status = "idle"; w.escortFor = null; w.home = r.to; } });

@@ -556,3 +556,40 @@ threshold); a wall of rows once a save's fleet passes 30.
 - Deliberately out of scope: no change to per-ship action buttons, to the
   Assignments/Shipyard sub-views, or to any fleet domain logic in
   fleet.js — this is a roster-list *rendering* reorg only.
+
+## Slice 15 (shipped) — empty Tanker Runs, and Load/Unload by a specific quantity
+Two rough edges from Slices 11/12: `assignTankerRun` refused to dispatch a
+tanker with zero fuel aboard and none available at its home, even though
+sending an empty tanker to reposition it (or to load up at the destination
+instead) is a perfectly reasonable thing to want; and `loadTanker`/
+`unloadTanker` only ever moved the maximum possible amount in one direction,
+with no way to move a smaller, specific amount.
+- **`assignTankerRun`**: dropped the `fuel <= 0` refusal — a run's `fuel`
+  can now legitimately be `0`. The dispatch log/toast reads "casts off ...
+  empty" instead of "with 0 fuel" when that's the case.
+- **`tankerRunDeliver`**: an empty arrival (`r.fuel <= 0`) now logs simply
+  arriving at the destination, skipping the storage-topup/sell branch
+  entirely (topping up or selling `0` fuel was harmless but read oddly).
+  Non-zero delivery is unchanged.
+- **`loadTanker(shipId, qty)`** / **`unloadTanker(shipId, qty)`**: both take
+  a new optional `qty`. Omitted (or `null`), behavior is unchanged — load
+  tops off to `shipCargoCap(s)`, unload drains everything aboard. Given, it's
+  clamped to what's actually movable (remaining room + local fuel for load;
+  fuel actually carried for unload) and only that much moves — unload's
+  player-tank → base → colony → sell cascade still applies, just to the
+  requested amount instead of the ship's full cargo.
+- **UI** (renderFleetFortunes.js): the roster's ⬆️⛽ Load/⬇️⛽ Unload buttons
+  each gained a `qty`-style number input (`loadqty-<id>`/`unloadqty-<id>`,
+  defaulting to the max movable amount, same convention as the Market tab's
+  buy/sell quantity boxes) feeding new `loadTankerQty`/`unloadTankerQty`
+  wrappers that read the input and call `loadTanker`/`unloadTanker` with it
+  — `tankerLoadQty`/`tankerUnloadQty` remember the last typed value per ship
+  across re-renders, mirroring `marketQty`. The "Dispatch a tanker run"
+  card's Dispatch button is no longer disabled at zero available fuel — only
+  an unpicked destination disables it — and its Load stat line notes
+  "(dispatching empty)" when there's nothing to load.
+- Tests: `tanker.test.js` (+4 checks: dispatching with no fuel anywhere
+  still starts a run with `run.fuel === 0`; an empty run delivers cleanly
+  without touching an owned world's storage or paying out credits at a
+  foreign one; `loadTanker`/`unloadTanker` move exactly a requested amount,
+  clamped to what's actually available/carried).
