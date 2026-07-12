@@ -517,3 +517,29 @@ just for a Tanker Run.
   reinforcement measurably reduces pirate damage/fuel loss the same as a
   dispatch-time escort; and a reinforcement is freed/relocated on delivery
   exactly like an original escort).
+
+## Slice 14 (shipped) — Fleet Status roster scales past ~30 ships
+The roster (`renderFleet`'s `status` view, renderFleetFortunes.js) grouped
+ships into three fixed role buckets with no sort, filter, search, collapse,
+or pagination — every ship in a bucket was a full-detail row in whatever
+order it was built. Fine at 5 ships (the `fleetadmiral` milestone's own
+threshold); a wall of rows once a save's fleet passes 30.
+- **Numeric-aware name sort**: each role bucket is now sorted by
+  `s.name.localeCompare(..., {numeric:true})` instead of build order, so
+  same-class hulls (auto-named `"<Class> N"` by `fleetNameFor`) cluster in
+  a sane order — `Corvette 2` before `Corvette 10`, not after.
+- **Collapsible groups**: clicking a role header (`toggleFleetGroup(role)`)
+  collapses/expands it — session-only state (`fleetGroupCollapsed`, not
+  saved), same pattern as `subViews`. The header always shows a count
+  (`shown/total` once a filter is narrowing it).
+- **At-a-glance status line + quick filters**: a summary (`N idle · N on
+  duty · N damaged · N building`) always shows once the fleet is non-empty.
+  Once the fleet exceeds 8 ships, a filter-button row (All/Idle/On
+  duty/Damaged/Building) and a name search box appear
+  (`fleetRosterFilter`, `setFleetRosterFilter`) — same session-only-var
+  idiom as `marketSort` (renderProgression.js). "Damaged" reuses the
+  roster's own hull-bar threshold (`<60%`) so the filter and the bar's
+  warn/bad coloring always agree.
+- Deliberately out of scope: no change to per-ship action buttons, to the
+  Assignments/Shipyard sub-views, or to any fleet domain logic in
+  fleet.js — this is a roster-list *rendering* reorg only.

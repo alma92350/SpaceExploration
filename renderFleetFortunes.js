@@ -33,6 +33,14 @@ function toggleTankerEscort(id) {
   if (at >= 0) tankerRunForm.escorts.splice(at, 1); else tankerRunForm.escorts.push(id);
   renderFleet();
 }
+// Roster view UI state (status view only): a growing fleet (30+ hulls) turns a flat
+// per-role list into a wall of rows, so the roster gets a quick status filter + name
+// search (same session-only-var idiom as marketSort, renderProgression.js) and
+// collapsible role groups, remembered per role for the session.
+let fleetRosterFilter = { status: "all", q: "" };
+function setFleetRosterFilter(k, v) { fleetRosterFilter[k] = v; renderFleet(); }
+let fleetGroupCollapsed = {};
+function toggleFleetGroup(role) { fleetGroupCollapsed[role] = !fleetGroupCollapsed[role]; renderFleet(); }
 function renderFleet() {
   const el = (typeof document !== "undefined") && document.getElementById("panel-fleet"); if (!el) return;
   const f = fleetList(), pid = S.location, yard = shipyardTierAt(pid), baseYard = baseShipyardTier(pid);
@@ -103,11 +111,40 @@ function renderFleet() {
         <span class="k">${def.ico} ${s.name} <span class="hint">${SHIP_CLASSES[def.cls].name} · ${spec} · ⚓ ${homeName}</span></span>
         <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${reassignBtn}${patrolBtn}${loadBtn}${unloadBtn}${ctlBtn}</span></div>${loadoutRow}`;
     };
-    const warships = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
-    const freighters = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
-    const tankers = f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "tanker");
+    const ROLE_GROUPS = [["warship", "⚔️ Warships"], ["freighter", "🚚 Freighters"], ["tanker", "⛽ Tankers"]];
+    const isDamaged = s => s.status !== "building" && s.hullMax > 0 && (s.hull / s.hullMax) < 0.6;
+    const idleN = f.filter(s => s.status === "idle").length, buildingN = f.filter(s => s.status === "building").length;
+    const damagedN = f.filter(isDamaged).length, dutyN = f.length - idleN - buildingN;
+    const STATUS_FILTERS = [["all", "All"], ["idle", "🟢 Idle"], ["duty", "🎯 On duty"], ["damaged", "🩹 Damaged"], ["building", "🏗️ Building"]];
+    const matchesRosterFilter = s => {
+      const q = fleetRosterFilter.q.trim().toLowerCase();
+      if (q && !s.name.toLowerCase().includes(q)) return false;
+      const st = fleetRosterFilter.status;
+      if (st === "idle") return s.status === "idle";
+      if (st === "duty") return s.status !== "idle" && s.status !== "building";
+      if (st === "damaged") return isDamaged(s);
+      if (st === "building") return s.status === "building";
+      return true;
+    };
+    const byShipName = (a, b) => a.name.localeCompare(b.name, undefined, { numeric: true });
+    const roleGroup = role => f.filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === role).sort(byShipName);
+    const roleSection = (role, label) => {
+      const all = roleGroup(role); if (!all.length) return "";
+      const shown = all.filter(matchesRosterFilter), collapsed = !!fleetGroupCollapsed[role];
+      const countLabel = shown.length === all.length ? `${all.length}` : `${shown.length}/${all.length}`;
+      return `<div class="ship-stat" style="margin-top:6px;cursor:pointer" onclick="toggleFleetGroup('${role}')">
+        <span class="k">${collapsed ? "▸" : "▾"} ${label} <span class="hint">${countLabel}</span></span></div>
+        ${collapsed ? "" : (shown.length ? shown.map(shipRow).join("") : '<div class="hint" style="margin-left:14px">No ships here match your filter.</div>')}`;
+    };
+    const filterBtns = STATUS_FILTERS.map(([k, l]) => `<button class="btn btn-sm ${fleetRosterFilter.status === k ? "btn-primary" : ""}" onclick="setFleetRosterFilter('status','${k}')">${l}</button>`).join(" ");
+    const searchBox = `<input class="chat-field" style="max-width:180px" type="text" placeholder="Search by name…" value="${escapeChatHtml(fleetRosterFilter.q)}" oninput="setFleetRosterFilter('q', this.value)" />`;
+    const anyShown = ROLE_GROUPS.some(([role]) => roleGroup(role).some(matchesRosterFilter));
     body = `<div class="card"><h4>✦ Your Fleet <span class="hint">${f.length} ship(s) · upkeep ${fmt(fleetUpkeep())} cr/cyc</span></h4>
-      ${f.length ? `${warships.length ? `<div class="ship-stat"><span class="k">⚔️ Warships</span></div>${warships.map(shipRow).join("")}` : ""}${freighters.length ? `<div class="ship-stat" style="margin-top:6px"><span class="k">🚚 Freighters</span></div>${freighters.map(shipRow).join("")}` : ""}${tankers.length ? `<div class="ship-stat" style="margin-top:6px"><span class="k">⛽ Tankers</span></div>${tankers.map(shipRow).join("")}` : ""}` : '<div class="hint">No ships yet — lay down a hull in the 🏗️ Shipyard tab.</div>'}</div>`;
+      ${f.length ? `<div class="hint">${idleN} 🟢 idle · ${dutyN} 🎯 on duty · ${damagedN} 🩹 damaged${buildingN ? ` · ${buildingN} 🏗️ building` : ""}</div>
+        ${f.length > 8 ? `<div class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px;align-items:center">${filterBtns} ${searchBox}</div>` : ""}
+        ${ROLE_GROUPS.map(([role, label]) => roleSection(role, label)).join("")}
+        ${anyShown ? "" : '<div class="hint" style="margin-top:8px">No ships match your filter.</div>'}`
+        : '<div class="hint">No ships yet — lay down a hull in the 🏗️ Shipyard tab.</div>'}</div>`;
   } else if (view === "assign") {
     // ---- dispatch an idle warship on a system mission (100% of the take) ----
     const idleWar = f.filter(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
