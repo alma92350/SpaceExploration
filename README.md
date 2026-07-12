@@ -160,13 +160,29 @@ salvage with a modest Wanted/rep sting, the sack itself remains the full act
 of war — heavy Wanted, deep rep damage — and breaking off mid-campaign
 abandons the whole assault.
 
-Attacking blind is the brute-force tax. A **🛰️ Probe defenses** pass (passive
-sensors, no Wanted, one action) charts a world before you commit: picket
-size and rough strength, garrison strength, whether a crisis has thinned it,
-whether its faction's fleet is tied up in a war elsewhere (one fewer
-response wing answers), and — the real prize — exactly *which* coalition
-worlds would answer its distress calls. With that map in hand you can shape
-the field before the first shot: **hire a willing pirate crew** to tear up a
+Attacking blind is the brute-force tax, but recon itself is a real gamble,
+not a free look. Launch a **🛸 recon drone swarm** (one action, needs a Drone
+Bay) and choose how many drones to commit — the world's own sensors judge
+the swarm against its law, tech and current alert:
+
+- **Too few** and the signal never resolves against their sensor noise — the
+  drones are gone and you learn *nothing*, though the attempt was too small
+  to be noticed either.
+- **Land inside the band** and you get a clean, undetected read — but how
+  much of the picture depends on how many you sent: near the floor, only a
+  *qualitative* sense (a weak/moderate/strong/formidable picket and
+  garrison); further in, the *exact* numbers — picket size and estimated
+  strength, garrison strength, whether a crisis has thinned it, whether the
+  faction's own war elsewhere means one fewer response wing, and exactly
+  *which* coalition worlds would answer a distress call.
+- **Too many** and you learn everything, but a swarm that size is what gives
+  you away: their sensors catch it, the garrison scrambles onto alert, and
+  the surprise for whatever comes next is gone.
+
+Guess wrong either way and you've spent drones for nothing, or spent them to
+blow your own cover — the sweet spot has to be sized to the target, not
+just thrown at every world the same. Once charted, you can shape the field
+before the first shot: **hire a willing pirate crew** to tear up a
 responder's own lanes, and that world's wing stays home for the run — its
 distress calls simply go unanswered. It's raiding by proxy: the harassed
 world's own alert ticks up, and the crew you hired is busy for the

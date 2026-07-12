@@ -711,36 +711,71 @@ function processTradeDisruption() {
 }
 /* ---------- Pre-assault recon & battlefield shaping ----------
    The strategic half of the tactical layer above: attacking BLIND is the brute-force
-   tax. A 🛰️ recon pass (passive sensors — no Wanted) charts a world's defenses for a
-   while: picket size and rough strength, garrison strength, whether a crisis has
-   thinned them, whether the faction's fleet is committed to a war (one fewer response
-   wing, assaultReinforceCap) — and, crucially, exactly WHICH coalition worlds would
-   answer a distress call. With that map in hand you can shape the field before the
-   first shot: pay a willing pirate crew to fall on a responder's own lanes
-   (hireRaidDiversion) and that world's wing stays home for the duration — its 📡
+   tax. Recon is now a real commitment, not a free look: launch a chosen NUMBER of 🛸
+   Combat Drones (planetDetectionBand, combat.js, reads the world's law/tech/alert to
+   set the band) and the swarm's fate depends on where that count lands —
+     below the band's `min`  — too few to resolve any signal against their sensor
+                                noise: the drones are spent for NOTHING, no intel, but
+                                the attempt is small enough nobody notices either.
+     within the band         — a clean, undetected read. How much of the picture you
+                                get scales with how many drones you sent: near the
+                                floor, only a QUALITATIVE read (weak/moderate/strong/
+                                formidable); past the midpoint, the FULL numeric
+                                picture (exact estimated strengths, named responders).
+     above the band's `max`  — you learn everything, but a swarm that large is what
+                                gives you away: the garrison scrambles, `planetAlert`
+                                jumps, and the surprise for whatever comes next is gone.
+   Once charted (any outcome but the silent failure), the map shows exactly WHICH
+   coalition worlds would answer a distress call — with that in hand you can shape the
+   field before the first shot: pay a willing pirate crew to fall on a responder's own
+   lanes (hireRaidDiversion) and that world's wing stays home for the duration — its 📡
    distress-call answers simply never come. The diversion is itself raiding by proxy:
    the harassed world's own alert ticks up, and the hired band goes busy for the run. */
-const PROBE_FUEL = 3, PROBE_CYCLES = 10;
+const PROBE_CYCLES = 10;
+const PROBE_ALARM_GAIN = 6;    // tripping the alarm is a real provocation — more than one lane kill, short of a full assault
 const DIVERSION_COST = 1500, DIVERSION_CYCLES = 6;
-function planetReconActive(pid) { return !!(S.planetRecon && (S.planetRecon[pid] || 0) > S.turn); }
+function planetReconActive(pid) { return !!(S.planetRecon && S.planetRecon[pid] && S.planetRecon[pid].until > S.turn); }
+function planetReconDetail(pid) { return planetReconActive(pid) ? S.planetRecon[pid].detail : null; }
 function worldDiverted(pid) { return !!(S.assaultDiversions && (S.assaultDiversions[pid] || 0) > S.turn); }
 // idle, willing crews only — a band that's busy, mandated, or riding with you has better things to do
 function diversionBandCandidates() {
   return bandList().filter(b => bandWillAlly(b) && !bandBusy(b) && !bandOnMandate(b) && !bandFollowing(b) && !bandOnCall(b) && !bandInbound(b))
     .sort((a, b) => (b.rep || 0) - (a.rep || 0));
 }
-function probePlanetDefenses() {
+function raidStrengthBand(n) { return n <= 15 ? "weak" : n <= 30 ? "moderate" : n <= 50 ? "strong" : "formidable"; }
+function probePlanetDefenses(qty) {
   if (combatLocked()) return;
   if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
   const p = currentPlanet();
   if (!p.faction) return toast("No garrison here worth charting.", "bad");
-  if (S.res.fuel < PROBE_FUEL) return toast(`A recon pass needs ${PROBE_FUEL} fuel.`, "bad");
-  S.res.fuel -= PROBE_FUEL; useAction();
+  if (!((S.upgrades.dronebay || 0) > 0)) return toast("Install a 🛸 Drone Bay (Ship tab) to launch recon drones.", "bad");
+  qty = Math.max(1, Math.round(+qty || 0));
+  if ((S.res.drones || 0) < qty) return toast(`You only have ${fmt(S.res.drones || 0)} 🛸 drones aboard.`, "bad");
+  useAction();
+  S.res.drones -= qty;   // spent whether or not the swarm reports back
+  const { min, max } = planetDetectionBand(p);
+  if (qty < min) {
+    log(`🛸 Your ${qty}-drone recon swarm over <span class="c">${p.name}</span> returns nothing usable — too few to resolve any signal against their sensor noise. The drones are gone and you're no wiser, but the attempt was too small to notice either.`, "bad");
+    toast("Recon inconclusive — drones lost, no intel.", "bad");
+    return afterAction();
+  }
+  const detailed = qty >= (min + max) / 2;
+  const alarmed = qty > max;
   S.planetRecon = S.planetRecon || {};
-  S.planetRecon[p.id] = S.turn + PROBE_CYCLES;
+  S.planetRecon[p.id] = { until: S.turn + PROBE_CYCLES, detail: detailed ? "full" : "coarse" };
   const sources = assaultCoalitionSources(p);
-  log(`🛰️ Recon pass over <span class="c">${p.name}</span>: picket of <b>${planetPatrolCount(p)}</b> (~str ${planetPatrolStrengthEst(p)} each), 🏰 garrison ~str <b>${planetGarrisonStrengthEst(p)}</b>, and <b>${sources.length}</b> coalition world(s) in reach to answer a distress call${sources.length ? ` (${sources.slice(0, 3).map(w => w.name).join(", ")}${sources.length > 3 ? "…" : ""})` : ""}. Passive sensors only — nobody noticed. Intel good for ${PROBE_CYCLES} cycles.`, "event");
-  toast(`${p.name} charted — intel ${PROBE_CYCLES} cyc`, "event");
+  const patrolStr = planetPatrolStrengthEst(p), garrisonStr = planetGarrisonStrengthEst(p);
+  const body = detailed
+    ? `picket of <b>${planetPatrolCount(p)}</b> (~str ${patrolStr} each), 🏰 garrison ~str <b>${garrisonStr}</b>, and <b>${sources.length}</b> coalition world(s) in reach to answer a distress call${sources.length ? ` (${sources.slice(0, 3).map(w => w.name).join(", ")}${sources.length > 3 ? "…" : ""})` : ""}`
+    : `a <b>${raidStrengthBand(patrolStr)}</b> picket, a <b>${raidStrengthBand(garrisonStr)}</b> garrison, and roughly <b>${sources.length}</b> coalition world(s) that could respond`;
+  if (alarmed) {
+    raisePlanetAlert(p.id, PROBE_ALARM_GAIN);
+    log(`🛸 Your ${qty}-drone swarm over <span class="c">${p.name}</span> reads clearly — ${body} — but a swarm that size doesn't go unnoticed: their sensors pick it up and the garrison scrambles onto alert. The surprise is gone.`, "bad");
+    toast(`${p.name} spotted the drones — alert raised!`, "bad");
+  } else {
+    log(`🛸 Recon swarm over <span class="c">${p.name}</span> (${qty} drones, undetected): ${body}. Passive sensors only — nobody noticed. Intel good for ${PROBE_CYCLES} cycles.`, "event");
+    toast(`${p.name} charted${detailed ? " in detail" : ""} — intel ${PROBE_CYCLES} cyc`, "event");
+  }
   afterAction();
 }
 function hireRaidDiversion(worldId) {
@@ -766,7 +801,7 @@ function hireRaidDiversion(worldId) {
 // cycle tick: expire recon charts quietly, and note when a bought diversion runs out
 function processRaidIntel() {
   if (!S.planetRecon) S.planetRecon = {};
-  Object.keys(S.planetRecon).forEach(pid => { if (S.planetRecon[pid] <= S.turn) delete S.planetRecon[pid]; });
+  Object.keys(S.planetRecon).forEach(pid => { if (!S.planetRecon[pid] || S.planetRecon[pid].until <= S.turn) delete S.planetRecon[pid]; });
   if (!S.assaultDiversions) S.assaultDiversions = {};
   Object.keys(S.assaultDiversions).forEach(pid => {
     if (S.assaultDiversions[pid] <= S.turn) {

@@ -305,11 +305,13 @@ function renderRaid() {
       <button class="btn btn-primary" ${al > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="prowl()">Sweep (1 action)</button>
     </div>`;
     const canRaidPlanet = !!p.faction && !(S.bases && S.bases[p.id]) && !(S.colonies && S.colonies[p.id]);
-    // pre-assault recon: charted defenses + the coalition's response map, with a Divert
-    // buy-out per responding world — the "win before the first shot" toolkit
+    // pre-assault recon: a drone swarm you size yourself — too few and it's wasted, too
+    // many and the swarm itself gives you away — then the coalition's response map with
+    // a Divert buy-out per responding world once you've actually charted it
     let reconBlock = "";
     if (canRaidPlanet) {
       if (planetReconActive(p.id)) {
+        const full = planetReconDetail(p.id) === "full";
         const sources = assaultCoalitionSources(p);
         const diverted = PLANETS.filter(w => worldDiverted(w.id) && w.faction && p.faction &&
           factionRelTier(factionRelScore(w.faction, p.faction)) === "alliance" && w.id !== p.id);
@@ -318,12 +320,20 @@ function renderRaid() {
           `<div class="ship-stat" style="align-items:center"><span class="k">${w.name} <span class="hint">${(p.distances && p.distances[w.id]) || "?"} ly</span></span>
             <span class="v"><button class="btn btn-sm" ${canDivert ? "" : "disabled"} title="Pay a willing pirate crew ${fmt(DIVERSION_COST)} cr to tear up ${w.name}'s lanes for ${DIVERSION_CYCLES} cycles — its response wing stays home instead of answering ${p.name}'s distress calls. Heats ${w.name}'s own alert a little." onclick="hireRaidDiversion('${w.id}')">💰 Divert (${fmt(DIVERSION_COST)})</button></span></div>`).join("");
         const divRows = diverted.map(w => `<div class="ship-stat"><span class="k">${w.name}</span><span class="v"><span class="pill good">🏴 lanes harassed — ${S.assaultDiversions[w.id] - S.turn} cyc</span></span></div>`).join("");
-        reconBlock = `<div class="hint" style="margin-top:8px">🛰️ <b>Recon</b> <span class="pill">${S.planetRecon[p.id] - S.turn} cyc left</span> — picket <b>${planetPatrolCount(p)}</b> vessels ~str <b>${planetPatrolStrengthEst(p)}</b> each · 🏰 garrison ~str <b>${planetGarrisonStrengthEst(p)}</b>${S.crises && S.crises[p.id] ? ' · <span style="color:var(--good)">⚡ crisis — defenses thinned</span>' : ""}${factionAtWar(p.faction) ? ' · <span style="color:var(--good)">⚔️ their fleet is committed to a war — one fewer wing will answer</span>' : ""}</div>
+        const readout = full
+          ? `picket <b>${planetPatrolCount(p)}</b> vessels ~str <b>${planetPatrolStrengthEst(p)}</b> each · 🏰 garrison ~str <b>${planetGarrisonStrengthEst(p)}</b>`
+          : `a <b>${raidStrengthBand(planetPatrolStrengthEst(p))}</b> picket · a <b>${raidStrengthBand(planetGarrisonStrengthEst(p))}</b> garrison <span class="hint">(more drones next time reads the exact numbers)</span>`;
+        reconBlock = `<div class="hint" style="margin-top:8px">🛸 <b>Recon</b> <span class="pill">${S.planetRecon[p.id].until - S.turn} cyc left</span> — ${readout}${S.crises && S.crises[p.id] ? ' · <span style="color:var(--good)">⚡ crisis — defenses thinned</span>' : ""}${factionAtWar(p.faction) ? ' · <span style="color:var(--good)">⚔️ their fleet is committed to a war — one fewer wing will answer</span>' : ""}</div>
           ${sources.length ? `<div class="hint">🆘 Worlds that will answer its distress calls — silence them with coin before the shooting starts:</div>${srcRows}` : `<div class="hint" style="color:var(--good)">🆘 No coalition world left in reach — its distress calls will go <b>unanswered</b>.</div>`}
           ${divRows}`;
       } else {
-        reconBlock = `<div class="hint" style="margin-top:8px">Attacking blind is the brute-force tax — a recon pass charts the picket, the garrison, and exactly which worlds would answer a distress call (then buy those lanes shut).</div>
-          <button class="btn btn-sm" ${al > 0 && S.res.fuel >= PROBE_FUEL ? "" : "disabled"} title="A passive sensor pass — no heat, nobody notices. Intel holds for ${PROBE_CYCLES} cycles." onclick="probePlanetDefenses()">🛰️ Probe defenses (${PROBE_FUEL} ⛽, 1 action)</button>`;
+        const haveDrones = S.res.drones || 0;
+        const hasBay = (S.upgrades.dronebay || 0) > 0;
+        reconBlock = `<div class="hint" style="margin-top:8px">Attacking blind is the brute-force tax. Launch a 🛸 recon swarm — too few drones and their sensor noise swallows the signal whole (drones lost, nothing learned, but nobody notices); too many and the swarm's own size gives you away (full intel, but the garrison scrambles onto alert and the surprise is gone). Land inside the band and you learn something real, undetected — more drones read a sharper picture. You have <b>${fmt(haveDrones)}</b> 🛸 aboard.</div>
+          ${hasBay ? `<div class="row" style="margin-top:4px;align-items:center">
+            <input class="qty" id="probe-drones" type="number" min="1" value="10" style="width:70px" />
+            <button class="btn btn-sm" ${al > 0 && haveDrones > 0 ? "" : "disabled"} title="Commit this many drones to the recon pass — spent regardless of outcome." onclick="probePlanetDefenses(+document.getElementById('probe-drones').value || 1)">🛸 Launch recon drones (1 action)</button>
+          </div>` : `<div class="hint" style="color:var(--warn)">Install a 🛸 Drone Bay (Ship tab) to launch recon drones.</div>`}`;
       }
     }
     const planetCard = canRaidPlanet ? `<div class="card" style="border-color:var(--bad)">
