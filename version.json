@@ -1,5 +1,5 @@
 {
-  "version": "2.117.2",
+  "version": "2.117.3",
   "saveVersion": "v2",
-  "notes": "Fix: pausing a colony building now actually reduces its required workforce, instead of still counting it toward labor demand."
+  "notes": "Fix: the Fleet tab roster's name search box no longer loses focus after every keystroke."
 }

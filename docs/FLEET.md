@@ -544,6 +544,15 @@ threshold); a wall of rows once a save's fleet passes 30.
   threshold hid ships sitting at, say, 80% hull that already show a 🔧
   repair button and cost, so a player scanning "Damaged" for anything
   worth topping off before a raid missed them.
+- **Search box focus fix**: the search box (`#fleetRosterSearch`) live-
+  filters on every keystroke via `renderFleet()`, which rebuilds the whole
+  `#panel-fleet` DOM (`el.innerHTML = ...`) — dropping browser focus after
+  every letter, unlike the chat draft input (renderCombat.js), which
+  sidesteps the same trap by simply never re-rendering on keystroke (not
+  an option here, since the whole point is a live-updating list).
+  `renderFleet()` now saves `document.activeElement`'s selection range
+  before the rebuild when it's the search box, and restores focus + caret
+  position on the freshly-created input afterward.
 - Deliberately out of scope: no change to per-ship action buttons, to the
   Assignments/Shipyard sub-views, or to any fleet domain logic in
   fleet.js — this is a roster-list *rendering* reorg only.
