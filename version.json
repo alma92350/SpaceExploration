@@ -1,5 +1,5 @@
 {
-  "version": "2.116.0",
+  "version": "2.117.0",
   "saveVersion": "v2",
-  "notes": "New: raid combat gets a tactical layer - telegraphed enemy intents (alpha strikes, distress calls, fleeing drives) with real counters, morale/rout for a mauled group, and a pre-assault recon probe that charts a world's defenses and lets you hire pirates to divert its coalition response before you strike."
+  "notes": "New: the Fleet tab's roster scales to a big fleet - collapsible, counted role groups, numeric-aware name sorting, and (past 8 ships) a status summary line with quick filters and a name search box."
 }
