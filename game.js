@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.117.3";
+const APP_VERSION = "2.118.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.118.0", notes: "New: a Tanker Run can now be dispatched empty — handy for repositioning a tanker to another world or setting it up to load fuel at the destination instead, rather than being refused for lack of cargo. New: the Fleet tab roster's ⬆️⛽ Load and ⬇️⛽ Unload buttons take a specific quantity instead of always moving the maximum — a number field next to each button lets you top off or drain a tanker by exactly as much fuel as you want." },
   { version: "2.117.3", notes: "Fix: typing in the Fleet tab roster's name search box kicked focus out of the field after every letter — the live re-filter rebuilds the whole panel's DOM, which drops the browser's focus. The search box now keeps focus (and your caret position) across every keystroke." },
   { version: "2.117.2", notes: "Fix: a colony's required workforce (👷 the pop-needed figure gating output) counted every built tier regardless of whether that building was paused — pausing a hungry factory or extractor never freed up any labor for the rest of the colony. Paused buildings' tiers are now excluded from the labor-needed total, so pausing one process genuinely eases the workforce strain on everything still running, and resuming it puts that demand right back." },
   { version: "2.117.1", notes: "Fix: the Fleet tab roster's 🩹 Damaged filter (added last release) only caught ships below 60% hull — a ship sitting at, say, 80% hull already shows a 🔧 repair button and cost, so it silently missed anything short of severely battered. It now matches the repair action's own definition: any ship with less than full hull." },
@@ -777,7 +778,7 @@ Object.assign(window, {
   commissionMandate, cancelMandate, setMandateField, reconcileBands, brokerTruce,
   orderShip, scrapShip, repairFleetShip, reassignShipyard, upgradeLoadout, assignFleetMission, recallFleetMission, setFleetMissionField, raidSummonFleet, escortRallyFleet,
   assignLogistics, recallLogistics, setFleetLogiField, assignPatrol, recallPatrol,
-  assignTankerRun, recallTankerRun, setTankerRunField, toggleTankerEscort, loadTanker, unloadTanker, reinforceTankerRun,
+  assignTankerRun, recallTankerRun, setTankerRunField, toggleTankerEscort, loadTanker, unloadTanker, loadTankerQty, unloadTankerQty, reinforceTankerRun,
   deployBattleGroup, recallBattleGroup, setBattleGroupPosture, setBattleGroupFormation,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand, setEscortFormation,
   giftBandCredits, giftBandCargo,

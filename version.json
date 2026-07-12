@@ -1,5 +1,5 @@
 {
-  "version": "2.117.3",
+  "version": "2.118.0",
   "saveVersion": "v2",
-  "notes": "Fix: the Fleet tab roster's name search box no longer loses focus after every keystroke."
+  "notes": "New: dispatch a tanker run empty, and load/unload tankers by a specific fuel quantity."
 }
