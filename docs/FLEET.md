@@ -537,9 +537,13 @@ threshold); a wall of rows once a save's fleet passes 30.
   Once the fleet exceeds 8 ships, a filter-button row (All/Idle/On
   duty/Damaged/Building) and a name search box appear
   (`fleetRosterFilter`, `setFleetRosterFilter`) — same session-only-var
-  idiom as `marketSort` (renderProgression.js). "Damaged" reuses the
-  roster's own hull-bar threshold (`<60%`) so the filter and the bar's
-  warn/bad coloring always agree.
+  idiom as `marketSort` (renderProgression.js). "Damaged" matches
+  `fleetRepairCost`'s own definition of needing repair (`hull < hullMax`,
+  any missing hull) rather than the roster bar's `<60%` warn/bad
+  threshold — shipped first keyed off the bar color, then fixed: that
+  threshold hid ships sitting at, say, 80% hull that already show a 🔧
+  repair button and cost, so a player scanning "Damaged" for anything
+  worth topping off before a raid missed them.
 - Deliberately out of scope: no change to per-ship action buttons, to the
   Assignments/Shipyard sub-views, or to any fleet domain logic in
   fleet.js — this is a roster-list *rendering* reorg only.
