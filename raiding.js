@@ -7,9 +7,14 @@
    paths, the phased planetary assault (patrol-picket and ground-garrison
    win paths, the patrols→garrison phase change in promoteOrEnd, and the
    coalition answering a raided world's distress call from its OTHER
-   worlds), sparing a beaten crew, ship + subsystem repair (dockside and
-   field patches mid-fight), the Wanted/Dread cooldown with its bounty-
-   hunter counterplay, and the planetary alert meter's cycle tick
+   worlds), the telegraphed-intent layer (assignRaidIntents/
+   raidResolveDepartures: 💥 alpha / 📡 distress / 🚀 flee announcements
+   that execute a round later, plus the morale ledger that breaks and
+   routs a mauled formation), pre-assault recon and battlefield shaping
+   (probePlanetDefenses / hireRaidDiversion / processRaidIntel), sparing
+   a beaten crew, ship + subsystem repair (dockside and field patches
+   mid-fight), the Wanted/Dread cooldown with its bounty-hunter
+   counterplay, and the planetary alert meter's cycle tick
    (processPlanetAlert: peacetime decay + its factionRel nudge while hot;
    the meter's gain side — raisePlanetAlert — lives in combat.js next to
    the defense-generation functions that read it) alongside its commerce
@@ -48,24 +53,28 @@ function allyStrike(ally) {
 }
 const RESCUE_PACK_CAP = 2;
 // a coalition victim may summon EVERY same-faction vessel in the area to its rescue at once —
-// not a trickle. Each round still rolls a fresh 20% chance for the call to land, but once it
-// does, the whole available response joins together (capped, for balance), matching the Escort
-// tab's wave spawning (spawnEscortWave) rather than a one-per-round reveal.
-function maybeRescue(prey) {
-  if (!prey || prey.isPirate) return;
+// not a trickle: once a call lands, the whole available response joins together (capped, for
+// balance), matching the Escort tab's wave spawning (spawnEscortWave) rather than a one-per-
+// round reveal. Since the intent telegraph (assignRaidIntents below), the call is no longer an
+// ambient background roll: a defender visibly 📡 transmits for a round first, and only if it
+// survives does this land — `forced` is that execution path (the old 20% roll is kept for any
+// direct/legacy caller). Returns whether help actually came, so the caller can log a call that
+// went unanswered.
+function maybeRescue(prey, forced) {
+  if (!prey || prey.isPirate) return false;
   prey.pack = prey.pack || [];
   const room = RESCUE_PACK_CAP - prey.pack.length;
-  if (room <= 0) return;
+  if (room <= 0) return false;
   const others = prey._others || [];
   const eligible = others.filter(o => !o.isPirate);
-  if (!eligible.length) return;
-  if (Math.random() < 0.20) {
-    const reinforcements = eligible.slice(0, room);
-    reinforcements.forEach(r => { prey._others = prey._others.filter(o => o !== r); prey.pack.push(r); foeHp(r); });
-    const names = reinforcements.map(r => `${classLabel(r)}${FACTIONS[r.faction] ? " (" + FACTIONS[r.faction].name + ")" : ""}`).join(", ");
-    log(`🆘 The ${prey.name} sent a distress call — ${names} answer${reinforcements.length === 1 ? "s" : ""} together! You now face ${prey.pack.length + 1} vessels, all defending as one.`, "bad");
-    toast(`Reinforcements: ${reinforcements.map(r => r.name).join(", ")}!`, "bad");
-  }
+  if (!eligible.length) return false;
+  if (!forced && Math.random() >= 0.20) return false;
+  const reinforcements = eligible.slice(0, room);
+  reinforcements.forEach(r => { prey._others = prey._others.filter(o => o !== r); prey.pack.push(r); foeHp(r); });
+  const names = reinforcements.map(r => `${classLabel(r)}${FACTIONS[r.faction] ? " (" + FACTIONS[r.faction].name + ")" : ""}`).join(", ");
+  log(`🆘 The ${prey.name}'s distress call lands — ${names} answer${reinforcements.length === 1 ? "s" : ""} together! You now face ${prey.pack.length + 1} vessels, all defending as one.`, "bad");
+  toast(`Reinforcements: ${reinforcements.map(r => r.name).join(", ")}!`, "bad");
+  return true;
 }
 /* ---------- Coalition reinforcements during a planetary assault ----------
    A raided world screams for help on every open channel, and its coalition answers:
@@ -77,25 +86,34 @@ function maybeRescue(prey) {
    fight — and die (raidWinPatrol) — like any other space defender, which also means
    phase 2 can't begin until they're swept aside with the rest of the picket. */
 const ASSAULT_REINFORCE_CAP = 3;        // vessels per assault that the coalition can send, total
-const ASSAULT_REINFORCE_CHANCE = 0.18;  // per-round chance the distress call is answered
+const ASSAULT_REINFORCE_CHANCE = 0.18;  // legacy ambient chance (kept for direct callers; in-fight the 📡 distress-call intent is the real path)
 const ASSAULT_FIELD_CAP = 4;            // no arrivals while this many hostiles already hold the field
+// a defending faction with a shooting war elsewhere has its fleet committed — one fewer wing
+// answers (factionAtWar, sector4x.js). Recon (probePlanetDefenses) surfaces this so attacking
+// during someone else's war is a plan, not a coincidence.
+function assaultReinforceCap(planet) {
+  return Math.max(1, ASSAULT_REINFORCE_CAP - (planet && planet.faction && factionAtWar(planet.faction) ? 1 : 0));
+}
 // the worlds that would answer: same faction, or one currently in Alliance with it
-// (factionRelScore(a,a) is 100, so the tier check alone covers the same-faction case)
+// (factionRelScore(a,a) is 100, so the tier check alone covers the same-faction case).
+// A world whose own lanes are being torn up by a hired diversion (hireRaidDiversion)
+// keeps its response wing at home — it drops out of the list entirely.
 function assaultCoalitionSources(planet) {
   return PLANETS.filter(o => o.id !== planet.id && isActive(o) && !o.hidden && o.faction && planet.faction &&
+      !worldDiverted(o.id) &&
       factionRelTier(factionRelScore(o.faction, planet.faction)) === "alliance")
     .sort((a, b) => ((planet.distances || {})[a.id] || 99) - ((planet.distances || {})[b.id] || 99));
 }
-function maybePlanetReinforce() {
+function maybePlanetReinforce(forced) {
   const A = S.planetAssault, prey = S.prey;
-  if (!A || !prey) return;
-  if ((A.called || 0) >= ASSAULT_REINFORCE_CAP) return;
-  if (allHostiles(prey).filter(h => h.hp > 0).length >= ASSAULT_FIELD_CAP) return;
-  const planet = PLANETS.find(p => p.id === A.planetId); if (!planet) return;
+  if (!A || !prey) return false;
+  const planet = PLANETS.find(p => p.id === A.planetId); if (!planet) return false;
+  if ((A.called || 0) >= assaultReinforceCap(planet)) return false;
+  if (allHostiles(prey).filter(h => h.hp > 0).length >= ASSAULT_FIELD_CAP) return false;
   const sources = assaultCoalitionSources(planet);
-  if (!sources.length) return;
-  if (Math.random() >= ASSAULT_REINFORCE_CHANCE) return;
-  const n = Math.min(rint(1, 2), ASSAULT_REINFORCE_CAP - (A.called || 0));
+  if (!sources.length) return false;
+  if (!forced && Math.random() >= ASSAULT_REINFORCE_CHANCE) return false;
+  const n = Math.min(rint(1, 2), assaultReinforceCap(planet) - (A.called || 0));
   const arrivals = [];
   for (let i = 0; i < n; i++) {
     const src = sources[Math.min(i, sources.length - 1)];
@@ -111,6 +129,98 @@ function maybePlanetReinforce() {
   log(`🆘 ${planet.name}'s distress call is answered — ${arrivals.join(", ")} jump${arrivals.length === 1 ? "s" : ""} in from ${arrivals.length === 1 ? "a" : ""} coalition world${arrivals.length === 1 ? "" : "s"} to join the defense!`, "bad");
   toast(`Coalition reinforcements: ${arrivals.length} vessel${arrivals.length === 1 ? "" : "s"}!`, "bad");
   sfx("alarm");
+  return true;
+}
+/* ---------- Telegraphed enemy intent (the anti-attrition layer) ----------
+   Mirrors the Escort tab's telegraphed-intent design inside raid combat: at the end of
+   every round each surviving hostile may ANNOUNCE its next move, and the move only
+   executes a round later — so fights are decided by reading and countering, not by
+   volleying into hull bars. Three telegraphs, each with a hard counter:
+     💥 alpha    — next shot lands near-double; kill it now, or gut its 🔫 strength
+                   (Weapons targeting) so the big hit has nothing behind it
+     📡 distress — THE path reinforcements arrive by now (the old ambient per-round
+                   rolls are gone from combat): kill the transmitter before it finishes
+                   or the call lands — a rescue pack on the lanes, a coalition response
+                   wing during a planetary assault. A call can also go UNANSWERED if
+                   you've shaped the battlefield (diversions, war, cap spent) — that's
+                   your prep paying off, visibly.
+     🚀 flee     — drive spooling: it jumps clear at the END of next round unless killed
+                   or its 🚀 engines are stripped to 0 (pinned). Replaces the old
+                   surprise same-instant flee, and now applies to EVERY hostile, not
+                   just the anchor.
+   Unexecuted intents persist across your kill-rounds (a transmitting ship keeps
+   transmitting while you shoot its wingmen — silencing it means killing IT).
+   ---------- Morale & rout ----------
+   The group remembers its dead (anchor-carried _group0/_fallen/_leaderDown, copied
+   across promotions): lose the leader (an elite, or a battleship+ hull) or half the
+   starting force, and the formation BREAKS — every survivor with a live drive rolls
+   rout (a flee telegraph) each round, helped along by your Dread. Decapitation and
+   terror end fights early; grinding is no longer the only lever. The ground garrison
+   (no engines, dug in) never routs. */
+const RAID_INTENT_META = {
+  alpha:    { ico: "💥", name: "charging an alpha strike", counter: "kill it or gut its 🔫 strength this round — its next hit lands near-double" },
+  distress: { ico: "📡", name: "transmitting a distress call", counter: "silence it THIS round or reinforcements answer" },
+  flee:     { ico: "🚀", name: "spooling its drive", counter: "kill it or strip its 🚀 engines to 0, or it jumps clear with the loot" },
+};
+const RAID_ALPHA_MULT = 1.85;           // a charged strike's intensity multiplier
+const RAID_DISTRESS_CHANCE = 0.25;      // per eligible defender per round (max one transmitter at a time)
+const RAID_ROUT_CHANCE = 0.30;          // per broken survivor per round, + Dread's push below
+const RAID_ROUT_DREAD_PUSH = 0.004;     // × your Dread — a feared name shatters broken formations faster
+function distressEligible(prey) {
+  if (S.planetAssault) {
+    const planet = PLANETS.find(p => p.id === S.planetAssault.planetId);
+    return !!planet && (S.planetAssault.called || 0) < assaultReinforceCap(planet) && assaultCoalitionSources(planet).length > 0;
+  }
+  return (prey._others || []).some(o => !o.isPirate) && (prey.pack || []).length < RESCUE_PACK_CAP;
+}
+function raidGroupBroken(prey) {
+  if (!prey) return false;
+  const g0 = prey._group0 || 0;
+  return !!(prey._leaderDown || (g0 >= 2 && (prey._fallen || 0) >= Math.ceil(g0 / 2)));
+}
+function assignRaidIntents(prey) {
+  if (!prey) return;
+  if (prey._group0 == null) prey._group0 = allHostiles(prey).filter(h => h.hp > 0).length + (prey._fallen || 0);
+  const hostiles = allHostiles(prey).filter(h => h.hp > 0);
+  const broken = raidGroupBroken(prey);
+  let caller = hostiles.some(h => h.intent === "distress");   // one transmitter at a time
+  const notes = [];
+  hostiles.forEach(h => {
+    if (h.intent) return;                                     // an unexecuted telegraph stands (it survives your kill-rounds)
+    if (!h.ground && (h.engines || 0) > 0 &&
+        (foeFleeCheck(h) || (broken && Math.random() < RAID_ROUT_CHANCE + (S.pirate ? S.pirate.dread : 0) * RAID_ROUT_DREAD_PUSH))) {
+      h.intent = "flee"; notes.push(`🚀 ${h.name} spools its drive`); return;
+    }
+    if (!caller && !h.isPirate && distressEligible(prey) && Math.random() < RAID_DISTRESS_CHANCE) {
+      h.intent = "distress"; caller = true; notes.push(`📡 ${h.name} starts transmitting a distress call`); return;
+    }
+    const cls = SHIP_CLASSES[h.cls] || SHIP_CLASSES.corvette;
+    if (Math.random() < (h.elite ? 0.35 : cls.str >= 1.7 ? 0.15 : 0.05)) {
+      h.intent = "alpha"; notes.push(`💥 ${h.name} charges its weapons`);
+    }
+  });
+  if (notes.length) log(`⚠️ Enemy moves — ${notes.join("; ")}.`, "");
+}
+// end-of-round departures: every hostile whose 🚀 flee telegraph survived the round jumps
+// clear — unless its drive was stripped in the meantime, in which case it's pinned and
+// turns back to the fight. Pack members leave first, then the anchor (whose departure
+// hands the fight to the survivors, or rolls a planetary assault into its next phase).
+function raidResolveDepartures(prey) {
+  const leaving = allHostiles(prey).filter(h => h.hp > 0 && h.intent === "flee");
+  if (!leaving.length) return;
+  const depart = (h) => {
+    h.intent = null;
+    if ((h.engines || 0) <= 0) {
+      log(`🚀 The ${h.ico} ${h.name}'s drive is dead — pinned, it turns back to the fight.`, "good");
+      return false;
+    }
+    if (h.isPirate) { const b = bandById(h.bandId); if (b) bandRepAdd(b, 4); }   // they live to remember you let them go
+    log(`🏃 The ${h.ico} ${h.name} lit its drive and jumped clear — the ${h.isPirate ? "bounty" : "haul"} got away.`, "bad");
+    toast(`${h.name} escaped!`, "bad");
+    return true;
+  };
+  leaving.filter(h => h !== prey).forEach(h => { if (depart(h)) prey.pack = (prey.pack || []).filter(x => x !== h); });
+  if (leaving.includes(prey) && depart(prey)) promoteOrEnd(prey);
 }
 function raidCallAllies() {
   if (!S.prey) return toast("No engagement.", "bad");
@@ -260,6 +370,7 @@ function promoteOrEnd(prey) {
   if (prey.pack && prey.pack.length) {
     const next = prey.pack.shift();
     next.pack = prey.pack; next._others = prey._others; next._engaged = true; foeHp(next);
+    next._group0 = prey._group0; next._fallen = prey._fallen; next._leaderDown = prey._leaderDown;   // the group's morale ledger survives a change of anchor
     S.prey = next;
     log(`Now engaging the ${classLabel(next)} <span class="c">${next.name}</span> — ${next.pack.length + 1} hostile(s) remain.`, "bad");
     return;
@@ -307,8 +418,13 @@ function raidFocusTarget(idx) {
 // a salvo can kill more than one hostile at once now (pooled fire split across several targets).
 // Non-anchor kills are just spliced out of the pack; if the anchor itself died, reuse the
 // existing promoteOrEnd (promotes a surviving pack member, or clears the engagement if none
-// remain) — the only case that still needs it.
+// remain) — the only case that still needs it. Also the morale ledger: the group remembers
+// its dead (raidGroupBroken reads these), and losing an elite or a battleship+ hull marks
+// the leader down — the decapitation that breaks a formation outright.
 function raidResolveKills(anchor, killed) {
+  if (anchor._group0 == null) anchor._group0 = allHostiles(anchor).filter(h => h.hp > 0).length + killed.length + (anchor._fallen || 0);
+  anchor._fallen = (anchor._fallen || 0) + killed.length;
+  if (killed.some(h => h.elite || h.cls === "battleship" || h.cls === "dreadnought")) anchor._leaderDown = true;
   const anchorDied = killed.includes(anchor);
   killed.filter(h => h !== anchor).forEach(h => { anchor.pack = (anchor.pack || []).filter(x => x !== h); });
   if (anchorDied) promoteOrEnd(anchor);
@@ -343,13 +459,26 @@ function combatStrike(noQuarter, wkey) {
     killed.forEach(h => { if (h.isPlanetRaid) raidWinPlanet(h, noQuarter); else if (h.isPlanetPatrol) raidWinPatrol(h, noQuarter); else if (h.isPirate) raidWinPirate(h); else raidWinMerchant(h, noQuarter); });
     raidResolveKills(prey, killed);
     log(`⚔️ You hit ${hits.join("; ")}${dmgNote} — destroyed ${killed.map(h => h.name).join(", ")}!`, "good");
+    if (S.prey) assignRaidIntents(S.prey);   // survivors read the slaughter and pick their next moves (existing telegraphs stand)
     return afterAction();
   }
   sfx("fire");
   const incoming = [];
   for (let idx = 0; idx < hostiles.length; idx++) {
-    const fs = foeStrikes(hostiles[idx], idx === 0 ? (noQuarter ? 0.27 : 0.22) : 0.20);
-    incoming.push(`${idx === 0 ? "" : hostiles[idx].ico + " "}−${fs.dmg}${subsysHitLog(fs.subHit)}`);
+    const h = hostiles[idx];
+    // a primed 📡 transmitter finishes its call instead of firing — kill it BEFORE this
+    // moment or the reinforcements are real. A shaped battlefield can leave it unanswered.
+    if (h.intent === "distress") {
+      h.intent = null;
+      const answered = S.planetAssault ? maybePlanetReinforce(true) : maybeRescue(prey, true);
+      incoming.push(`${h.ico} 📡 held fire to transmit${answered ? "" : " — unanswered"}`);
+      if (!answered) log(`📡 The ${h.name}'s distress call goes out… and nothing answers. ${S.planetAssault ? "The coalition has no wing left to send." : "No friendly hull is in reach."}`, "good");
+      continue;
+    }
+    const alpha = h.intent === "alpha";
+    if (alpha) h.intent = null;
+    const fs = foeStrikes(h, (idx === 0 ? (noQuarter ? 0.27 : 0.22) : 0.20) * (alpha ? RAID_ALPHA_MULT : 1));
+    incoming.push(`${idx === 0 ? "" : h.ico + " "}${alpha ? "💥ALPHA " : ""}−${fs.dmg}${subsysHitLog(fs.subHit)}`);
     if (!S.prey) break;   // shipCrippled ended the engagement
   }
   if (battleGroupShips().length) {
@@ -362,15 +491,9 @@ function combatStrike(noQuarter, wkey) {
   const frontPct = Math.max(0, Math.round(Math.max(0, prey.hp) / prey.maxhp * 100));
   toast(`Foe hull ${frontPct}%${prey.pack && prey.pack.length ? ` · +${prey.pack.length} more` : ""}`, "");
   if (!S.prey) return afterAction();
-  maybeRescue(prey);
-  maybePlanetReinforce();
-  if (foeFleeCheck(prey)) {
-    if (prey.isPirate) { const b = bandById(prey.bandId); if (b) bandRepAdd(b, 4); }   // they live to remember you let them go
-    log(`🏃 The ${prey.ico} ${prey.name} lit its drive and jumped clear — you never crippled its 🚀 engines. The ${prey.isPirate ? "bounty" : "haul"} got away.`, "bad");
-    toast(`${prey.name} escaped!`, "bad");
-    promoteOrEnd(prey);
-    return afterAction();
-  }
+  raidResolveDepartures(prey);            // primed 🚀 drives light off now — pinned ones stay
+  if (!S.prey) return afterAction();
+  assignRaidIntents(S.prey);              // next round's telegraphs — read them before you volley
   afterAction();
 }
 function raidAttack(wkey) { if (!S.prey) return; combatStrike(false, wkey); }
@@ -584,5 +707,72 @@ function processTradeDisruption() {
       if (next <= 0) delete goods[c]; else goods[c] = next;
     });
     if (Object.keys(goods).length === 0) delete S.tradeDisruption[pid];
+  });
+}
+/* ---------- Pre-assault recon & battlefield shaping ----------
+   The strategic half of the tactical layer above: attacking BLIND is the brute-force
+   tax. A 🛰️ recon pass (passive sensors — no Wanted) charts a world's defenses for a
+   while: picket size and rough strength, garrison strength, whether a crisis has
+   thinned them, whether the faction's fleet is committed to a war (one fewer response
+   wing, assaultReinforceCap) — and, crucially, exactly WHICH coalition worlds would
+   answer a distress call. With that map in hand you can shape the field before the
+   first shot: pay a willing pirate crew to fall on a responder's own lanes
+   (hireRaidDiversion) and that world's wing stays home for the duration — its 📡
+   distress-call answers simply never come. The diversion is itself raiding by proxy:
+   the harassed world's own alert ticks up, and the hired band goes busy for the run. */
+const PROBE_FUEL = 3, PROBE_CYCLES = 10;
+const DIVERSION_COST = 1500, DIVERSION_CYCLES = 6;
+function planetReconActive(pid) { return !!(S.planetRecon && (S.planetRecon[pid] || 0) > S.turn); }
+function worldDiverted(pid) { return !!(S.assaultDiversions && (S.assaultDiversions[pid] || 0) > S.turn); }
+// idle, willing crews only — a band that's busy, mandated, or riding with you has better things to do
+function diversionBandCandidates() {
+  return bandList().filter(b => bandWillAlly(b) && !bandBusy(b) && !bandOnMandate(b) && !bandFollowing(b) && !bandOnCall(b) && !bandInbound(b))
+    .sort((a, b) => (b.rep || 0) - (a.rep || 0));
+}
+function probePlanetDefenses() {
+  if (combatLocked()) return;
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  const p = currentPlanet();
+  if (!p.faction) return toast("No garrison here worth charting.", "bad");
+  if (S.res.fuel < PROBE_FUEL) return toast(`A recon pass needs ${PROBE_FUEL} fuel.`, "bad");
+  S.res.fuel -= PROBE_FUEL; useAction();
+  S.planetRecon = S.planetRecon || {};
+  S.planetRecon[p.id] = S.turn + PROBE_CYCLES;
+  const sources = assaultCoalitionSources(p);
+  log(`🛰️ Recon pass over <span class="c">${p.name}</span>: picket of <b>${planetPatrolCount(p)}</b> (~str ${planetPatrolStrengthEst(p)} each), 🏰 garrison ~str <b>${planetGarrisonStrengthEst(p)}</b>, and <b>${sources.length}</b> coalition world(s) in reach to answer a distress call${sources.length ? ` (${sources.slice(0, 3).map(w => w.name).join(", ")}${sources.length > 3 ? "…" : ""})` : ""}. Passive sensors only — nobody noticed. Intel good for ${PROBE_CYCLES} cycles.`, "event");
+  toast(`${p.name} charted — intel ${PROBE_CYCLES} cyc`, "event");
+  afterAction();
+}
+function hireRaidDiversion(worldId) {
+  if (combatLocked()) return;
+  if (actionsLeft() <= 0) return toast("No actions left — end the cycle.", "bad");
+  const p = currentPlanet();
+  if (!planetReconActive(p.id)) return toast("Chart the lanes first — 🛰️ probe this world's defenses.", "bad");
+  const w = PLANETS.find(x => x.id === worldId);
+  if (!w || !assaultCoalitionSources(p).some(o => o.id === worldId)) return toast("That world isn't part of this coalition's response.", "bad");
+  const band = diversionBandCandidates()[0];
+  if (!band) return toast("No willing pirate crew is free for the job — build standing at the 🏴‍☠️ Contacts tab first.", "bad");
+  if (S.res.credits < DIVERSION_COST) return toast(`The job costs ${fmt(DIVERSION_COST)} cr.`, "bad");
+  S.res.credits -= DIVERSION_COST; useAction();
+  S.assaultDiversions = S.assaultDiversions || {};
+  S.assaultDiversions[worldId] = S.turn + DIVERSION_CYCLES;
+  band.busyUntil = S.turn + DIVERSION_CYCLES;
+  bandRepAdd(band, 4);                                       // paid work deepens the friendship
+  raisePlanetAlert(worldId, 4);                              // raiding by proxy still heats the harassed world
+  log(`💰 The ${band.ico} <b>${band.name}</b> take your coin and fall on <span class="c">${w.name}</span>'s lanes — its response wing is pinned at home for <b>${DIVERSION_CYCLES}</b> cycles and won't answer ${p.name}'s distress calls.`, "event");
+  toast(`${w.name} diverted for ${DIVERSION_CYCLES} cycles`, "event");
+  afterAction();
+}
+// cycle tick: expire recon charts quietly, and note when a bought diversion runs out
+function processRaidIntel() {
+  if (!S.planetRecon) S.planetRecon = {};
+  Object.keys(S.planetRecon).forEach(pid => { if (S.planetRecon[pid] <= S.turn) delete S.planetRecon[pid]; });
+  if (!S.assaultDiversions) S.assaultDiversions = {};
+  Object.keys(S.assaultDiversions).forEach(pid => {
+    if (S.assaultDiversions[pid] <= S.turn) {
+      delete S.assaultDiversions[pid];
+      const w = PLANETS.find(x => x.id === pid);
+      if (w) digestNote("sector", `the hired harassment at ${w.name} ends — its response wing stands ready again`);
+    }
   });
 }

@@ -107,6 +107,8 @@ function freshState(opts = {}) {
     pirates: {},                // pirate activity per world (0-5); hunted down, regrows in lawless space
     planetAlert: {},             // per-world militarization 0-100: climbs when raided, fades slowly at peace
     tradeDisruption: {},         // per-world, per-good supply-chain disruption: pid -> commodityId -> 0-100
+    planetRecon: {},             // pre-assault recon charts: pid -> intel-expires turn
+    assaultDiversions: {},       // hired lane harassment: pid -> ends turn (that world won't answer distress calls)
     pirateCalm: 0,              // until this turn, pirate attacks are suppressed (you cleared the lanes)
     encounter: null,            // travel ambush: { level, strength, toll }
     pollution: {},              // per-planet industrial pollution 0–100

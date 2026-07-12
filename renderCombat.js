@@ -104,7 +104,7 @@ function preyCombatCard(prey, al) {
   if (A && (prey.isPlanetPatrol || prey.isPlanetRaid)) {
     const ap = PLANETS.find(x => x.id === A.planetId);
     const defenders = allHostiles(prey).filter(h => h.hp == null || h.hp > 0).length;
-    const moreComing = (A.called || 0) < ASSAULT_REINFORCE_CAP && assaultCoalitionSources(ap || currentPlanet()).length > 0;
+    const moreComing = (A.called || 0) < assaultReinforceCap(ap || currentPlanet()) && assaultCoalitionSources(ap || currentPlanet()).length > 0;
     const alertLvl = Math.round(planetAlertLevel(A.planetId));
     const alertNote = alertLvl >= 15 ? ` <span style="color:var(--bad)">🚨 Reinforced by past raids (alert ${alertLvl}%) — expect a harder fight than a fresh world's.</span>` : "";
     assaultLine = A.phase === "patrols"
@@ -127,6 +127,15 @@ function preyCombatCard(prey, al) {
   const patrolHint = (allyN < 2 && fleetRaidable().length === 0 && fleetList().some(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"))
     ? `<div class="hint">✦ You have idle warships, but none following you — assign one from the ✦ <b>Fleet</b> tab to call it into fights.</div>` : "";
   const allyLine = allyN > 0 ? `<div class="hint"><span class="pill good">🤝 ${allyN} ally${allyN > 1 ? "ies" : ""} · loot split ${allyN + 1} ways</span></div>` : "";
+  // telegraphed enemy intent: every primed move is announced with its counter — the round
+  // you get to react is the whole point, so make it impossible to miss
+  const primed = allHostiles(prey).filter(h => h.hp > 0 && h.intent && RAID_INTENT_META[h.intent]);
+  const intentLine = primed.length
+    ? `<div class="hint" style="margin-top:4px;color:var(--bad)">⚠️ <b>Enemy intent:</b> ${primed.map(h => `${RAID_INTENT_META[h.intent].ico} <b>${h.name}</b> is ${RAID_INTENT_META[h.intent].name} — <i>${RAID_INTENT_META[h.intent].counter}</i>`).join(" · ")}</div>`
+    : "";
+  const brokenLine = (typeof raidGroupBroken === "function" && raidGroupBroken(prey) && allHostiles(prey).some(h => h.hp > 0 && !h.ground))
+    ? `<div class="hint" style="margin-top:4px;color:var(--good)">🏳️ <b>Their formation is breaking</b> — survivors may cut and run each round (your Dread hurries them). Strip 🚀 engines to pin the loot, or let them scatter and take the field.</div>`
+    : "";
   // multiple hostiles now fight as one pooled group — a roster with Target/Focus buttons per
   // hostile, mirroring the Escort tab's wave combat, replaces the old one-line pack pill.
   let hostileRoster = "";
@@ -139,8 +148,9 @@ function preyCombatCard(prey, al) {
       const sel = selected.includes(i);
       const pct = Math.max(0, Math.round(h.hp / h.maxhp * 100));
       const col = pct >= 60 ? "var(--good)" : pct >= 30 ? "var(--warn)" : "var(--bad)";
+      const im = h.intent && RAID_INTENT_META[h.intent];
       return `<div class="ship-stat" style="align-items:center${sel ? ";border-color:var(--accent)" : ""}">
-          <span class="k">${h === prey ? "🎯 " : ""}${classLabel(h)} <span class="hint">${h.name}</span></span>
+          <span class="k">${h === prey ? "🎯 " : ""}${classLabel(h)} <span class="hint">${h.name}</span>${im ? ` <span title="${im.name} — ${im.counter}">${im.ico}</span>` : ""}</span>
           <span class="v">${Math.round(h.hp)}/${h.maxhp}
             <button class="btn btn-sm ${sel ? "btn-good" : ""}" onclick="raidToggleTarget(${i})">${sel ? "✓ Targeted" : "Target"}</button>
             <button class="btn btn-sm" onclick="raidFocusTarget(${i})">Focus</button></span></div>
@@ -194,7 +204,7 @@ function preyCombatCard(prey, al) {
     <h4>${preyBand ? bandTagMark(preyBand) : ""}${classLabel(prey)} <span class="hint">— ${prey.name}</span> ${who} ${reward}${prey.ground ? ' <span class="pill bad">🏔️ dug in</span>' : pinned ? ' <span class="pill bad">🚀 pinned</span>' : ""}</h4>
     ${bandLine}
     <div class="hint">${lawNote}</div>
-    ${assaultLine}${allyLine}${hostileRoster}${patrolHint}${crewHint}
+    ${assaultLine}${intentLine}${brokenLine}${allyLine}${hostileRoster}${patrolHint}${crewHint}
     ${tacticalHTML(prey, "raidAttack")}
     <div class="row" style="margin-top:6px">${buttons}</div>
     ${bgBlock}
@@ -295,10 +305,32 @@ function renderRaid() {
       <button class="btn btn-primary" ${al > 0 && S.res.fuel >= PROWL_FUEL ? "" : "disabled"} onclick="prowl()">Sweep (1 action)</button>
     </div>`;
     const canRaidPlanet = !!p.faction && !(S.bases && S.bases[p.id]) && !(S.colonies && S.colonies[p.id]);
+    // pre-assault recon: charted defenses + the coalition's response map, with a Divert
+    // buy-out per responding world — the "win before the first shot" toolkit
+    let reconBlock = "";
+    if (canRaidPlanet) {
+      if (planetReconActive(p.id)) {
+        const sources = assaultCoalitionSources(p);
+        const diverted = PLANETS.filter(w => worldDiverted(w.id) && w.faction && p.faction &&
+          factionRelTier(factionRelScore(w.faction, p.faction)) === "alliance" && w.id !== p.id);
+        const canDivert = al > 0 && S.res.credits >= DIVERSION_COST && diversionBandCandidates().length > 0;
+        const srcRows = sources.slice(0, 4).map(w =>
+          `<div class="ship-stat" style="align-items:center"><span class="k">${w.name} <span class="hint">${(p.distances && p.distances[w.id]) || "?"} ly</span></span>
+            <span class="v"><button class="btn btn-sm" ${canDivert ? "" : "disabled"} title="Pay a willing pirate crew ${fmt(DIVERSION_COST)} cr to tear up ${w.name}'s lanes for ${DIVERSION_CYCLES} cycles — its response wing stays home instead of answering ${p.name}'s distress calls. Heats ${w.name}'s own alert a little." onclick="hireRaidDiversion('${w.id}')">💰 Divert (${fmt(DIVERSION_COST)})</button></span></div>`).join("");
+        const divRows = diverted.map(w => `<div class="ship-stat"><span class="k">${w.name}</span><span class="v"><span class="pill good">🏴 lanes harassed — ${S.assaultDiversions[w.id] - S.turn} cyc</span></span></div>`).join("");
+        reconBlock = `<div class="hint" style="margin-top:8px">🛰️ <b>Recon</b> <span class="pill">${S.planetRecon[p.id] - S.turn} cyc left</span> — picket <b>${planetPatrolCount(p)}</b> vessels ~str <b>${planetPatrolStrengthEst(p)}</b> each · 🏰 garrison ~str <b>${planetGarrisonStrengthEst(p)}</b>${S.crises && S.crises[p.id] ? ' · <span style="color:var(--good)">⚡ crisis — defenses thinned</span>' : ""}${factionAtWar(p.faction) ? ' · <span style="color:var(--good)">⚔️ their fleet is committed to a war — one fewer wing will answer</span>' : ""}</div>
+          ${sources.length ? `<div class="hint">🆘 Worlds that will answer its distress calls — silence them with coin before the shooting starts:</div>${srcRows}` : `<div class="hint" style="color:var(--good)">🆘 No coalition world left in reach — its distress calls will go <b>unanswered</b>.</div>`}
+          ${divRows}`;
+      } else {
+        reconBlock = `<div class="hint" style="margin-top:8px">Attacking blind is the brute-force tax — a recon pass charts the picket, the garrison, and exactly which worlds would answer a distress call (then buy those lanes shut).</div>
+          <button class="btn btn-sm" ${al > 0 && S.res.fuel >= PROBE_FUEL ? "" : "disabled"} title="A passive sensor pass — no heat, nobody notices. Intel holds for ${PROBE_CYCLES} cycles." onclick="probePlanetDefenses()">🛰️ Probe defenses (${PROBE_FUEL} ⛽, 1 action)</button>`;
+      }
+    }
     const planetCard = canRaidPlanet ? `<div class="card" style="border-color:var(--bad)">
       <h4>🏴‍☠️ Raid ${p.name} <span class="pill" style="border-color:var(--accent-2);color:var(--accent-2)">${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}</span> ${alertPill}</h4>
-      <div class="desc">A two-phase campaign, not a smash-and-grab: first sweep its <b>orbital patrols</b> (${planetPatrolCount(p)} vessels — pooled-fire wave combat, pick your targets like an Escort ambush), and only once the sky is clear can you break the 🏰 <b>ground garrison</b> and sack the surface. Mid-fight, its coalition may jump in <b>reinforcements from other worlds</b>. A real act of war on ${FACTIONS[p.faction].name}: heavy Wanted, a deep rep hit, and defenses that scale with how lawful this world is (${Math.round(p.enforce * 100)}%). The payoff scales with how developed it is too (Industry ${p.industry}, Tech ${p.tech}).${alertLvl >= 15 ? ` <b>Every raid leaves it more fortified</b> — its space and ground defenses harden further, local prices run hotter on war matériel, and the buildup unsettles its standing with the rest of the sector; laying off lets it stand down, but only slowly — or hunt its own pirates (above) to bring the alert down faster.` : " This world's alert (shared with its shipping lanes above) hardens its defenses and prices further with every raid — better to let a well-raided world cool off, or actively police its pirates, than to keep hammering it."} Costs ${PLANET_RAID_FUEL} ⛽ and one action.</div>
-      <button class="btn btn-bad" ${al > 0 && S.res.fuel >= PLANET_RAID_FUEL ? "" : "disabled"} onclick="raidPlanet()">Raid this world (1 action)</button>
+      <div class="desc">A two-phase campaign, not a smash-and-grab: first sweep its <b>orbital patrols</b> (${planetPatrolCount(p)} vessels — pooled-fire wave combat, pick your targets like an Escort ambush), and only once the sky is clear can you break the 🏰 <b>ground garrison</b> and sack the surface. Mid-fight its defenders <b>telegraph their moves</b> — alpha strikes, distress calls, drives spooling to run — and reinforcements only ever arrive through a distress call that you failed to silence. A real act of war on ${FACTIONS[p.faction].name}: heavy Wanted, a deep rep hit, and defenses that scale with how lawful this world is (${Math.round(p.enforce * 100)}%). The payoff scales with how developed it is too (Industry ${p.industry}, Tech ${p.tech}).${alertLvl >= 15 ? ` <b>Every raid leaves it more fortified</b> — its space and ground defenses harden further, local prices run hotter on war matériel, and the buildup unsettles its standing with the rest of the sector; laying off lets it stand down, but only slowly — or hunt its own pirates (above) to bring the alert down faster.` : " This world's alert (shared with its shipping lanes above) hardens its defenses and prices further with every raid — better to let a well-raided world cool off, or actively police its pirates, than to keep hammering it."} Costs ${PLANET_RAID_FUEL} ⛽ and one action.</div>
+      ${reconBlock}
+      <button class="btn btn-bad" style="margin-top:8px" ${al > 0 && S.res.fuel >= PLANET_RAID_FUEL ? "" : "disabled"} onclick="raidPlanet()">Raid this world (1 action)</button>
     </div>` : "";
     action = sweepCard + planetCard;
   }

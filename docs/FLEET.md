@@ -286,10 +286,13 @@ simultaneous) didn't feel like a real group fight.
   button in the Fleet tab roster (mirrors the Logistics-assignment button),
   and a hint in `preyCombatCard` pointing idle-but-unassigned owners at the
   Fleet tab.
-- **All-at-once rescue arrival**: `maybeRescue` still rolls a fresh 20% chance
-  each round, but a success now pulls in *every* currently-eligible non-pirate
-  contact from `_others` at once (still capped at `RESCUE_PACK_CAP`, 2) rather
-  than splicing in one ship per successful roll.
+- **All-at-once rescue arrival**: `maybeRescue` pulls in *every*
+  currently-eligible non-pirate contact from `_others` at once (still capped
+  at `RESCUE_PACK_CAP`, 2) rather than splicing in one ship per successful
+  roll. (Superseded: the ambient 20%-per-round trigger described here is gone
+  from live combat — a rescue now only lands through the 📡 distress-call
+  intent telegraph, `assignRaidIntents`/raidResolveDepartures in raiding.js;
+  `maybeRescue`'s own unforced roll survives only for direct/legacy callers.)
 - **Pooled targeting**: new `S.raidTargets` (indices into `allHostiles(S.prey)`)
   with `raidToggleTarget(idx)`/`raidFocusTarget(idx)`, mirroring Escort's own
   `escortToggleTarget`/`escortFocus` exactly. `combatStrike` pools player +

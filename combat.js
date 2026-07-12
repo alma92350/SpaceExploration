@@ -677,7 +677,8 @@ const PATROL_WING_NAMES = ["Orbital Picket", "Customs Cutter", "System Monitor",
 const PATROL_HULL_TRIM = 0.55;   // picket craft fly lighter hulls than a lone patrol (foeHp rubber-bands per foe, so an untrimmed wave would out-tank the old single fleet several times over)
 function genPlanetPatrol(planet, heavy) {
   const law = planet.enforce;
-  const strength = Math.round(PREY.patrol.base * ((heavy ? 0.7 : 0.5) + law * 0.45) * (0.85 + Math.random() * 0.3) * foeStrengthMult() * planetAlertMul(planet.id));
+  const crisisThin = (S.crises && S.crises[planet.id]) ? 0.85 : 1;   // a world in crisis has its defenses stretched thin — same break genPrey's lane escorts already get
+  const strength = Math.round(PREY.patrol.base * ((heavy ? 0.7 : 0.5) + law * 0.45) * (0.85 + Math.random() * 0.3) * foeStrengthMult() * planetAlertMul(planet.id) * crisisThin);
   const prof = genFoeProfile("patrol", strength, law);
   const foe = {
     type: "patrol", isPlanetPatrol: true, planetId: planet.id, planetName: planet.name,
@@ -717,7 +718,8 @@ function genPlanetPatrolWave(planet) {
    world is) only comes from actually winning — see raidWinPlanet, raiding.js. */
 function genPlanetDefense(planet) {
   const law = planet.enforce;
-  const strength = Math.round(PREY.patrol.base * (1.3 + law * 1.2) * (0.85 + Math.random() * 0.3) * foeStrengthMult() * planetAlertMul(planet.id));
+  const crisisThin = (S.crises && S.crises[planet.id]) ? 0.85 : 1;   // sacking a world mid-crisis is ghoulish — and easier
+  const strength = Math.round(PREY.patrol.base * (1.3 + law * 1.2) * (0.85 + Math.random() * 0.3) * foeStrengthMult() * planetAlertMul(planet.id) * crisisThin);
   const prof = genFoeProfile("patrol", strength, law);
   const foe = {
     type: "garrison", isPlanetRaid: true, ground: true, planetId: planet.id, planetName: planet.name,
@@ -736,6 +738,15 @@ function genPlanetDefense(planet) {
 // scales with how developed the world is, same spirit as colonyTaxIncome/navyBribeCost
 function planetRaidHaul(planet) {
   return Math.round((400 + planet.industry * 220 + planet.tech * 140) * (0.75 + Math.random() * 0.5));
+}
+// what a recon pass (probePlanetDefenses, raiding.js) tells you a world's defenders roughly
+// hit for — the same formulas the real generators above use, minus their per-vessel jitter,
+// so intel is honest but not exact
+function planetPatrolStrengthEst(p) {
+  return Math.round(PREY.patrol.base * (0.5 + p.enforce * 0.45) * foeStrengthMult() * planetAlertMul(p.id) * (S.crises && S.crises[p.id] ? 0.85 : 1));
+}
+function planetGarrisonStrengthEst(p) {
+  return Math.round(PREY.patrol.base * (1.3 + p.enforce * 1.2) * foeStrengthMult() * planetAlertMul(p.id) * (S.crises && S.crises[p.id] ? 0.85 : 1));
 }
 /* Sacking the surface isn't just a credit number — you're hauling out of real warehouses
    and stockpiles, so it also stuffs your hold with a MIX of actual goods, on top of the

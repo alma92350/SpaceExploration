@@ -1,5 +1,5 @@
 {
-  "version": "2.115.0",
+  "version": "2.116.0",
   "saveVersion": "v2",
-  "notes": "New: sacking a planet now hauls real cargo out of its warehouses too, not just credits - a mix weighted toward the world's own deposits plus a spread of everyday goods scaled by development, loaded straight into your hold on top of the existing credit haul."
+  "notes": "New: raid combat gets a tactical layer - telegraphed enemy intents (alpha strikes, distress calls, fleeing drives) with real counters, morale/rout for a mauled group, and a pre-assault recon probe that charts a world's defenses and lets you hire pirates to divert its coalition response before you strike."
 }
