@@ -1,5 +1,5 @@
 {
-  "version": "2.117.1",
+  "version": "2.117.2",
   "saveVersion": "v2",
-  "notes": "Fix: the Fleet tab roster's Damaged filter now matches ships needing repair (any missing hull), not just severely battered ones below 60%."
+  "notes": "Fix: pausing a colony building now actually reduces its required workforce, instead of still counting it toward labor demand."
 }

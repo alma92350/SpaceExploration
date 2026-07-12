@@ -40,6 +40,17 @@ test("colonyLaborNeeded sums every building's tier, and colonyWorkforceMult retu
   assert.equal(run(`colonyLaborNeeded(S.colonies[S.location])`), 5);
 });
 
+test("colonyLaborNeeded excludes paused (idle) buildings, so pausing eases workforce strain", () => {
+  const { run } = createSandbox();
+  run(`S = freshState();`);
+  freshColony(run, { buildings: { factory: 3, habitat: 2 } });
+  assert.equal(run(`colonyLaborNeeded(S.colonies[S.location])`), 5);
+  run(`S.colonies[S.location].idle.factory = true;`);
+  assert.equal(run(`colonyLaborNeeded(S.colonies[S.location])`), 2, "a paused building's tiers shouldn't count toward labor demand");
+  run(`S.colonies[S.location].idle.factory = false;`);
+  assert.equal(run(`colonyLaborNeeded(S.colonies[S.location])`), 5, "resuming restores its labor demand");
+});
+
 test("colonyWorkforceMult floors at WORKFORCE_MIN when badly understaffed", () => {
   const { run } = createSandbox();
   run(`S = freshState();`);

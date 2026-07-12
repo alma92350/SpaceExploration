@@ -456,7 +456,7 @@ function colonyStorageCap(col, planet) {
    effect — and unrest (already tracked for secession, colonization.js below)
    now costs real output before it ever costs the colony outright. */
 const LABOR_PER_TIER = 2, WORKFORCE_MIN = 0.5, WORKFORCE_MAX = 1.3;
-function colonyLaborNeeded(col) { return Object.values(col.buildings || {}).reduce((s, t) => s + t, 0); }
+function colonyLaborNeeded(col) { return Object.entries(col.buildings || {}).reduce((s, [bid, t]) => s + (col.idle && col.idle[bid] ? 0 : t), 0); }
 function colonyWorkforceMult(col) {
   const needed = colonyLaborNeeded(col);
   if (needed <= 0) return 1;
