@@ -134,13 +134,44 @@ planet itself, a real two-phase **campaign**:
    It's real cargo, not a bonus number — it fills your hold same as any other
    plunder, capped by whatever room you actually have.
 
-All the while the defender's **coalition** may answer its distress call:
-vessels from its faction's *other* worlds — or from a faction currently in
-🤝 **Alliance** with it — can jump in mid-fight and join the defense (an
-allied wing flies its own flag, so destroying it angers *that* faction too).
-Each patrol kill pays its own salvage with a modest Wanted/rep sting; the
-sack itself remains the full act of war — heavy Wanted, deep rep damage —
-and breaking off mid-campaign abandons the whole assault.
+Combat in a raid — a planetary assault or an ordinary lane fight alike — isn't
+a hull-bar grind anymore. Every hostile can **telegraph** a dangerous move a
+round before it lands, each with a real counter:
+
+- 💥 **Alpha strike** — it's charging its guns; the hit lands at nearly double
+  intensity next round unless you kill it first or gut its 🔫 Weapons.
+- 📡 **Distress call** — this is now the *only* way reinforcements ever
+  arrive. A defender holds fire to transmit; silence it that same round
+  (kill it) or the call lands — a rescue pack on the lanes, or a **coalition
+  response wing** jumping in from an allied world during a planetary
+  assault (the wing flies its own flag, so destroying it angers *that*
+  faction too). Shoot the wrong target and the caller keeps transmitting
+  right through your kill-round — silencing it means killing *it*.
+- 🚀 **Drive spooling** — it jumps clear at the end of next round unless
+  killed or pinned (strip its 🚀 engines to zero first).
+
+A mauled group's **morale** can break outright: lose the leader (an elite,
+or a battleship-class hull) or half the starting force, and survivors with a
+live drive start rolling rout every round — a fight ended by terror, not
+attrition, and hurried along by your own Dread. The 🏰 ground garrison, dug
+in with no drive, never breaks. Reading intent and hunting the caller or the
+charger first beats spreading fire and hoping; each patrol kill pays its own
+salvage with a modest Wanted/rep sting, the sack itself remains the full act
+of war — heavy Wanted, deep rep damage — and breaking off mid-campaign
+abandons the whole assault.
+
+Attacking blind is the brute-force tax. A **🛰️ Probe defenses** pass (passive
+sensors, no Wanted, one action) charts a world before you commit: picket
+size and rough strength, garrison strength, whether a crisis has thinned it,
+whether its faction's fleet is tied up in a war elsewhere (one fewer
+response wing answers), and — the real prize — exactly *which* coalition
+worlds would answer its distress calls. With that map in hand you can shape
+the field before the first shot: **hire a willing pirate crew** to tear up a
+responder's own lanes, and that world's wing stays home for the run — its
+distress calls simply go unanswered. It's raiding by proxy: the harassed
+world's own alert ticks up, and the crew you hired is busy for the
+duration. Chart, divert every responder, then strike with the coalition's
+phone lines cut.
 
 A world remembers being hit. Every assault — win, lose, or break off —
 raises its **🚨 alert** level (a full sack raises it further still, the

@@ -182,6 +182,9 @@ function factionRelation(a, b) { const score = factionRelScore(a, b); const tier
 // the single most newsworthy relationship a faction has right now — a war outranks an alliance for urgency
 function factionMostTenseRelation(f) { let worst = null; FACTION_KEYS.forEach(o => { if (o === f) return; const rel = factionRelation(f, o); if (!worst || rel.score < worst.rel.score) worst = { other: o, rel }; }); return worst; }
 function factionMostFriendlyRelation(f) { let best = null; FACTION_KEYS.forEach(o => { if (o === f) return; const rel = factionRelation(f, o); if (!best || rel.score > best.rel.score) best = { other: o, rel }; }); return best; }
+// a faction with a shooting war on its hands has its fleet committed — raid campaigns
+// against its worlds meet one fewer coalition response wing (assaultReinforceCap, raiding.js)
+function factionAtWar(f) { return !!f && FACTION_KEYS.some(o => o !== f && factionRelTier(factionRelScore(f, o)) === "war"); }
 function factionWarFrontPill(f) {
   if (!f) return "";
   const worst = factionMostTenseRelation(f);
