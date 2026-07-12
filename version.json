@@ -1,5 +1,5 @@
 {
-  "version": "2.117.0",
+  "version": "2.117.1",
   "saveVersion": "v2",
-  "notes": "New: the Fleet tab's roster scales to a big fleet - collapsible, counted role groups, numeric-aware name sorting, and (past 8 ships) a status summary line with quick filters and a name search box."
+  "notes": "Fix: the Fleet tab roster's Damaged filter now matches ships needing repair (any missing hull), not just severely battered ones below 60%."
 }

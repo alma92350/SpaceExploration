@@ -112,7 +112,7 @@ function renderFleet() {
         <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${reassignBtn}${patrolBtn}${loadBtn}${unloadBtn}${ctlBtn}</span></div>${loadoutRow}`;
     };
     const ROLE_GROUPS = [["warship", "⚔️ Warships"], ["freighter", "🚚 Freighters"], ["tanker", "⛽ Tankers"]];
-    const isDamaged = s => s.status !== "building" && s.hullMax > 0 && (s.hull / s.hullMax) < 0.6;
+    const isDamaged = s => s.status !== "building" && s.hullMax > 0 && s.hull < s.hullMax;
     const idleN = f.filter(s => s.status === "idle").length, buildingN = f.filter(s => s.status === "building").length;
     const damagedN = f.filter(isDamaged).length, dutyN = f.length - idleN - buildingN;
     const STATUS_FILTERS = [["all", "All"], ["idle", "🟢 Idle"], ["duty", "🎯 On duty"], ["damaged", "🩹 Damaged"], ["building", "🏗️ Building"]];
