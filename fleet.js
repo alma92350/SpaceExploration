@@ -418,12 +418,9 @@ function assignTankerRun(shipId, destId, escortIds) {
   if (!dest || !isActive(dest) || destId === s.home || !galaxyKnown(dest)) return toast("Pick a known destination.", "bad");
   const home = PLANETS.find(p => p.id === s.home);
   const dist = (home && home.distances && home.distances[destId]) || 6;
-  const cap = shipCargoCap(s);
-  const already = s.fuel || 0;                // fuel loaded ahead of time via loadTanker()
-  const local = shipyardLocalStorage(s.home);
-  const topUp = Math.min(cap - already, ((local && local.fuel) || 0) + (S.res.fuel || 0));
-  const fuel = already + Math.max(0, topUp);   // a tanker may also cast off empty (fuel === 0) — e.g. to reposition, or to load up at the destination instead
-  if (topUp > 0) payMats({ fuel: topUp }, local);
+  const fuel = s.fuel || 0;                    // exactly whatever's already aboard via loadTanker() — dispatch never
+                                                // draws MORE from local storage/hold on its own; a tanker may also
+                                                // cast off empty (fuel === 0), e.g. to reposition or load at the destination
   s.fuel = 0;                                  // rolled into the run's own cargo below
   const escorts = [];
   (Array.isArray(escortIds) ? escortIds : []).forEach(id => {

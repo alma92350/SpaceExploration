@@ -593,3 +593,35 @@ with no way to move a smaller, specific amount.
   without touching an owned world's storage or paying out credits at a
   foreign one; `loadTanker`/`unloadTanker` move exactly a requested amount,
   clamped to what's actually available/carried).
+
+### Slice 15 fix (shipped) — dispatch no longer tops off past a manual load
+Shipped as part of Slice 15 above, `assignTankerRun` still silently topped a
+tanker back up to `shipCargoCap(s)` from its home's local storage/hold at
+the moment of dispatch — the exact behavior Slice 12 originally gave it, now
+undermined by the very feature meant to let a player choose a specific
+quantity: loading a tanker with, say, 1 fuel (⬆️⛽ Load's new qty field) and
+then hitting Dispatch still sent it out full, silently drawing the rest from
+storage. Reported directly by the player.
+- **`assignTankerRun`**: removed the `topUp`/`payMats` local-storage draw
+  entirely. The run's `fuel` is now exactly `s.fuel` (whatever's aboard at
+  dispatch, `0` if nothing was ever loaded) — full stop, no hidden
+  top-up. To send a full tanker, use ⬆️⛽ Load (still defaults to the max
+  movable amount) before dispatching; a run without any prior load now
+  genuinely departs empty rather than auto-filling.
+- **UI** (renderFleetFortunes.js): the "Dispatch a tanker run" card's `Load`
+  stat line now shows exactly `ship.fuel` (what's already aboard) instead of
+  the old `already + topUp` preview, and its hint text no longer claims the
+  run "draws the rest from its home's stockpile."
+- The Load/Unload qty inputs' `min` dropped from `1` to `0` (a small,
+  related UX ask — `0` is a legitimate value, just a no-op in `loadTanker`/
+  `unloadTanker` either way).
+- Tests: `tanker.test.js` reworked — every test that previously dispatched
+  a tanker relying on `assignTankerRun`'s own auto-load (to get non-zero
+  `run.fuel` for pirate-loss/interception/delivery assertions to be
+  meaningful) now calls `loadTanker("t1")` first. Two tests rewritten
+  outright: the old "loads from local storage" test now asserts colony
+  storage is untouched by dispatch itself; the old "tops off a partial
+  pre-load to full cap" test now asserts the opposite — a partial pre-load
+  (e.g. half the cap) dispatches at exactly that amount, storage undrawn.
+  New test: dispatching with nothing manually loaded and full local storage
+  available still carries zero fuel, storage completely untouched.
