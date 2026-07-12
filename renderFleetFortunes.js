@@ -43,6 +43,14 @@ let fleetGroupCollapsed = {};
 function toggleFleetGroup(role) { fleetGroupCollapsed[role] = !fleetGroupCollapsed[role]; renderFleet(); }
 function renderFleet() {
   const el = (typeof document !== "undefined") && document.getElementById("panel-fleet"); if (!el) return;
+  // The roster search box (below) re-renders on every keystroke to live-filter — but
+  // el.innerHTML = ... (at the bottom of this function) tears down and rebuilds the whole
+  // panel's DOM, which drops browser focus from any input inside it. Save/restore the
+  // caret across that rebuild so typing doesn't kick focus out after each letter (the
+  // chat draft input, renderCombat.js, sidesteps this instead by never re-rendering on
+  // keystroke — not an option here since the whole point is a live-updating list).
+  const active = typeof document !== "undefined" && document.activeElement;
+  const savedFocus = (active && active.id === "fleetRosterSearch") ? { start: active.selectionStart, end: active.selectionEnd } : null;
   const f = fleetList(), pid = S.location, yard = shipyardTierAt(pid), baseYard = baseShipyardTier(pid);
   const FLEET_VIEWS = [["status", "📊 Fleet Status"], ["assign", "🎯 Assignments"], ["shipyard", "🏗️ Shipyard"]];
   const view = subView("fleet", FLEET_VIEWS);
@@ -137,7 +145,7 @@ function renderFleet() {
         ${collapsed ? "" : (shown.length ? shown.map(shipRow).join("") : '<div class="hint" style="margin-left:14px">No ships here match your filter.</div>')}`;
     };
     const filterBtns = STATUS_FILTERS.map(([k, l]) => `<button class="btn btn-sm ${fleetRosterFilter.status === k ? "btn-primary" : ""}" onclick="setFleetRosterFilter('status','${k}')">${l}</button>`).join(" ");
-    const searchBox = `<input class="chat-field" style="max-width:180px" type="text" placeholder="Search by name…" value="${escapeChatHtml(fleetRosterFilter.q)}" oninput="setFleetRosterFilter('q', this.value)" />`;
+    const searchBox = `<input id="fleetRosterSearch" class="chat-field" style="max-width:180px" type="text" placeholder="Search by name…" value="${escapeChatHtml(fleetRosterFilter.q)}" oninput="setFleetRosterFilter('q', this.value)" />`;
     const anyShown = ROLE_GROUPS.some(([role]) => roleGroup(role).some(matchesRosterFilter));
     body = `<div class="card"><h4>✦ Your Fleet <span class="hint">${f.length} ship(s) · upkeep ${fmt(fleetUpkeep())} cr/cyc</span></h4>
       ${f.length ? `<div class="hint">${idleN} 🟢 idle · ${dutyN} 🎯 on duty · ${damagedN} 🩹 damaged${buildingN ? ` · ${buildingN} 🏗️ building` : ""}</div>
@@ -305,6 +313,13 @@ function renderFleet() {
     <div class="subtitle">Your own ships, built at colony shipyards — loyal and fully under your command. <b>Freighters</b> haul your goods; <b>warships</b> fight or work systems on contract; <b>tankers</b> haul fuel on their own multi-cycle runs, slow but built for the job. They cost credits &amp; materials to build and draw upkeep each cycle (see the 💰 Cycle accounts log). Call ships into your raids/escorts, or deploy your whole idle fleet as a raid Battle Group.</div>
     ${subTabBar("fleet", FLEET_VIEWS)}
     ${body}`;
+  if (savedFocus) {
+    const input = document.getElementById("fleetRosterSearch");
+    if (input && typeof input.focus === "function") {
+      input.focus();
+      if (typeof input.setSelectionRange === "function") input.setSelectionRange(savedFocus.start, savedFocus.end);
+    }
+  }
 }
 
 /* ----- Fortunes ----- */
