@@ -225,14 +225,16 @@ function travel(destId) {
   if (!dest || !isVisible(dest)) return toast("That world isn't on your charts.", "bad");
   const cost = fuelCost(destId);
   if (S.res.fuel < cost) return toast(`Not enough fuel (need ${cost}).`, "bad");
+  const legs = typeof convoyTravelLegs === "function" ? convoyTravelLegs(destId) : 1;   // >1 when towing a personal-convoy freighter — see fleet.js
   if (S.prey) { log(`Your quarry, the ${S.prey.ico} ${S.prey.name}, slipped away as you left the system.`, ""); S.prey = null; if (typeof releaseBattleGroup === "function") releaseBattleGroup(); }
   if (S.preyChoices) S.preyChoices = null;
   S.allies = null;
   const firstVisit = !S.visited[destId];
   S.res.fuel -= cost; S.location = destId; S.visited[destId] = true; S.stats.jumps++;
   sfx("travel");
-  log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽).`, "event");
+  log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽)${legs > 1 ? ` — your convoy's pace stretched the trip to ${legs} cycles` : ""}.`, "event");
   toast(`Arrived at ${dest.name}`, "event");
+  for (let i = 1; i < legs; i++) endTurn(true);   // extra cycles the slow convoy burns getting here, same shape a Tanker Run's cyclesLeft ticks down
   if (firstVisit && Math.random() < 0.30) rollFx(Math.random() < 0.8 ? "boon" : "bane");   // exploring new worlds turns up Fortunes
   if (firstVisit && Math.random() < 0.35) spawnSignal();                                   // …and reveals fresh leads to chase
   scanOnArrival(dest);

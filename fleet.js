@@ -38,18 +38,23 @@ const FLEET_HULL_BASE = 52, FLEET_FP_BASE = 15;
    armament. */
 const FLEET_SHIPS = {
   // ---- civil freighters (cargo capacity; weak guns) ----
-  light_freighter: { role: "freighter", cls: "corvette",   name: "Light Freighter",  ico: "🚚", tier: 1, build: 2, cap: 120, cost: { credits: 2500,  metals: 30,  radioactives: 6 } },
-  med_freighter:   { role: "freighter", cls: "frigate",    name: "Medium Freighter", ico: "🚛", tier: 2, build: 3, cap: 240, cost: { credits: 5000,  metals: 60,  electronics: 6,  radioactives: 12, ai: 2 } },
-  heavy_freighter: { role: "freighter", cls: "cruiser",    name: "Heavy Freighter",  ico: "🚍", tier: 3, build: 5, cap: 420, cost: { credits: 9000,  metals: 110, electronics: 14, radioactives: 20, ai: 4 } },
-  bulk_freighter:  { role: "freighter", cls: "battleship", name: "Bulk Hauler",      ico: "🛳️", tier: 4, build: 7, cap: 700, cost: { credits: 16000, metals: 200, alloys: 20, electronics: 24, radioactives: 32, ai: 7 } },
+  // `speed` is a multiplier read via fleetShipSpeed() — freighters are built
+  // for pace, running exactly 2x their comparable tanker tier's speed (see
+  // Slice 16); a Bulk Hauler's tier-4 speed lands at the 1.0 baseline every
+  // unlisted hull (warships included) implicitly gets.
+  light_freighter: { role: "freighter", cls: "corvette",   name: "Light Freighter",  ico: "🚚", tier: 1, build: 2, cap: 120, speed: 1.90, cost: { credits: 2500,  metals: 30,  radioactives: 6 } },
+  med_freighter:   { role: "freighter", cls: "frigate",    name: "Medium Freighter", ico: "🚛", tier: 2, build: 3, cap: 240, speed: 1.60, cost: { credits: 5000,  metals: 60,  electronics: 6,  radioactives: 12, ai: 2 } },
+  heavy_freighter: { role: "freighter", cls: "cruiser",    name: "Heavy Freighter",  ico: "🚍", tier: 3, build: 5, cap: 420, speed: 1.30, cost: { credits: 9000,  metals: 110, electronics: 14, radioactives: 20, ai: 4 } },
+  bulk_freighter:  { role: "freighter", cls: "battleship", name: "Bulk Hauler",      ico: "🛳️", tier: 4, build: 7, cap: 700, speed: 1.00, cost: { credits: 16000, metals: 200, alloys: 20, electronics: 24, radioactives: 32, ai: 7 } },
   // ---- tankers (fuel-hauling specialists; weak guns like freighters, but SLOW —
-  // `speed` is a 0-1 multiplier only this family carries, read via fleetShipSpeed().
+  // laden with fuel rather than dry cargo, so even after Slice 16's speed-up
+  // they still run at exactly half their comparable freighter tier's pace.
   // Built and repaired exactly like any other hull; their own Tanker Run duty
   // (below) is what makes their speed matter, not construction or upkeep ----
-  tanker_coastal: { role: "tanker", cls: "corvette",   name: "Coastal Tanker",     ico: "🛢️", tier: 1, build: 2, cap: 160, speed: 0.75, cost: { credits: 2200,  metals: 26,  radioactives: 10 } },
-  tanker_medium:  { role: "tanker", cls: "frigate",    name: "Medium Tanker",      ico: "🚢", tier: 2, build: 3, cap: 320, speed: 0.60, cost: { credits: 4500,  metals: 52,  electronics: 5,  radioactives: 20, ai: 2 } },
-  tanker_super:   { role: "tanker", cls: "cruiser",    name: "Super Tanker",       ico: "🛳️", tier: 3, build: 5, cap: 560, speed: 0.48, cost: { credits: 8200,  metals: 95,  electronics: 12, radioactives: 34, ai: 4 } },
-  tanker_ultra:   { role: "tanker", cls: "battleship", name: "Ultra-Large Tanker", ico: "🚛", tier: 4, build: 7, cap: 900, speed: 0.38, cost: { credits: 14500, metals: 175, alloys: 16, electronics: 20, radioactives: 54, ai: 7 } },
+  tanker_coastal: { role: "tanker", cls: "corvette",   name: "Coastal Tanker",     ico: "🛢️", tier: 1, build: 2, cap: 160, speed: 0.95, cost: { credits: 2200,  metals: 26,  radioactives: 10 } },
+  tanker_medium:  { role: "tanker", cls: "frigate",    name: "Medium Tanker",      ico: "🚢", tier: 2, build: 3, cap: 320, speed: 0.80, cost: { credits: 4500,  metals: 52,  electronics: 5,  radioactives: 20, ai: 2 } },
+  tanker_super:   { role: "tanker", cls: "cruiser",    name: "Super Tanker",       ico: "🛳️", tier: 3, build: 5, cap: 560, speed: 0.65, cost: { credits: 8200,  metals: 95,  electronics: 12, radioactives: 34, ai: 4 } },
+  tanker_ultra:   { role: "tanker", cls: "battleship", name: "Ultra-Large Tanker", ico: "🚛", tier: 4, build: 7, cap: 900, speed: 0.50, cost: { credits: 14500, metals: 175, alloys: 16, electronics: 20, radioactives: 54, ai: 7 } },
   // ---- warships (defense; combat stats from SHIP_CLASSES) ----
   corvette:   { role: "warship", cls: "corvette",   name: "Corvette",   ico: "🚤", tier: 1, build: 2, cost: { credits: 3500,  metals: 40,  electronics: 6,  radioactives: 8,  weapons: 3,  drones: 2 } },
   frigate:    { role: "warship", cls: "frigate",    name: "Frigate",    ico: "🚢", tier: 2, build: 3, cost: { credits: 7000,  metals: 80,  electronics: 14, radioactives: 15, weapons: 6,  drones: 3,  ai: 3 } },
@@ -59,7 +64,7 @@ const FLEET_SHIPS = {
 const FLEET_SHIP_KEYS = Object.keys(FLEET_SHIPS);
 function fleetList() { if (!Array.isArray(S.fleet)) S.fleet = []; return S.fleet; }
 function fleetIsHauler(def) { return def.role === "freighter" || def.role === "tanker"; }   // both are cargo hulls with weak guns, scaled off cap not combat class
-function fleetShipSpeed(def) { return def.speed != null ? def.speed : 1; }   // only tankers are slower than full speed
+function fleetShipSpeed(def) { return def.speed != null ? def.speed : 1; }   // tankers/freighters carry their own; everything else defaults to full speed
 function fleetShipHullMax(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsHauler(def) ? Math.round(FLEET_HULL_BASE * 0.7 + (def.cap || 0) * 0.08) : Math.round(FLEET_HULL_BASE * c.hull); }
 function fleetShipStr(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsHauler(def) ? Math.round(FLEET_FP_BASE * c.str * 0.35) : Math.round(FLEET_FP_BASE * c.str); }
 function fleetShipUpkeep(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsHauler(def) ? Math.round(15 + (def.cap || 0) * 0.06) : Math.round(40 * c.str); }
@@ -582,20 +587,33 @@ function processTankerRuns() {
 // them, damping travel-ambush odds and softening any ambush that slips through
 // anyway. Distinct from logistics duty (above): that stations ships AT a colony
 // to haul ITS goods on a per-cycle timer; this rides with the player and
-// resolves on the per-jump travel-ambush cadence instead (maybeAmbush, combat.js). ----
+// resolves on the per-jump travel-ambush cadence instead (maybeAmbush, combat.js).
+// No cap on how many freighters can join (Slice 16) — the balancing lever is no
+// longer a cargo ceiling but travel time: convoyTravelLegs() below stretches every
+// jump to however many cycles tankerRunCycles() gives the SLOWEST freighter aboard,
+// same shape a solo Tanker Run already uses, so a bigger convoy hauls more but the
+// player moves only as fast as its slowest hauler. ----
 function convoyShips()      { return fleetList().filter(s => s.status === "convoy"); }
 function convoyFreighters() { return convoyShips().filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter"); }
 function convoyWarships()   { return convoyShips().filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
 function convoyGuardCount() { return convoyWarships().length + bandList().filter(bandFollowing).length; }   // your own escorts + any pirate bands riding with you
-function convoyCargoCeiling() { return BASE_CARGO + S.upgrades.cargo * 150; }   // ties the ceiling to your own Cargo Hold tier — a convoy is a real second hold, not a way to skip upgrading
 function convoyCargoBonus() {
   const frs = convoyFreighters(); if (!frs.length) return 0;
-  const raw = frs.reduce((sum, s) => sum + shipCargoCap(s) * (0.5 + 0.5 * (s.hull / s.hullMax)), 0);   // a battered freighter hauls less, same shape as escShipFP
-  return Math.min(convoyCargoCeiling(), Math.round(raw));
+  return Math.round(frs.reduce((sum, s) => sum + shipCargoCap(s) * (0.5 + 0.5 * (s.hull / s.hullMax)), 0));   // a battered freighter hauls less, same shape as escShipFP — no ceiling, stack as many as you like
 }
 function convoyFuelSurcharge() {   // towing a convoy burns extra fuel every jump — scales with how many ships ride along, capped
   const n = convoyShips().length; if (!n) return 0;
   return Math.min(0.5, n * 0.08);
+}
+// travel()'s cycle cost for the jump about to depart from S.location toward destId —
+// 1 with no convoy freighters (a normal jump); otherwise tankerRunCycles(dist, speed)
+// keyed off the SLOWEST freighter riding along, so towing a big convoy of fast Light
+// Freighters and one lumbering Bulk Hauler moves at the Bulk Hauler's pace, not the average.
+function convoyTravelLegs(destId) {
+  const frs = convoyFreighters(); if (!frs.length) return 1;
+  const speed = Math.min(...frs.map(s => fleetShipSpeed(FLEET_SHIPS[s.key])));
+  const dist = currentPlanet().distances[destId] || 6;
+  return tankerRunCycles(dist, speed);
 }
 function assignConvoy(shipId) {
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];

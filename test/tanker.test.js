@@ -32,14 +32,25 @@ test("FLEET_SHIPS has exactly 4 tanker hulls, tiers 1-4, increasing cap and decr
   }
 });
 
-test("fleetShipSpeed defaults to 1 for any hull without a speed field (freighters/warships unaffected)", () => {
+test("fleetShipSpeed defaults to 1 for any hull without a speed field (warships unaffected)", () => {
   const { run } = createSandbox();
-  const fr = run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].role === "freighter")`);
   const wr = warshipKey(run);
-  assert.equal(run(`fleetShipSpeed(FLEET_SHIPS["${fr}"])`), 1);
   assert.equal(run(`fleetShipSpeed(FLEET_SHIPS["${wr}"])`), 1);
   const t1 = tankerKeyAt(run, 1);
   assert.ok(run(`fleetShipSpeed(FLEET_SHIPS["${t1}"])`) < 1, "a tanker should be slower than full speed");
+});
+
+test("freighters run exactly twice as fast as their comparable tanker tier", () => {
+  const { run } = createSandbox();
+  const frKeys = run(`Object.keys(FLEET_SHIPS).filter(k => FLEET_SHIPS[k].role === "freighter")`);
+  assert.equal(frKeys.length, 4, "there should be exactly 4 freighter hulls");
+  frKeys.forEach(k => {
+    const tier = run(`FLEET_SHIPS["${k}"].tier`);
+    const tk = tankerKeyAt(run, tier);
+    const frSpeed = run(`fleetShipSpeed(FLEET_SHIPS["${k}"])`);
+    const tkSpeed = run(`fleetShipSpeed(FLEET_SHIPS["${tk}"])`);
+    assert.ok(Math.abs(frSpeed - tkSpeed * 2) < 1e-9, `tier ${tier} freighter should be exactly 2x its comparable tanker's speed`);
+  });
 });
 
 test("orderShip: a Tier-1/2 tanker builds at a base Small Shipyard, Tier-3/4 is refused there but builds at a colony Tier-4 Shipyard", () => {
