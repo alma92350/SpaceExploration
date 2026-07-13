@@ -42,17 +42,17 @@ test("convoyCargoBonus sums convoy freighter capacity, scaled by hull fraction",
   run(`S = freshState();
        S.fleet = [{ id: "s1", key: "${fr}", name: "Full", home: S.location, status: "convoy", hull: 100, hullMax: 100 }];`);
   const capFull = run(`FLEET_SHIPS["${fr}"].cap`);
-  assert.equal(run(`convoyCargoBonus()`), Math.min(run(`convoyCargoCeiling()`), capFull), "a full-hull convoy freighter should contribute its full cap, capped by the ceiling");
+  assert.equal(run(`convoyCargoBonus()`), capFull, "a full-hull convoy freighter should contribute its full cap");
 });
 
-test("convoyCargoBonus is capped at convoyCargoCeiling() even with many freighters", () => {
+test("convoyCargoBonus has no ceiling — it keeps growing with more freighters", () => {
   const { run } = createSandbox();
   const fr = freighterKey(run);
   run(`S = freshState();
        S.fleet = Array.from({length: 6}, (_, i) => ({ id: "s"+i, key: "${fr}", name: "F"+i, home: S.location, status: "convoy", hull: 100, hullMax: 100 }));`);
+  const capFull = run(`FLEET_SHIPS["${fr}"].cap`);
   const bonus = run(`convoyCargoBonus()`);
-  const ceil = run(`convoyCargoCeiling()`);
-  assert.equal(bonus, ceil, "stacking freighters well past the ceiling should not exceed it");
+  assert.equal(bonus, capFull * 6, "stacking freighters should sum without any cap");
 });
 
 test("a damaged convoy freighter contributes less cargo than a healthy one", () => {
@@ -155,4 +155,54 @@ test("scrapShip refuses a ship that's on convoy duty", () => {
   run(`scrapShip("s1");`);
   assert.equal(run(`S.fleet.length`), 1, "a ship riding in the convoy should not be scrapped until recalled");
   assert.equal(state.confirmCalls.length, 0, "the confirm dialog shouldn't even appear for a ship on convoy duty");
+});
+
+function knownDest(run) { return run(`(PLANETS.find(p => isActive(p) && galaxyKnown(p) && p.id !== S.location) || {}).id`); }
+
+test("convoyTravelLegs returns 1 with no convoy freighters, and at least tankerRunCycles' 2-cycle floor once one rides along", () => {
+  const { run } = createSandbox();
+  const fr = freighterKey(run);
+  run(`S = freshState();`);
+  const destId = knownDest(run);
+  assert.equal(run(`convoyTravelLegs("${destId}")`), 1, "no convoy freighters means a normal one-cycle jump");
+  run(`S.fleet = [{ id: "s1", key: "${fr}", name: "F1", home: S.location, status: "convoy", hull: 10, hullMax: 10 }];`);
+  const legs = run(`convoyTravelLegs("${destId}")`);
+  assert.ok(legs >= 2, "towing even one freighter should take at least 2 cycles, tankerRunCycles' own floor");
+});
+
+test("convoyTravelLegs is gated by the SLOWEST freighter riding along, not the fastest", () => {
+  const { run } = createSandbox();
+  run(`S = freshState();`);
+  const destId = knownDest(run);
+  const fastKey = run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].role === "freighter" && FLEET_SHIPS[k].tier === 1)`);
+  const slowKey = run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].role === "freighter" && FLEET_SHIPS[k].tier === 4)`);
+  run(`S.fleet = [{ id: "fast", key: "${fastKey}", name: "Fast", home: S.location, status: "convoy", hull: 10, hullMax: 10 }];`);
+  const legsFastOnly = run(`convoyTravelLegs("${destId}")`);
+  run(`S.fleet.push({ id: "slow", key: "${slowKey}", name: "Slow", home: S.location, status: "convoy", hull: 10, hullMax: 10 });`);
+  const legsWithSlow = run(`convoyTravelLegs("${destId}")`);
+  assert.ok(legsWithSlow >= legsFastOnly, "adding a slower freighter to the convoy should never make the trip faster");
+});
+
+test("travel() burns extra cycles (S.turn advances by convoyTravelLegs) when towing a convoy freighter", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices();`);
+  const destId = knownDest(run);
+  const slowKey = run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].role === "freighter" && FLEET_SHIPS[k].tier === 4)`);
+  run(`S.fleet = [{ id: "s1", key: "${slowKey}", name: "Slow", home: S.location, status: "convoy", hull: 10, hullMax: 10 }];
+       S.res.fuel = 1000000;`);
+  const legs = run(`convoyTravelLegs("${destId}")`);
+  assert.ok(legs >= 2, "sanity check: this convoy should stretch the trip past a single cycle");
+  const turnBefore = run(`S.turn`);
+  run(`travel("${destId}");`);
+  assert.equal(run(`S.turn`), turnBefore + legs, "travel() should advance S.turn by exactly convoyTravelLegs' cycle count");
+  assert.equal(run(`S.location`), destId, "the player should still arrive at the destination");
+});
+
+test("travel() advances exactly one cycle with no convoy freighters, same as before this feature", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); rollPrices(); S.res.fuel = 1000000;`);
+  const destId = knownDest(run);
+  const turnBefore = run(`S.turn`);
+  run(`travel("${destId}");`);
+  assert.equal(run(`S.turn`), turnBefore + 1, "a solo jump with no convoy freighters should still take exactly one cycle");
 });

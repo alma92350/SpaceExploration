@@ -485,7 +485,7 @@ function renderGalaxy() {
       ${sigBtn ? `<div class="row" style="margin-bottom:8px">${sigBtn}</div>` : ""}
       ${here ? `<div class="pill good">◉ You are here</div>`
         : `<div class="row"><button class="btn btn-primary" ${canGo ? "" : "disabled"} onclick="travel('${p.id}')">Travel ▸</button>
-            <span class="distance">⛽ ${fc} · ${currentPlanet().distances[p.id]} ly</span></div>`}
+            <span class="distance">⛽ ${fc} · ${currentPlanet().distances[p.id]} ly${(typeof convoyTravelLegs === "function" && convoyTravelLegs(p.id) > 1) ? ` · 🐢 ${convoyTravelLegs(p.id)} cyc (convoy pace)` : ""}</span></div>`}
     </div>`;
   }).join("");
   const unknownCount = undiscoveredHidden().length;

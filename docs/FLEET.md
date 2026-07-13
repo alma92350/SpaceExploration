@@ -625,3 +625,55 @@ storage. Reported directly by the player.
   (e.g. half the cap) dispatches at exactly that amount, storage undrawn.
   New test: dispatching with nothing manually loaded and full local storage
   available still carries zero fuel, storage completely untouched.
+
+## Slice 16 (shipped) — faster tankers, freighter speed, and an uncapped-but-slower Personal Convoy
+Requested together: tankers felt sluggish even after Slice 11, freighters had
+no `speed` field at all (the implicit `1` default, same as a warship), and
+the Personal Convoy's only balancing lever against stacking freighters
+(Slice 7's `convoyCargoCeiling`, tied to the player's own Cargo Hold tier)
+capped the *cargo* payoff but did nothing to the *time* cost — towing ten
+freighters felt identical to towing one once the ceiling was hit.
+- **Tanker speeds raised** across all 4 tiers (`FLEET_SHIPS`): coastal
+  0.75→0.95, medium 0.60→0.80, super 0.48→0.65, ultra 0.38→0.50. Still a
+  0-1 multiplier, still decreasing with tier — only the absolute pace moved,
+  so `tankerRunCycles`/Tanker Run behavior is unchanged in shape, just
+  shorter in practice.
+- **Freighters gain a `speed` field** for the first time — exactly `2x`
+  their comparable tanker tier (1.90/1.60/1.30/1.00 for light/medium/heavy/
+  bulk). `fleetShipSpeed(def)` needed no code change; it already read
+  `def.speed`, defaulting to `1` for anything without one — freighters
+  simply stopped being "anything without one." A Bulk Hauler's 1.00 lands
+  exactly on that old default; every smaller freighter now outpaces it.
+- **`convoyCargoCeiling()` is gone.** `convoyCargoBonus()` sums convoy
+  freighter capacity (still hull-fraction-scaled, same shape as
+  `escShipFP`) with no cap — stack as many freighters as you like.
+- **New `convoyTravelLegs(destId)`** (fleet.js): `1` with no convoy
+  freighters (a normal one-cycle jump, unchanged); otherwise
+  `tankerRunCycles(dist, speed)` — the exact same dist/(3×speed), clamped
+  2-12 shape a solo Tanker Run already uses — keyed off the **slowest**
+  freighter currently riding in the convoy, not the average or the fastest.
+  A big convoy with one lumbering Bulk Hauler moves at the Bulk Hauler's
+  pace, full stop.
+- **`travel()`** (economy.js) reads `convoyTravelLegs(destId)` before
+  updating `S.location`, then — after the normal single `S.location`/fuel/
+  visited update and its arrival log/toast — loops `endTurn(true)` an extra
+  `legs - 1` times before the usual scan/ambush/interdict/`endTurn(true)`
+  arrival sequence. The player still arrives in one click (no new "advance
+  a leg" flow, unlike the Escort tab's contract legs), but the extra cycles
+  are real: fleet upkeep, colony production, pirate activity and every other
+  per-cycle system tick that many more times, so a slow convoy genuinely
+  costs time on top of the unchanged fuel surcharge (`convoyFuelSurcharge`,
+  Slice 7, untouched). A solo jump with no convoy freighters still resolves
+  in exactly one cycle, byte-for-byte the same as before this slice.
+- **UI**: the Fleet tab's Personal Convoy card drops the ceiling framing
+  ("+N of a ceiling") for a plain uncapped bonus line, and gains a "Convoy
+  pace" stat showing the slowest freighter's speed multiplier when one is
+  aboard. The Galaxy tab's per-world travel card appends a "🐢 N cyc (convoy
+  pace)" note to any destination `convoyTravelLegs` would stretch past one
+  cycle.
+- Exports added: `convoyTravelLegs`. Tests: `tanker.test.js` (freighter
+  speed = 2x its tanker tier, replacing the old "freighters/warships
+  unaffected" default-speed check), `convoy.test.js` (uncapped
+  `convoyCargoBonus`, `convoyTravelLegs`' floor/slowest-gates-the-group/
+  no-convoy behavior, and `travel()` itself advancing `S.turn` by the
+  right cycle count with vs. without a convoy freighter aboard).

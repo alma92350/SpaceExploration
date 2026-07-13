@@ -1,5 +1,5 @@
 {
-  "version": "2.119.0",
+  "version": "2.120.0",
   "saveVersion": "v2",
-  "notes": "Changed: pre-assault recon is now a drone-swarm gamble - commit a chosen number of Combat Drones (not fuel) against a world's own detection band. Too few and nothing comes back; too many and the swarm itself trips the alarm (full intel, but the surprise is gone); land inside the band for an undetected read whose detail scales with how many drones you sent."
+  "notes": "Changed: Tankers run faster at every tier, and Freighters now carry their own speed too - exactly 2x their comparable Tanker tier. New: no cap on how many Freighters can join your Personal Convoy, but a jump now takes as many cycles as the slowest Freighter aboard needs to make it (Fleet tab shows the pace, Starmap flags a stretched trip)."
 }

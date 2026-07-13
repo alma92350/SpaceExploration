@@ -233,9 +233,11 @@ function renderFleet() {
     if (f.length) {
       const inConvoy = convoyShips(), frGuardN = convoyWarships().length, bandGuards = bandList().filter(bandFollowing);
       const guards = frGuardN + bandGuards.length;
-      const bonus = convoyCargoBonus(), ceil = convoyCargoCeiling();
+      const bonus = convoyCargoBonus();
       const surcharge = Math.round(convoyFuelSurcharge() * 100);
       const oddsPct = Math.round(Math.pow(0.45, guards) * 100);
+      const convFrs = convoyFreighters();
+      const slowest = convFrs.length ? Math.min(...convFrs.map(s => fleetShipSpeed(FLEET_SHIPS[s.key]))) : null;
       const idleFrHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
       const idleWarHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
       const rosterRows = inConvoy.map(s => { const d = FLEET_SHIPS[s.key];
@@ -244,8 +246,9 @@ function renderFleet() {
       const frBtns = idleFrHere.map(s => `<button class="btn btn-sm btn-good" onclick="assignConvoy('${s.id}')">🚚 ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
       const warBtns = idleWarHere.map(s => `<button class="btn btn-sm" onclick="assignConvoy('${s.id}')">🛡️ ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
       convoyCard = `<div class="card"><h4>🚚 Personal Convoy</h4>
-        <div class="hint">Have freighters ride with you on every jump — a second hold on the road, on top of your own ship's. It costs extra fuel to tow, and it isn't risk-free: pirates ambushing you also take a swipe at the convoy. Warships (and any pirate bands currently riding with you) escort it — cutting the odds of a travel ambush, and softening the blow if one slips through anyway. Only idle ships docked <b>here</b>, at their home port, can come aboard.</div>
-        <div class="ship-stat"><span class="k">Bonus cargo</span><span class="v">+${fmt(bonus)}${bonus >= ceil && ceil > 0 ? ` <span class="hint">(capped — Cargo Hold upgrade sets the ceiling: ${fmt(ceil)})</span>` : ` <span class="hint">of a ${fmt(ceil)} ceiling</span>`}</span></div>
+        <div class="hint">Have freighters ride with you on every jump — a second hold on the road, on top of your own ship's. No cap on how many can join, but you only move as fast as the slowest one: with a freighter aboard, a jump takes several cycles instead of one. It costs extra fuel to tow too, and it isn't risk-free: pirates ambushing you also take a swipe at the convoy. Warships (and any pirate bands currently riding with you) escort it — cutting the odds of a travel ambush, and softening the blow if one slips through anyway. Only idle ships docked <b>here</b>, at their home port, can come aboard.</div>
+        <div class="ship-stat"><span class="k">Bonus cargo</span><span class="v">+${fmt(bonus)} <span class="hint">(no ceiling)</span></span></div>
+        ${slowest != null ? `<div class="ship-stat"><span class="k">Convoy pace</span><span class="v">×${slowest.toFixed(2)} <span class="hint">(slowest freighter aboard — stretches every jump to several cycles)</span></span></div>` : ""}
         <div class="ship-stat"><span class="k">Fuel surcharge</span><span class="v">+${surcharge}% per jump</span></div>
         <div class="ship-stat"><span class="k">Guards</span><span class="v">${frGuardN} warship(s)${bandGuards.length ? ` + ${bandGuards.length} following band(s)` : ""} → ambush odds ×${oddsPct}%</span></div>
         ${bandGuards.length ? `<div class="hint">🏴 Following: ${bandGuards.map(b => b.ico + " " + b.name).join(", ")} (manage from 🤝 Contacts).</div>` : ""}
