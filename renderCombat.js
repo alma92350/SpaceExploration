@@ -180,19 +180,26 @@ function preyCombatCard(prey, al) {
     const postBtns = Object.entries(ESCORT_POSTURES).map(([k, p]) => `<button class="btn btn-sm ${posture === k ? "btn-primary" : ""}" title="${p.hint}" onclick="setBattleGroupPosture('${k}')">${p.label}</button>`).join(" ");
     const bgHull = bgShips.reduce((s, x) => s + x.hull, 0), bgHullMax = bgShips.reduce((s, x) => s + x.hullMax, 0);
     const frontTier = shipFormation(battleGroupFrontTier()[0] || {});
+    const playerTier = playerFormation(), playerExposed = raidPlayerFrontline();
     const tierRows = FORMATION_TIERS.map(t => {
       const def = FORMATION_SLOTS[t];
       const members = bgShips.filter(s => shipFormation(s) === t);
-      const tHull = members.reduce((s, x) => s + x.hull, 0), tHullMax = members.reduce((s, x) => s + x.hullMax, 0);
+      const youHere = playerTier === t;
+      const tHull = members.reduce((s, x) => s + x.hull, 0) + (youHere ? S.pirate.hull : 0);
+      const tHullMax = members.reduce((s, x) => s + x.hullMax, 0) + (youHere ? HULL_MAX : 0);
       const holding = t === frontTier;
+      const youRow = youHere
+        ? `<div class="ship-stat" style="align-items:center;font-size:12px"><span class="k">🚀 You ${playerExposed ? '<span style="color:var(--bad)">◀ exposed</span>' : '<span style="color:var(--good)">🛡️ screened</span>'}</span><span class="v">${Math.round(S.pirate.hull)}/${HULL_MAX} ${FORMATION_TIERS.filter(k => k !== t).map(k => `<button class="btn btn-sm" title="Move to ${FORMATION_SLOTS[k].name}" onclick="setPlayerFormation('${k}')">${FORMATION_SLOTS[k].ico}</button>`).join("")}</span></div>`
+        : "";
       const shipRows = members.map(s => {
         const otherSlots = FORMATION_TIERS.filter(k => k !== t);
         const moveBtns = otherSlots.map(k => `<button class="btn btn-sm" title="Move to ${FORMATION_SLOTS[k].name}" onclick="setBattleGroupFormation('${s.id}','${k}')">${FORMATION_SLOTS[k].ico}</button>`).join("");
         return `<div class="ship-stat" style="align-items:center;font-size:12px"><span class="k">${FLEET_SHIPS[s.key].ico} ${s.name}</span><span class="v">${Math.round(s.hull)}/${s.hullMax} ${moveBtns}</span></div>`;
       }).join("");
-      return `<div style="margin-top:4px${members.length ? "" : ";opacity:.5"}">
-        <div class="hint" title="${def.hint}"><b>${def.ico} ${def.name}</b>${members.length ? ` — ${members.length} ship(s), ${Math.round(tHull)}/${tHullMax} hull${holding ? ' <span style="color:var(--bad)">◀ taking fire</span>' : ""}` : " — empty"}</div>
-        ${shipRows}</div>`;
+      const anyHere = members.length || youHere;
+      return `<div style="margin-top:4px${anyHere ? "" : ";opacity:.5"}">
+        <div class="hint" title="${def.hint}"><b>${def.ico} ${def.name}</b>${anyHere ? ` — ${members.length + (youHere ? 1 : 0)} ship(s), ${Math.round(tHull)}/${tHullMax} hull${holding ? ' <span style="color:var(--bad)">◀ taking fire</span>' : ""}` : " — empty"}</div>
+        ${youRow}${shipRows}</div>`;
     }).join("");
     bgBlock = `<div class="hint" style="margin-top:6px">✦ <b>Battle fleet</b> (${bgShips.length} ship${bgShips.length === 1 ? "" : "s"}): 🔥${battleGroupFirepower()} pooled firepower · 🛡️ ${Math.round(bgHull)}/${bgHullMax} hull</div>
       <div class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px"><span class="hint">Posture:</span> ${postBtns} <button class="btn btn-sm" onclick="recallBattleGroup()">↩ Recall fleet</button></div>
