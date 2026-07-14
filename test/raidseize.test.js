@@ -4,11 +4,14 @@ const assert = require("node:assert/strict");
 const { createSandbox } = require("./helpers/sandbox.js");
 
 /* Boarding and seizing a beaten hull — an alternative to destroying it in combatStrike's kill
-   branch (raidWinPirate/raidWinMerchant/raidWinPatrol/raidWinPlanet, raiding.js). Needs the
-   target pinned (no engines) AND crippled (same 35%-hp threshold raidCanSpare uses) before it
-   surrenders; the prize joins S.fleet as a real warship, class-matched off SHIP_CLASSES, at the
-   same beaten-down hull fraction it surrendered at. Consequences otherwise mirror a normal
-   (non-No-Quarter) kill of the same prey type, minus bounty/full plunder. */
+   branch (raidWinPirate/raidWinMerchant/raidWinPatrol/raidWinPlanet, raiding.js). Two paths to
+   eligibility: pinned (no engines) AND crippled to 35% hp (same threshold raidCanSpare uses),
+   OR ground down to 15% hp regardless of engine status — requiring BOTH pinned AND crippled
+   made this unreachable against the default Hull combat target, since only the dedicated
+   Engines target ever zeroes engines. The prize joins S.fleet as a real warship, class-matched
+   off SHIP_CLASSES, at the same beaten-down hull fraction it surrendered at. Consequences
+   otherwise mirror a normal (non-No-Quarter) kill of the same prey type, minus bounty/full
+   plunder. */
 
 function foe(overrides) {
   return Object.assign({
@@ -23,22 +26,34 @@ function setupEngagement(run, overrides) {
     S.allies = null;`);
 }
 
-test("raidCanSeize requires an engaged, pinned, crippled, non-ground target", () => {
+test("raidCanSeize requires an engaged, crippled, non-ground target, pinned OR critically low", () => {
   const { run } = createSandbox();
   setupEngagement(run, {});
-  assert.equal(run(`raidCanSeize()`), true, "engines dead + hp at 10% (well under 35%) should be seizable");
+  assert.equal(run(`raidCanSeize()`), true, "engines dead + hp at 10% (well under the 35% pinned threshold) should be seizable");
 
   setupEngagement(run, { _engaged: false });
   assert.equal(run(`raidCanSeize()`), false, "an unengaged target shouldn't be seizable");
 
-  setupEngagement(run, { engines: 2 });
-  assert.equal(run(`raidCanSeize()`), false, "a live drive means it can still run — not seizable");
-
   setupEngagement(run, { hp: 900 });
-  assert.equal(run(`raidCanSeize()`), false, "a barely-scratched hull won't surrender");
+  assert.equal(run(`raidCanSeize()`), false, "a barely-scratched hull won't surrender even pinned");
 
   setupEngagement(run, { ground: true, isPlanetRaid: true, engines: 0 });
   assert.equal(run(`raidCanSeize()`), false, "a planetary garrison is a fortress, not a hull — never seizable even though its engines read 0");
+});
+
+test("raidCanSeize's two paths: pinned only needs 35% hp, a live drive needs grinding down to 15%", () => {
+  const { run } = createSandbox();
+  // still-mobile (engines alive) but only moderately hurt (25% hp) -> neither path qualifies
+  setupEngagement(run, { engines: 2, hp: 250, maxhp: 1000 });
+  assert.equal(run(`raidCanSeize()`), false, "25% hp with a live drive is under the pinned 35% bar but the drive isn't pinned, and 25% isn't below the unpinned 15% bar either");
+
+  // still-mobile but critically wrecked (10% hp) -> the "too far gone to run" path kicks in
+  setupEngagement(run, { engines: 2, hp: 100, maxhp: 1000 });
+  assert.equal(run(`raidCanSeize()`), true, "a live drive doesn't matter once the hull is this far gone — this is the bug fix: normal Hull-target damage alone should be able to unlock seizing");
+
+  // pinned and moderately hurt (25% hp) -> the pinned path's looser 35% bar covers it
+  setupEngagement(run, { engines: 0, hp: 250, maxhp: 1000 });
+  assert.equal(run(`raidCanSeize()`), true, "pinned drops the bar to 35% — no need to grind all the way to 15%");
 });
 
 test("raidCanSeize is false with no active engagement", () => {
@@ -49,7 +64,7 @@ test("raidCanSeize is false with no active engagement", () => {
 
 test("raidSeizeHull refuses when the target isn't seizable yet", () => {
   const { run } = createSandbox();
-  setupEngagement(run, { engines: 2 });
+  setupEngagement(run, { engines: 2, hp: 250, maxhp: 1000 });
   const fleetBefore = run(`JSON.stringify(S.fleet)`);
   run(`raidSeizeHull();`);
   assert.equal(run(`JSON.stringify(S.fleet)`), fleetBefore, "no ship should be added if the target isn't seizable");
@@ -138,9 +153,13 @@ test("seizing generic coalition shipping loots it, costs Wanted/Dread/rep, and r
 
 test("preyCombatCard renders a Seize hull button only once the target is seizable", () => {
   const { run } = createSandbox();
-  setupEngagement(run, { engines: 2 });
+  setupEngagement(run, { engines: 2, hp: 250, maxhp: 1000 });
   let html = run(`preyCombatCard(S.prey, actionsLeft())`);
-  assert.doesNotMatch(html, /raidSeizeHull/, "an unpinned target shouldn't offer a Seize button");
+  assert.doesNotMatch(html, /raidSeizeHull/, "an unpinned target only moderately hurt shouldn't offer a Seize button");
+
+  setupEngagement(run, { engines: 2, hp: 100, maxhp: 1000 });
+  html = run(`preyCombatCard(S.prey, actionsLeft())`);
+  assert.match(html, /onclick="raidSeizeHull\(\)"/, "an unpinned but critically wrecked (10% hp) target should offer a Seize button");
 
   setupEngagement(run, {});
   html = run(`preyCombatCard(S.prey, actionsLeft())`);

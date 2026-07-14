@@ -562,8 +562,14 @@ function raidSpareRecruit() {
   promoteOrEnd(prey);                                     // next consort steps up, or the engagement ends
   afterAction();
 }
-// ---- board and seize a beaten hull instead of destroying it — needs it pinned (no engines to
-// run) AND crippled (same 35% threshold raidCanSpare uses) before a crew gives up their ship.
+// ---- board and seize a beaten hull instead of destroying it — a crew gives up their ship
+// either because it's pinned (no engines to run) AND crippled (35% hp, same threshold
+// raidCanSpare uses), OR because it's been ground down so far (15% hp) that a live drive
+// doesn't matter anymore — it's not outrunning anyone in that state. Requiring BOTH pinned
+// AND crippled made this permanently unreachable against the default Hull combat target,
+// since only the dedicated Engines target ever touches engines — most fights would never
+// see engines drop no matter how low hull went. The two-path OR fixes that: pin it first
+// for an earlier (35%) seize window, or just grind it down to 15% and take it regardless.
 // A planetary garrison (ground: true) is a fortress, not a hull — never seizable, even though
 // genPlanetDefense also zeroes its engines. The prize joins S.fleet as a real warship, its class
 // matched off the hostile's own SHIP_CLASSES tag (scout/dreadnought clamp to the nearest hull
@@ -572,9 +578,14 @@ function raidSpareRecruit() {
 // — but the consequences (Dread/Wanted/rep) otherwise mirror a normal (non-No-Quarter) kill of
 // the same prey type, since seizing a coalition or pirate hull is no less an act than sinking it. ----
 const SEIZE_CLASS_MAP = { scout: "corvette", corvette: "corvette", frigate: "frigate", cruiser: "cruiser", battleship: "battleship", dreadnought: "battleship" };
-function raidCanSeize() { const p = S.prey; return !!(p && p._engaged && !p.ground && (p.engines || 0) <= 0 && foeHp(p) <= p.maxhp * 0.35); }
+const SEIZE_HP_PINNED = 0.35, SEIZE_HP_CRITICAL = 0.15;
+function raidCanSeize() {
+  const p = S.prey; if (!p || !p._engaged || p.ground) return false;
+  const frac = foeHp(p) / p.maxhp;
+  return (p.engines || 0) <= 0 ? frac <= SEIZE_HP_PINNED : frac <= SEIZE_HP_CRITICAL;
+}
 function raidSeizeHull() {
-  if (!raidCanSeize()) return toast("Pin its engines and beat it down first — a live crew won't surrender an intact hull.", "bad");
+  if (!raidCanSeize()) return toast("Beat it down further first — pin its engines to seize it beaten to 35% hull, or grind it down to 15% outright.", "bad");
   const prey = S.prey;
   const key = SEIZE_CLASS_MAP[prey.cls] || "corvette", def = FLEET_SHIPS[key];
   const hullMax = fleetShipHullMax(def);

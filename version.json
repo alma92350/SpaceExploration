@@ -1,5 +1,5 @@
 {
-  "version": "2.123.0",
+  "version": "2.123.1",
   "saveVersion": "v2",
-  "notes": "New: Seize hull comes to the Raid tab - pin a target's engines and beat it down and you can board it instead of destroying it, adding it to your fleet as a real warship instead of sinking it. No bounty or full plunder, but the Dread/Wanted/reputation cost otherwise matches a normal kill."
+  "notes": "Fix: Seize hull required a target to be both pinned (engines dead) and beaten to 35% hull, but ordinary Hull-targeted fire never touches engines - so it could stay unreachable no matter how low hull went. A target ground down to 15% hull is now seizable outright regardless of engine status; pinning it first still unlocks seizing earlier."
 }
