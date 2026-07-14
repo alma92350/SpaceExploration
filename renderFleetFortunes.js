@@ -134,7 +134,9 @@ function renderFleet() {
         const col = S.colonies[pid];
         const room = shipCargoCap(s) - (s.passengers || 0);
         const boardMax = col ? Math.min(room, Math.max(0, col.pop - 1)) : room;
-        if (boardMax > 0) {
+        if (s.crippled) {
+          loadBtn = `<span class="hint">🆘 crippled hulk — repair at ${(PLANETS.find(p => p.id === s.home) || {}).name || "its home port"} before booking passengers</span>`;
+        } else if (boardMax > 0) {
           const boardVal = Math.max(0, Math.min(boardMax, passengerBoardQty[s.id] != null ? passengerBoardQty[s.id] : boardMax));
           loadBtn = `<input class="qty" id="boardqty-${s.id}" type="number" min="0" max="${boardMax}" value="${boardVal}" title="Passengers to board (k)" />
             <button class="btn btn-sm" title="Sell tickets and board this many — ${col ? "drawn from this colony's own population" : "booked from the local populace"}" onclick="boardPassengersQty('${s.id}')">🧳⬆️ Board</button>`;

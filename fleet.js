@@ -162,7 +162,7 @@ function repairFleetShip(id) {
   const c = fleetRepairCost(s); if (c.miss <= 0) return toast("That ship is already sound.", "bad");
   const local = shipyardLocalStorage(S.location), mats = { metals: c.metals };
   if ((S.res.credits || 0) < c.credits || !canAffordMats(mats, local)) return toast(`Repair needs ${fmt(c.credits)} cr · ${c.metals} ⛓️.`, "bad");
-  S.res.credits -= c.credits; payMats(mats, local); s.hull = s.hullMax;
+  S.res.credits -= c.credits; payMats(mats, local); s.hull = s.hullMax; s.crippled = false;
   log(`🔧 Repaired the ${s.name} for ${fmt(c.credits)} cr.`, "good"); toast("Ship repaired", "good"); sfx("repair"); saveGame(); renderAll();
 }
 // ---- reassign a ship's home shipyard — lets a fleet built up piecemeal across
@@ -539,6 +539,7 @@ function boardPassengers(shipId, qty) {
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
   if (!s || !def || def.role !== "passenger") return;
   if (s.status !== "convoy") return toast("Add the liner to your Personal Convoy first.", "bad");
+  if (s.crippled) return toast(`The ${s.name} is a crippled hulk — repair it before booking passengers aboard.`, "bad");
   const room = shipCargoCap(s) - (s.passengers || 0);
   if (room <= 0) return toast(`The ${s.name} is already full.`, "bad");
   let want = qty == null ? room : Math.max(0, Math.min(room, qty));
@@ -726,6 +727,7 @@ function fleetShipHit(s, dmg) {
   if (def.role === "passenger" && (s.passengers || 0) > 0) {
     s.hull = 1;
     s.passengers = 0;
+    s.crippled = true;   // a hulk adrift — can't take on new passengers again until repaired (repairFleetShip clears this)
     return "crippled";
   }
   s._dead = true;
