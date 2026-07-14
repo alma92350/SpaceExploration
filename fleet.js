@@ -291,6 +291,12 @@ function releaseFleetEscorts(e) {     // sync convoy support ships back to the f
 // its firepower adds to your strikes, and it screens you from incoming fire, at
 // the cost of taking real damage (and possible losses) of its own each round. ----
 function battleGroupShips() { return fleetList().filter(s => s.status === "battle"); }
+// a Personal Convoy warship rides with the player already, so it fights alongside a deployed
+// Battle Group (or stands in for one on its own) using its own Vanguard/Line/Reserve station —
+// this pool is for COMBAT PARTICIPATION only (who takes fire, who adds firepower); deploy/recall/
+// stand-down stay scoped to battleGroupShips() alone, since a convoy ship's status never changes
+// just because it took part in a fight.
+function battleFleetShips() { return battleGroupShips().concat(convoyWarships()); }
 function battleGroupPostureObj() { return ESCORT_POSTURES[S.battleGroupPosture || "balanced"] || ESCORT_POSTURES.balanced; }
 function setBattleGroupPosture(p) { if (ESCORT_POSTURES[p]) { S.battleGroupPosture = p; saveGame(); renderAll(); } }
 /* ---- Tactical formation: three positional tiers, not just a pooled number.
@@ -314,11 +320,11 @@ function autoAssignFormation(ships) {   // biggest hulls forward — a battleshi
   sorted.forEach((s, i) => { s.formation = i < nV ? "vanguard" : (i < nV + nL ? "line" : "reserve"); });
 }
 function setBattleGroupFormation(shipId, slot) {
-  const s = battleGroupShips().find(x => x.id === shipId); if (!s || !FORMATION_SLOTS[slot]) return;
+  const s = battleFleetShips().find(x => x.id === shipId); if (!s || !FORMATION_SLOTS[slot]) return;
   s.formation = slot; saveGame(); renderAll();
 }
 function battleGroupFrontTier() {   // the tier currently taking the brunt of incoming fire
-  for (const t of FORMATION_TIERS) { const ships = battleGroupShips().filter(s => shipFormation(s) === t); if (ships.length) return ships; }
+  for (const t of FORMATION_TIERS) { const ships = battleFleetShips().filter(s => shipFormation(s) === t); if (ships.length) return ships; }
   return [];
 }
 function deployBattleGroup() {
@@ -345,19 +351,19 @@ function releaseBattleGroup() {   // combat ended: stand the group down (survivo
   grp.forEach(battleGroupStandDown);
 }
 function battleGroupScreenMult() {   // your formation screens (or exposes) you — a standing Vanguard shields you further
-  const grp = battleGroupShips(); if (!grp.length) return 1;
+  const grp = battleFleetShips(); if (!grp.length) return 1;
   const vanguardHolds = grp.some(s => shipFormation(s) === "vanguard");
   return battleGroupPostureObj().def * (vanguardHolds ? 0.85 : 1.1);
 }
 function battleGroupFirepower() {
-  const grp = battleGroupShips(); if (!grp.length) return 0;
+  const grp = battleFleetShips(); if (!grp.length) return 0;
   const off = battleGroupPostureObj().off;
   return Math.round(grp.reduce((sum, s) => sum + shipStrEff(s) * (0.5 + 0.5 * (s.hull / s.hullMax)) * FORMATION_SLOTS[shipFormation(s)].fpMult, 0) * off);
 }
 // each combat round, the frontmost non-empty tier absorbs the hit (85% of the time; 15% stray
 // fire ignores tiering) — a formation collapses tier by tier as its defenders are lost.
 function battleGroupTakeFire(prey) {
-  const grp = battleGroupShips(); if (!grp.length) return 0;
+  const grp = battleFleetShips(); if (!grp.length) return 0;
   const front = battleGroupFrontTier();
   const pool = (front.length && Math.random() < 0.85) ? front : grp;
   const def = battleGroupPostureObj().def;

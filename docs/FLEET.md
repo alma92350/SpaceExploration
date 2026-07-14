@@ -263,6 +263,10 @@ cadence (`maybeAmbush`, combat.js) instead of a per-cycle timer.
   encounterFight()` has no multi-actor machinery today, unlike raid combat's
   `combatStrike()`) — a natural, separately-audited follow-up once this
   slice's numbers have been played. Exports added. Tests: `convoy.test.js`.
+  **Update (Slice 20)**: convoy warships now DO fight alongside the player in
+  `combatStrike()` specifically (raiding a target you found via Sweep) — see
+  Slice 20 below. `encounterFight()` (fighting the pirate that just ambushed
+  you) still has no multi-actor machinery and remains out of scope.
 
 ## Slice 8 (shipped) — vicinity-gated raid support + pooled multi-hostile engagements
 Two changes to raid combat, requested together: fleet support (both
@@ -863,3 +867,60 @@ bar) rather than a hard prerequisite. `preyCombatCard`'s hint line and
 Tests updated: the old single "pin required" case now exercises the
 critical-hp-without-pinning path explicitly (both the false case just
 above 15% and the true case at/below it).
+
+## Slice 20 (shipped) — fixes: a crippled passenger liner could dodge death forever, and Personal Convoy warships were invisible to raid combat
+
+Two bugs reported in the same session, both about a hull that "never gets
+destroyed":
+
+**Fix 1 — re-boarding a crippled liner re-armed its own immunity.**
+`fleetShipHit` (fleet.js) never destroys a passenger hull that's still
+carrying souls — it cripples instead (hull pinned at 1, passengers
+evacuated). But `boardPassengers` never checked hull state, so a liner
+sitting crippled at 1 hull could immediately take on a fresh manifest,
+re-arming the "never destroyed while carrying passengers" rule before the
+next hit landed. A liner riding the Personal Convoy could be kept alive
+indefinitely this way. Fixed with a `s.crippled` flag set by `fleetShipHit`
+on crippling and cleared only by `repairFleetShip` on a full repair;
+`boardPassengers` now refuses a crippled hulk. Tests: `passenger.test.js`.
+
+**Fix 2 — Personal Convoy warships never participated in a raid you
+initiated.** Reported as "hulls following me [Battle Group] take hits in
+Vanguard fine, but hulls assigned to my Personal Convoy seem immune to
+attacks" after seizing and convoying a hull, positioning it Vanguard, and
+raiding another ship. Root cause: `combatStrike()` (raiding.js, the
+round-by-round fight against `S.prey`) only ever read `battleGroupShips()`
+(`status:"battle"`, i.e. an explicitly deployed Battle Group) for
+`battleGroupTakeFire`/`battleGroupFirepower`/`battleGroupScreenMult`/
+`raidPlayerExposed`/`raidFrontTier` — a convoy warship (`status:"convoy"`)
+was never in that pool, so its Vanguard/Line/Reserve station had zero
+effect once an actual raid fight started; it could only ever take the
+one-time travel-ambush opening volley (`convoyAmbushRisk`, Slice 7/18).
+
+Fixed by adding `battleFleetShips()` = `battleGroupShips().concat(
+convoyWarships())` and swapping it in everywhere combat *participation* is
+decided (`battleGroupFrontTier`, `battleGroupScreenMult`,
+`battleGroupFirepower`, `battleGroupTakeFire`, `setBattleGroupFormation`,
+`raidFrontTier`, `raidPlayerExposed`, and `combatStrike`'s gate before
+calling `battleGroupTakeFire`). A convoy warship now fights in the same
+pooled formation as a deployed Battle Group — takes fire, contributes
+firepower, can die and get purged — using its own convoy-assigned
+Vanguard/Line/Reserve station, with zero extra setup. Left untouched on
+purpose: `deployBattleGroup`/`recallBattleGroup`/`battleGroupStandDown`/
+`releaseBattleGroup` still read `battleGroupShips()` alone, since those
+toggle a ship's `status` between `"battle"`/`"patrol"` — a convoy ship's
+`status` must never flip just because it took part in a fight; recalling
+it stays a Fleet-tab action (`recallConvoy`) like before.
+
+UI: `preyCombatCard`'s Battle fleet panel (renderCombat.js) now lists
+convoy warships alongside any deployed Battle Group, tagged 🚚 (since
+"Recall fleet" only ever stands down the actual deployed group), with a
+separate "+N following" button to also deploy idle patrol ships on top of
+an already-fighting convoy. `encounterFight()` (fighting the pirate that
+just ambushed you, rather than a target you sought out via Sweep) still
+has no multi-actor machinery and remains a separate, unaddressed gap.
+
+Tests: `raidpool.test.js` (a convoy warship with no Battle Group deployed
+still takes fire and can die; a mixed Battle Group + convoy pool both
+takes fire correctly; `recallBattleGroup` never touches a convoy ship's
+status).

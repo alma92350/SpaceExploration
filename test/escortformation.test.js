@@ -18,7 +18,8 @@ test("buildEscortFleet defaults freighters to reserve and the flagship/escorts t
   run(`S = freshState(); rollPrices();`);
   startEscort(run);
   const roles = JSON.parse(run(`JSON.stringify(S.escort.fleet.map(s => ({ role: s.role, formation: s.formation })))`));
-  roles.forEach(s => assert.equal(s.formation, s.role === "freighter" ? "reserve" : "line", `${s.role} should default to ${s.role === "freighter" ? "reserve" : "line"}`));
+  const expected = s => (s.role === "freighter" || s.role === "passenger") ? "reserve" : "line";
+  roles.forEach(s => assert.equal(s.formation, expected(s), `${s.role} should default to ${expected(s)}`));
 });
 
 test("setEscortFormation reassigns a ship by fleet index, and ignores an invalid index or slot", () => {

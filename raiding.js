@@ -423,8 +423,8 @@ function raidFocusTarget(idx) {
 // formation you pick, same as a lone Escort flagship with no fleet left to hide behind. ----
 function playerFormation() { return FORMATION_SLOTS[S.pirate.formation] ? S.pirate.formation : "line"; }
 function setPlayerFormation(slot) { if (!FORMATION_SLOTS[slot]) return; S.pirate.formation = slot; saveGame(); renderAll(); }
-function raidFrontTier() {   // frontmost non-empty tier among you + your living Battle Group — mirrors battleGroupFrontTier/escortFrontTier
-  const pool = [{ isPlayer: true }, ...battleGroupShips().map(s => ({ isPlayer: false, ship: s }))];
+function raidFrontTier() {   // frontmost non-empty tier among you + your living Battle Group/convoy warships — mirrors battleGroupFrontTier/escortFrontTier
+  const pool = [{ isPlayer: true }, ...battleFleetShips().map(s => ({ isPlayer: false, ship: s }))];
   for (const t of FORMATION_TIERS) {
     const grp = pool.filter(o => (o.isPlayer ? playerFormation() : shipFormation(o.ship)) === t);
     if (grp.length) return grp;
@@ -433,12 +433,12 @@ function raidFrontTier() {   // frontmost non-empty tier among you + your living
 }
 function raidPlayerFrontline() { return raidFrontTier().some(o => o.isPlayer); }   // stable (no roll) — for the UI badge
 // per-shot roll: 85% of the time only the front tier is a valid target, 15% stray fire reaches
-// anyone — the same split battleGroupTakeFire/chooseIntent use. No Battle Group means no one to
-// hide behind, so you're always exposed regardless of formation (mirrors a solo Escort flagship).
+// anyone — the same split battleGroupTakeFire/chooseIntent use. No Battle Group/convoy warship means
+// no one to hide behind, so you're always exposed regardless of formation (mirrors a solo Escort flagship).
 function raidPlayerExposed() {
-  if (!battleGroupShips().length) return true;
+  if (!battleFleetShips().length) return true;
   const front = raidFrontTier();
-  const pool = (front.length && Math.random() < 0.85) ? front : [{ isPlayer: true }, ...battleGroupShips().map(s => ({ isPlayer: false }))];
+  const pool = (front.length && Math.random() < 0.85) ? front : [{ isPlayer: true }, ...battleFleetShips().map(s => ({ isPlayer: false }))];
   return pool.some(o => o.isPlayer);
 }
 // a salvo can kill more than one hostile at once now (pooled fire split across several targets).
@@ -511,9 +511,9 @@ function combatStrike(noQuarter, wkey) {
     incoming.push(`${idx === 0 ? "" : h.ico + " "}${alpha ? "💥ALPHA " : ""}−${fs.dmg}${subsysHitLog(fs.subHit)}`);
     if (!S.prey) break;   // shipCrippled ended the engagement
   }
-  if (battleGroupShips().length) {
+  if (battleFleetShips().length) {
     let bgTaken = 0;
-    hostiles.forEach(h => { bgTaken += battleGroupTakeFire(h); });   // the whole hostile group threatens the battle fleet, not just the anchor
+    hostiles.forEach(h => { bgTaken += battleGroupTakeFire(h); });   // the whole hostile group threatens the battle fleet (deployed Battle Group + any Personal Convoy warships riding along), not just the anchor
     if (bgTaken) incoming.push(`✦ battle fleet −${bgTaken}`);
     if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
   }

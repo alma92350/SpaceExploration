@@ -1,5 +1,5 @@
 {
-  "version": "2.124.1",
+  "version": "2.124.2",
   "saveVersion": "v2",
-  "notes": "Fix: a Passenger liner crippled in a convoy ambush could re-board a fresh manifest while still sitting at 1 hull, re-arming the never-destroyed rule before the next hit and letting it survive indefinitely. A crippled hulk can no longer take on new passengers until it's actually repaired."
+  "notes": "Fix: a warship riding in your Personal Convoy never actually fought when you raided a target - its Vanguard/Line/Reserve station only mattered for the one-time travel-ambush volley. It now fights alongside a deployed Battle Group (or on its own) using that same station - takes fire, adds firepower, and can be lost."
 }
