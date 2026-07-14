@@ -578,6 +578,10 @@ function raidSpareRecruit() {
 // — but the consequences (Dread/Wanted/rep) otherwise mirror a normal (non-No-Quarter) kill of
 // the same prey type, since seizing a coalition or pirate hull is no less an act than sinking it. ----
 const SEIZE_CLASS_MAP = { scout: "corvette", corvette: "corvette", frigate: "frigate", cruiser: "cruiser", battleship: "battleship", dreadnought: "battleship" };
+// a seized Luxury Liner (or any other "liner"-type prey) is a passenger hull, not a warship
+// prize — mapped onto the FLEET_SHIPS passenger tiers by the same class-ladder shape as
+// SEIZE_CLASS_MAP above, so it fits whatever hull size the prey actually rolled.
+const SEIZE_PASSENGER_CLASS_MAP = { scout: "shuttle_transit", corvette: "shuttle_transit", frigate: "packet_passenger", cruiser: "liner_luxury", battleship: "colony_ship", dreadnought: "colony_ship" };
 const SEIZE_HP_PINNED = 0.35, SEIZE_HP_CRITICAL = 0.15;
 function raidCanSeize() {
   const p = S.prey; if (!p || !p._engaged || p.ground) return false;
@@ -587,12 +591,19 @@ function raidCanSeize() {
 function raidSeizeHull() {
   if (!raidCanSeize()) return toast("Beat it down further first — pin its engines to seize it beaten to 35% hull, or grind it down to 15% outright.", "bad");
   const prey = S.prey;
-  const key = SEIZE_CLASS_MAP[prey.cls] || "corvette", def = FLEET_SHIPS[key];
+  const isLiner = prey.type === "liner";
+  const key = isLiner ? (SEIZE_PASSENGER_CLASS_MAP[prey.cls] || "liner_luxury") : (SEIZE_CLASS_MAP[prey.cls] || "corvette"), def = FLEET_SHIPS[key];
   const hullMax = fleetShipHullMax(def);
   const frac = Math.max(0.25, Math.min(0.5, foeHp(prey) / prey.maxhp));   // arrives as battle-damaged as it surrendered
   const hull = Math.max(1, Math.round(hullMax * frac));
-  fleetList().push({ id: "sh" + S.turn + "_" + Math.floor(Math.random() * 1e4), key, name: `Prize ${prey.name}`, home: S.location, status: "idle", hull, hullMax });
-  const joinNote = `The ${def.ico} ${def.name} joins your fleet at ${Math.round(hull / hullMax * 100)}% hull.`;
+  const prize = { id: "sh" + S.turn + "_" + Math.floor(Math.random() * 1e4), key, name: `Prize ${prey.name}`, home: S.location, status: "idle", hull, hullMax };
+  let passNote = "";
+  if (isLiner && (prey.passengers || 0) > 0) {
+    prize.passengers = +(prey.passengers * frac).toFixed(1);   // some souls lost to casualties/desertion during the boarding
+    passNote = ` ${prize.passengers}k passengers ride along, rattled but alive.`;
+  }
+  fleetList().push(prize);
+  const joinNote = `The ${def.ico} ${def.name} joins your fleet at ${Math.round(hull / hullMax * 100)}% hull.${passNote}`;
   if (prey.isPirate) {
     S.pirate.dread += 2; clampPirate();
     const p = currentPlanet();

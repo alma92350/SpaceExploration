@@ -501,6 +501,17 @@ function renderEscort() {
           <div class="hint">Illegal cargo: fat pay and deep standing with the crew, but you'll take heat and the destination's law won't forget. Bail and you'll burn the crew's trust.</div>
           <button class="btn btn-primary" onclick="acceptEscort(${i})">Take the job</button></div>`;
       }
+      if (m.passengers) {
+        return `<div class="card"><h4>🧳 Resettlement run to ${dn ? dn.name : "?"}</h4>
+          <div class="hint">Ferry a full liner's manifest to ${dn ? dn.name : "the destination"} — the passengers ride in your fleet, not your hold; a crippled liner evacuates them rather than losing them outright, but a run that never makes port pays a reduced fee.</div>
+          <div class="ship-stat"><span class="k">Distance</span><span class="v">${m.dist} ly · ${m.legs} legs</span></div>
+          <div class="ship-stat"><span class="k">Threat</span><span class="v">${tl} (${Math.round(m.threat * 100)}%)</span></div>
+          <div class="ship-stat"><span class="k">Deadline</span><span class="v">${m.cycleBudget} cycles <span class="hint">${escortUrgencyLabel(m.urgency != null ? m.urgency : 4)}</span></span></div>
+          <div class="ship-stat"><span class="k">Manifest</span><span class="v">${fmt(m.passengers)}k passengers</span></div>
+          <div class="ship-stat"><span class="k">Reward</span><span class="v" style="color:var(--gold)">${fmt(m.reward)} cr<span class="hint"> +${fmt(m.bonus)} flawless</span></span></div>
+          <div class="hint">Threat tracks pirate activity at ${oFrom ? oFrom.name : "origin"} &amp; ${dn ? dn.name : "dest"} — clear them in the ⚔️ Raider tab before you set out to lower it (but the clock runs).</div>
+          <button class="btn btn-primary" onclick="acceptEscort(${i})">Accept resettlement run</button></div>`;
+      }
       return `<div class="card"><h4>🛡️ Convoy to ${dn ? dn.name : "?"}</h4>
         <div class="ship-stat"><span class="k">Distance</span><span class="v">${m.dist} ly · ${m.legs} legs</span></div>
         <div class="ship-stat"><span class="k">Threat</span><span class="v">${tl} (${Math.round(m.threat * 100)}%)</span></div>
@@ -536,7 +547,7 @@ function renderEscort() {
   const roster = e.fleet.map((sh, fi) => {
     const alive = escShipAlive(sh), h = escShipHull(sh), hm = escShipHullMax(sh);
     const fp = Math.round(escShipFP(sh));
-    let tag = sh.role === "flagship" ? "flagship" : sh.role === "escort" ? "escort" : "cargo";
+    let tag = sh.role === "flagship" ? "flagship" : sh.role === "escort" ? "escort" : sh.role === "passenger" ? (sh.evacuated ? "passengers evacuated" : "passengers") : "cargo";
     if (sh.role === "flagship" && alive) { const fw = WEAPONS[escortFlagWeapon()]; tag += ` · ${fw.ico}${Object.keys(fw.ammo).length ? " " + matsString(fw.ammo) : ""}`; }
     const inc = threatenedBy[fi];
     const mark = alive && inc ? ` <span title="incoming fire from ${inc.length}" style="color:var(--bad)">⤳${inc.join("")}</span>` : "";

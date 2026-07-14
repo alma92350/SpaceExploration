@@ -649,14 +649,20 @@ function renderMissions() {
       const dest = PLANETS.find(p2 => p2.id === c.planetId);
       const left = c.deadline - S.turn;
       const here = S.location === c.planetId;
-      const have = (S.res[c.commodity] || 0) >= c.qty;
+      const have = c.kind === "resettle" ? convoyPassengersHere() >= c.passengers : (S.res[c.commodity] || 0) >= c.qty;
       const urgent = left <= 2;
+      const desc = c.kind === "resettle"
+        ? `Ferry <b>${fmt(c.passengers)}k settlers</b> to <b>${dest.name}</b> for the ${FACTIONS[c.faction].name} — carried by a Personal Convoy passenger liner.`
+        : `Deliver <b>${c.qty} ${COM[c.commodity].ico} ${COM[c.commodity].name}</b> to <b>${dest.name}</b> for the ${FACTIONS[c.faction].name}.`;
+      const readyHint = c.kind === "resettle"
+        ? (have ? "Ready to deliver." : `Your convoy carries ${fmt(convoyPassengersHere())}k/${fmt(c.passengers)}k here.`)
+        : (have ? "Ready to deliver." : `You hold ${fmt(S.res[c.commodity] || 0)}/${c.qty}.`);
       return `<div class="card" ${urgent ? 'style="border-color:var(--warn)"' : ""}>
-        <h4>${FACTIONS[c.faction].ico} ${c.kind === "relief" ? "🆘 Relief Appeal" : c.kind === "smuggle" ? "Smuggling Job" : "Supply Contract"}
+        <h4>${FACTIONS[c.faction].ico} ${c.kind === "relief" ? "🆘 Relief Appeal" : c.kind === "smuggle" ? "Smuggling Job" : c.kind === "resettle" ? "🧳 Resettlement Job" : "Supply Contract"}
           <span class="pill ${urgent ? "bad" : ""}">${left} cyc left</span></h4>
-        <div class="desc">Deliver <b>${c.qty} ${COM[c.commodity].ico} ${COM[c.commodity].name}</b> to <b>${dest.name}</b> for the ${FACTIONS[c.faction].name}.</div>
+        <div class="desc">${desc}</div>
         <div class="hint">Reward: ${costString(c.reward)}</div>
-        <div class="hint">${here ? (have ? "Ready to deliver." : `You hold ${fmt(S.res[c.commodity] || 0)}/${c.qty}.`) : `Travel to ${dest.name}.`}</div>
+        <div class="hint">${here ? readyHint : `Travel to ${dest.name}.`}</div>
         <button class="btn btn-primary" ${here && have ? "" : "disabled"} onclick="fulfilContract('${c.id}')">Fulfil</button>
       </div>`;
     }).join("") : '<div class="hint">No active contracts. New ones are posted by the factions as cycles pass.</div>';

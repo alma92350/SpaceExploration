@@ -595,6 +595,7 @@ function genPrey() {
     wantedGain: Math.round(A.wanted * (1 + law * 0.6)),
   };
   applyShipClass(foe, rollShipClass(law >= 0.5 ? 1 : 0));     // lawful lanes run bigger hulls
+  if (key === "liner") foe.passengers = +(0.5 + Math.random() * 2.5).toFixed(1);   // souls aboard, in "k" — same scale as a colony's own col.pop
   return foe;
 }
 /* ---------- Raiding a planet (the offense side of the defense slice above) ----------

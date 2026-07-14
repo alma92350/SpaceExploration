@@ -385,6 +385,21 @@ function genContract() {
   const f = pick([...new Set(reachable.map(p => p.faction))]);
   const homeworlds = reachable.filter(p => p.faction === f);
   const planet = pick(homeworlds);
+  // a resettlement job asks for passengers ferried by a Personal Convoy passenger liner,
+  // instead of a commodity delivered from the hold — only ever posted for a colonizable
+  // destination this faction actually controls, since a faction has no reason to ask for
+  // settlers moved to a world that isn't one of yours to grow.
+  const colonyDests = reachable.filter(p => p.faction === f && S.colonies && S.colonies[p.id]);
+  if (colonyDests.length && Math.random() < 0.2) {
+    const dest = pick(colonyDests);
+    const passengers = +(1 + Math.random() * 3).toFixed(1);        // 1–4k
+    const reward = { credits: Math.round(passengers * 900 * (1 + Math.random() * 0.4)) + 300,
+                     rep: { [f]: 8 + Math.floor(Math.random() * 12) },
+                     influence: 2 + Math.floor(Math.random() * 5) };
+    const duration = 8 + Math.floor(Math.random() * 10);           // resettlement takes longer than a supply run
+    return { id: "c" + (++S.contractSeq), kind: "resettle", faction: f, planetId: dest.id,
+             passengers, reward, deadline: S.turn + duration, posted: S.turn };
+  }
   let commodity, kind = "supply";
   if (f === "frontier" && Math.random() < 0.5) { commodity = pick(["relics", "weapons"]); kind = "smuggle"; }
   else commodity = pick(FACTION_WANTS[f]);
@@ -402,25 +417,48 @@ function maybeGenContract() {
   if (S.contracts.length < 6 && Math.random() < 0.55) {
     const c = genContract();
     S.contracts.push(c);
-    log(`📋 New ${c.kind === "smuggle" ? "smuggling job" : "contract"} posted by ${FACTIONS[c.faction].ico} ${FACTIONS[c.faction].name}: ${c.qty} ${COM[c.commodity].ico} ${COM[c.commodity].name} to ${PLANETS.find(p => p.id === c.planetId).name} (${c.deadline - S.turn} cycles).`, "event");
+    const what = c.kind === "resettle" ? `${fmt(c.passengers)}k settlers` : `${c.qty} ${COM[c.commodity].ico} ${COM[c.commodity].name}`;
+    log(`📋 New ${c.kind === "smuggle" ? "smuggling job" : c.kind === "resettle" ? "resettlement job" : "contract"} posted by ${FACTIONS[c.faction].ico} ${FACTIONS[c.faction].name}: ${what} to ${PLANETS.find(p => p.id === c.planetId).name} (${c.deadline - S.turn} cycles).`, "event");
   }
 }
 function expireContracts() {
   S.contracts = S.contracts.filter(c => {
     if (S.turn > c.deadline) {
       addRep(c.faction, -5);
-      log(`📋 Contract expired — ${FACTIONS[c.faction].name} wanted ${c.qty} ${COM[c.commodity].name} (−5 rep).`, "bad");
+      const what = c.kind === "resettle" ? `${fmt(c.passengers)}k settlers` : c.qty + " " + COM[c.commodity].name;
+      log(`📋 Contract expired — ${FACTIONS[c.faction].name} wanted ${what} (−5 rep).`, "bad");
       return false;
     }
     return true;
   });
 }
+// how many passengers, combined across every convoy passenger liner currently docked/riding
+// with you at S.location, are available to fulfil a resettle contract right here
+function convoyPassengersHere() { return convoyPassengerShips().reduce((sum, s) => sum + (s.passengers || 0), 0); }
 function fulfilContract(id) {
   const i = S.contracts.findIndex(c => c.id === id);
   if (i < 0) return;
   const c = S.contracts[i];
   const dest = PLANETS.find(p => p.id === c.planetId);
   if (S.location !== c.planetId) return toast(`Deliver at ${dest.name}.`, "bad");
+  if (c.kind === "resettle") {
+    if (convoyPassengersHere() < c.passengers) return toast(`Need ${fmt(c.passengers)}k passengers aboard a convoy liner.`, "bad");
+    let left = c.passengers;
+    convoyPassengerShips().forEach(s => {
+      if (left <= 0) return;
+      const take = Math.min(left, s.passengers || 0);
+      if (take <= 0) return;
+      s.passengers -= take; left -= take;
+    });
+    const col = S.colonies[c.planetId];
+    if (col) col.pop = Math.min(colonyHousing(col, dest), col.pop + c.passengers);
+    gain(c.reward);
+    S.contracts.splice(i, 1);
+    log(`📋 Contract fulfilled — resettled ${fmt(c.passengers)}k settlers at ${dest.name} for ${FACTIONS[c.faction].name}.`, "event");
+    toast("Contract complete!", "event");
+    afterAction();
+    return;
+  }
   if ((S.res[c.commodity] || 0) < c.qty) return toast(`Need ${c.qty} ${COM[c.commodity].name}.`, "bad");
   S.res[c.commodity] -= c.qty;
   gain(c.reward);

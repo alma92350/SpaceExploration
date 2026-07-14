@@ -47,6 +47,19 @@ function unloadTankerQty(id) {
   const v = el ? +el.value : null;
   tankerUnloadQty[id] = v; unloadTanker(id, v);
 }
+// same remembered-quantity idiom as the tanker Load/Unload pair, for a convoy passenger liner's
+// Board/Debark buttons.
+let passengerBoardQty = {}, passengerDebarkQty = {};
+function boardPassengersQty(id) {
+  const el = typeof document !== "undefined" && document.getElementById("boardqty-" + id);
+  const v = el ? +el.value : null;
+  passengerBoardQty[id] = v; boardPassengers(id, v);
+}
+function debarkPassengersQty(id) {
+  const el = typeof document !== "undefined" && document.getElementById("debarkqty-" + id);
+  const v = el ? +el.value : null;
+  passengerDebarkQty[id] = v; debarkPassengers(id, v);
+}
 // Roster view UI state (status view only): a growing fleet (30+ hulls) turns a flat
 // per-role list into a wall of rows, so the roster gets a quick status filter + name
 // search (same session-only-var idiom as marketSort, renderProgression.js) and
@@ -114,6 +127,25 @@ function renderFleet() {
             <button class="btn btn-sm" title="Unload this much — tops off your own tank first, then the base, then the colony, selling anything left over" onclick="unloadTankerQty('${s.id}')">⬇️⛽ Unload</button>`;
         }
       }
+      // Passenger Board/Debark: only while the liner is actually riding in your convoy (it
+      // travels with you, so wherever you are IS wherever it is) — no home-port gate, unlike
+      // the tanker's Load/Unload above.
+      if (onConvoy && def.role === "passenger") {
+        const col = S.colonies[pid];
+        const room = shipCargoCap(s) - (s.passengers || 0);
+        const boardMax = col ? Math.min(room, Math.max(0, col.pop - 1)) : room;
+        if (boardMax > 0) {
+          const boardVal = Math.max(0, Math.min(boardMax, passengerBoardQty[s.id] != null ? passengerBoardQty[s.id] : boardMax));
+          loadBtn = `<input class="qty" id="boardqty-${s.id}" type="number" min="0" max="${boardMax}" value="${boardVal}" title="Passengers to board (k)" />
+            <button class="btn btn-sm" title="Sell tickets and board this many — ${col ? "drawn from this colony's own population" : "booked from the local populace"}" onclick="boardPassengersQty('${s.id}')">🧳⬆️ Board</button>`;
+        }
+        if ((s.passengers || 0) > 0) {
+          const debarkMax = s.passengers || 0;
+          const debarkVal = Math.max(0, Math.min(debarkMax, passengerDebarkQty[s.id] != null ? passengerDebarkQty[s.id] : debarkMax));
+          unloadBtn = `<input class="qty" id="debarkqty-${s.id}" type="number" min="0" max="${debarkMax}" title="Passengers to debark (k)" value="${debarkVal}" />
+            <button class="btn btn-sm" title="${col ? "Settle this many here — grows the colony's population" : "Disembark this many here"}" onclick="debarkPassengersQty('${s.id}')">🧳⬇️ Debark</button>`;
+        }
+      }
       const scrapPct = scrapRefundPct(), scrapBonusOn = scrapPct > SCRAP_REFUND_PCT, scrapRefund = Math.round((def.cost.metals || 0) * scrapPct);
       const ctlBtn = onMission ? `<button class="btn btn-sm" title="Recall — bank what it's earned" onclick="recallFleetMission('${s.id}')">↩ Recall</button>`
         : (onRun && s.run.cyclesLeft === s.run.totalCycles) ? `<button class="btn btn-sm" title="Turn back before clearing port — fuel refunded" onclick="recallTankerRun('${s.id}')">↩ Recall</button>`
@@ -123,6 +155,7 @@ function renderFleet() {
         : s.status === "building" || s.status === "escort" || onRun || onRunEscort ? "" : `<button class="btn btn-sm btn-bad" title="Scrap this ship (salvages ${scrapRefund} metals${scrapBonusOn ? " — recycling bonus" : ""})" onclick="scrapShip('${s.id}')">♻️ ${scrapRefund}${scrapBonusOn ? "✦" : ""}</button>`;
       const spec = def.role === "warship" ? `🔥${shipStrEff(s)} · 🛡️${s.hullMax}`
         : def.role === "tanker" ? `⛽${shipCargoCap(s)} · 🐌${Math.round(fleetShipSpeed(def) * 100)}%${(s.fuel || 0) > 0 ? ` · 🛢️${s.fuel} loaded` : ""}`
+        : def.role === "passenger" ? `🧳${shipCargoCap(s)}k cap · 🐌${Math.round(fleetShipSpeed(def) * 100)}%${(s.passengers || 0) > 0 ? ` · 🧳${s.passengers}k aboard` : ""}`
         : `📦${shipCargoCap(s)} cargo`;
       // ---- Small Shipyard customization: commit an idle hull to a Cargo or Combat
       // lean, up to 3 levels, only while docked at its home base's Small Shipyard ----
@@ -143,7 +176,7 @@ function renderFleet() {
         <span class="k">${def.ico} ${s.name} <span class="hint">${SHIP_CLASSES[def.cls].name} · ${spec} · ⚓ ${homeName}</span></span>
         <span class="v" style="min-width:160px">${s.status === "building" ? status : bar(s.hull, s.hullMax) + `<span class="hint">${status} · ${Math.round(s.hull)}/${s.hullMax}</span>`} ${repBtn}${reassignBtn}${patrolBtn}${loadBtn}${unloadBtn}${ctlBtn}</span></div>${loadoutRow}`;
     };
-    const ROLE_GROUPS = [["warship", "⚔️ Warships"], ["freighter", "🚚 Freighters"], ["tanker", "⛽ Tankers"]];
+    const ROLE_GROUPS = [["warship", "⚔️ Warships"], ["freighter", "🚚 Freighters"], ["tanker", "⛽ Tankers"], ["passenger", "🧳 Passenger Liners"]];
     const isDamaged = s => s.status !== "building" && s.hullMax > 0 && s.hull < s.hullMax;
     const idleN = f.filter(s => s.status === "idle").length, buildingN = f.filter(s => s.status === "building").length;
     const damagedN = f.filter(isDamaged).length, dutyN = f.length - idleN - buildingN;
@@ -239,6 +272,7 @@ function renderFleet() {
       const slowest = convFrs.length ? Math.min(...convFrs.map(s => fleetShipSpeed(FLEET_SHIPS[s.key]))) : null;
       const idleFrHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
       const idleWarHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
+      const idlePassHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "passenger");
       const front = inConvoy.length ? convoyFrontTier() : [];
       const frontKey = front.length ? (front[0].isPlayer ? playerFormation() : shipFormation(front[0].ship)) : null;
       const moveBtns = (cur, onclickFor) => FORMATION_TIERS.filter(k => k !== cur).map(k => `<button class="btn btn-sm" title="Move to ${FORMATION_SLOTS[k].name}" onclick="${onclickFor(k)}">${FORMATION_SLOTS[k].ico}</button>`).join("");
@@ -247,10 +281,27 @@ function renderFleet() {
         ? `<div class="ship-stat"><span class="k">${FORMATION_SLOTS[youTier].ico} 🚀 You${youTier === frontKey ? ' <span style="color:var(--bad)">◀ front</span>' : ""}</span><span class="v">${Math.round(S.pirate.hull)}/${HULL_MAX} ${moveBtns(youTier, k => `setPlayerFormation('${k}')`)}</span></div>`
         : "";
       const rosterRows = inConvoy.map(s => { const d = FLEET_SHIPS[s.key], tier = shipFormation(s);
-        return `<div class="ship-stat"><span class="k">${FORMATION_SLOTS[tier].ico} ${d.ico} ${s.name}${tier === frontKey ? ' <span style="color:var(--bad)">◀ front</span>' : ""}</span><span class="v">${d.role === "freighter" ? `📦${shipCargoCap(s)}` : `🔥${shipStrEff(s)}`} · ${Math.round(s.hull)}/${s.hullMax} ${moveBtns(tier, k => `setConvoyFormation('${s.id}','${k}')`)} <button class="btn btn-sm" onclick="recallConvoy('${s.id}')">↩ Recall</button></span></div>`;
+        const valSpec = d.role === "freighter" ? `📦${shipCargoCap(s)}` : d.role === "passenger" ? `🧳${s.passengers || 0}/${shipCargoCap(s)}` : `🔥${shipStrEff(s)}`;
+        let passBtns = "";
+        if (d.role === "passenger") {
+          const col = S.colonies[S.location];
+          const room = shipCargoCap(s) - (s.passengers || 0);
+          const boardMax = col ? Math.min(room, Math.max(0, col.pop - 1)) : room;
+          if (boardMax > 0) {
+            const boardVal = Math.max(0, Math.min(boardMax, passengerBoardQty[s.id] != null ? passengerBoardQty[s.id] : boardMax));
+            passBtns += ` <input class="qty" id="boardqty-${s.id}" type="number" min="0" max="${boardMax}" value="${boardVal}" title="Passengers to board (k)" /><button class="btn btn-sm" title="Sell tickets and board" onclick="boardPassengersQty('${s.id}')">🧳⬆️</button>`;
+          }
+          if ((s.passengers || 0) > 0) {
+            const debarkMax = s.passengers || 0;
+            const debarkVal = Math.max(0, Math.min(debarkMax, passengerDebarkQty[s.id] != null ? passengerDebarkQty[s.id] : debarkMax));
+            passBtns += ` <input class="qty" id="debarkqty-${s.id}" type="number" min="0" max="${debarkMax}" title="Passengers to debark (k)" value="${debarkVal}" /><button class="btn btn-sm" title="Debark here" onclick="debarkPassengersQty('${s.id}')">🧳⬇️</button>`;
+          }
+        }
+        return `<div class="ship-stat"><span class="k">${FORMATION_SLOTS[tier].ico} ${d.ico} ${s.name}${tier === frontKey ? ' <span style="color:var(--bad)">◀ front</span>' : ""}</span><span class="v">${valSpec} · ${Math.round(s.hull)}/${s.hullMax} ${moveBtns(tier, k => `setConvoyFormation('${s.id}','${k}')`)}${passBtns} <button class="btn btn-sm" onclick="recallConvoy('${s.id}')">↩ Recall</button></span></div>`;
       }).join("");
       const frBtns = idleFrHere.map(s => `<button class="btn btn-sm btn-good" onclick="assignConvoy('${s.id}')">🚚 ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
       const warBtns = idleWarHere.map(s => `<button class="btn btn-sm" onclick="assignConvoy('${s.id}')">🛡️ ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
+      const passBtnsAdd = idlePassHere.map(s => `<button class="btn btn-sm btn-good" onclick="assignConvoy('${s.id}')">🧳 ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
       convoyCard = `<div class="card"><h4>🚚 Personal Convoy</h4>
         <div class="hint">Have freighters ride with you on every jump — a second hold on the road, on top of your own ship's. No cap on how many can join, but you only move as fast as the slowest one: with a freighter aboard, a jump takes several cycles instead of one. It costs extra fuel to tow too, and it isn't risk-free: ambush odds ride on pirate activity at <b>both ends of the route</b> — no escort can stop you being found. What your formation decides is who takes the ambushers' <b>opening volley</b>: 85% of the time it lands on the frontmost tier (🛡️ Vanguard first, then ⚔️ Line, then 🌌 Reserve — you hold a station too), 15% is stray fire that can reach anyone. Warships and following bands blunt the volley's damage. Only idle ships docked <b>here</b>, at their home port, can come aboard.</div>
         <div class="ship-stat"><span class="k">Bonus cargo</span><span class="v">+${fmt(bonus)} <span class="hint">(no ceiling)</span></span></div>
@@ -262,7 +313,8 @@ function renderFleet() {
         ${youRow}${inConvoy.length ? rosterRows : '<div class="hint">No ships in your convoy yet.</div>'}
         ${idleFrHere.length ? `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Add freighter</span> ${frBtns}</div>` : ""}
         ${idleWarHere.length ? `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Add warship</span> ${warBtns}</div>` : ""}
-        ${!idleFrHere.length && !idleWarHere.length && !inConvoy.length ? '<div class="hint" style="margin-top:6px">No idle ships docked here — build one, or fly to where an idle ship of yours is stationed.</div>' : ""}</div>`;
+        ${idlePassHere.length ? `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Add passenger liner</span> ${passBtnsAdd}</div>` : ""}
+        ${!idleFrHere.length && !idleWarHere.length && !idlePassHere.length && !inConvoy.length ? '<div class="hint" style="margin-top:6px">No idle ships docked here — build one, or fly to where an idle ship of yours is stationed.</div>' : ""}</div>`;
     }
     // ---- Tanker Runs: dispatch an idle tanker on an autonomous, multi-cycle fuel-hauling run ----
     const idleTankers = f.filter(s => s.status === "idle" && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "tanker");
