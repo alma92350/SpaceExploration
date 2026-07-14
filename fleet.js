@@ -584,10 +584,12 @@ function processTankerRuns() {
 }
 // ---- personal convoy: freighters ride WITH you on every jump, extending your OWN
 // cargo hold on the road; warships (and any pirate bands riding with you) escort
-// them, damping travel-ambush odds and softening any ambush that slips through
-// anyway. Distinct from logistics duty (above): that stations ships AT a colony
-// to haul ITS goods on a per-cycle timer; this rides with the player and
-// resolves on the per-jump travel-ambush cadence instead (maybeAmbush, combat.js).
+// them, blunting an ambush's opening volley. Ambush ODDS are pure route risk —
+// pirate activity at both ends of the jump (maybeAmbush, combat.js) — your escort
+// can't stop you being found, only change what happens when you are. Distinct
+// from logistics duty (above): that stations ships AT a colony to haul ITS goods
+// on a per-cycle timer; this rides with the player and resolves on the per-jump
+// travel-ambush cadence instead (maybeAmbush, combat.js).
 // No cap on how many freighters can join (Slice 16) — the balancing lever is no
 // longer a cargo ceiling but travel time: convoyTravelLegs() below stretches every
 // jump to however many cycles tankerRunCycles() gives the SLOWEST freighter aboard,
@@ -621,6 +623,10 @@ function assignConvoy(shipId) {
   if (s.status !== "idle") return toast(`The ${s.name} isn't free.`, "bad");
   if (s.home !== S.location) return toast(`Dock at ${(PLANETS.find(p => p.id === s.home) || {}).name || "its home port"} to bring the ${s.name} aboard.`, "bad");
   s.status = "convoy";
+  // first-time joiners get a role-shaped default station — warships screen up front,
+  // freighters (the payload) hang back, same convention buildEscortFleet uses; a prior
+  // manual pick sticks, same as deployBattleGroup's sticky formations
+  if (!FORMATION_SLOTS[s.formation]) s.formation = def.role === "warship" ? "vanguard" : "reserve";
   log(`🚚 Your ${def.ico} ${s.name} falls in with your personal convoy.`, "event");
   toast(`${s.name} joined your convoy`, "good"); sfx("event"); saveGame(); renderAll();
 }
@@ -630,23 +636,51 @@ function recallConvoy(shipId) {
   log(`🚚 Recalled your ${(FLEET_SHIPS[s.key] || {}).ico || ""} ${s.name} from your personal convoy.`, "");
   toast(`${s.name} recalled`, ""); saveGame(); renderAll();
 }
-// pirates ambushing you also take a swipe at your convoy in the chaos — guards
-// (warships + following bands) blunt this too, same 1/(1+guards) shape processConvoys
-// already uses for damage magnitude (distinct from its 0.45^guards shape for ODDS)
+// ---- convoy formation: every convoy ship (and you — the same S.pirate.formation station
+// the Raid tab's battle-fleet panel sets) sits in a Vanguard/Line/Reserve tier, reusing
+// FORMATION_SLOTS/FORMATION_TIERS/shipFormation above as-is, same as Escort and Battle Group. ----
+function setConvoyFormation(shipId, slot) {
+  const s = convoyShips().find(x => x.id === shipId); if (!s || !FORMATION_SLOTS[slot]) return;
+  s.formation = slot; saveGame(); renderAll();
+}
+function convoyFrontTier() {   // frontmost non-empty tier among you + your convoy — mirrors battleGroupFrontTier/escortFrontTier/raidFrontTier
+  const pool = [{ isPlayer: true }].concat(convoyShips().map(s => ({ isPlayer: false, ship: s })));
+  for (const t of FORMATION_TIERS) {
+    const grp = pool.filter(o => (o.isPlayer ? playerFormation() : shipFormation(o.ship)) === t);
+    if (grp.length) return grp;
+  }
+  return [];
+}
+// pirates ambushing you open with a volley — WHO takes it is a positioning question: 85% of
+// the time the frontmost non-empty tier (you included), 15% stray fire reaching anyone, the
+// same split battleGroupTakeFire/chooseIntent use. Guards (warships + following bands) blunt
+// the DAMAGE, 1/(1+guards) — they no longer damp the odds of the ambush itself (maybeAmbush
+// reads route piracy alone). Traveling with no convoy at all keeps the old flow: no volley,
+// the encounter itself (pay/run/fight) is the whole threat.
 function convoyAmbushRisk(lvl) {
-  const frs = convoyFreighters(); if (!frs.length) return;
+  if (!convoyShips().length) return;
   const guards = convoyGuardCount();
-  const f = pick(frs);
+  const front = convoyFrontTier();
+  const pool = (front.length && Math.random() < 0.85) ? front : [{ isPlayer: true }].concat(convoyShips().map(s => ({ isPlayer: false, ship: s })));
+  const target = pick(pool);
   const dmg = Math.round(lvl * 6 * (0.5 + Math.random()) / (1 + guards));
-  const loss = Math.min(S.res.credits || 0, Math.round(lvl * 40 * (0.5 + Math.random()) / (1 + guards)));
+  if (target.isPlayer) {
+    const taken = takeHullDamage(dmg);
+    log(`🏴‍☠️ The opening volley finds YOUR hull — −${taken}. Your ${FORMATION_SLOTS[playerFormation()].name} station put you in their sights.`, "bad");
+    return;
+  }
+  const f = target.ship, def = FLEET_SHIPS[f.key] || {};
+  const isFreighter = def.role === "freighter";
+  // cargo only spoils when the hit lands on a hauler — a warship tanking the volley keeps the goods safe
+  const loss = isFreighter ? Math.min(S.res.credits || 0, Math.round(lvl * 40 * (0.5 + Math.random()) / (1 + guards))) : 0;
   f.hull = Math.max(0, f.hull - dmg);
   if (loss > 0) { S.res.credits -= loss; if (typeof cycleLedger === "function") cycleLedger("convoy losses", -loss); }
   if (f.hull <= 0) {
     f._dead = true;
-    log(`💥 In the ambush, pirates ran down your ${(FLEET_SHIPS[f.key] || {}).ico || ""} ${f.name} — lost with its cargo.`, "bad");
+    log(`💥 In the ambush, pirates ran down your ${def.ico || ""} ${f.name} (${FORMATION_SLOTS[shipFormation(f)].name})${isFreighter ? " — lost with its cargo" : ""}.`, "bad");
     if (typeof toast === "function") toast(`${f.name} lost to pirates!`, "bad");
   } else {
-    log(`🏴‍☠️ Your convoy's ${(FLEET_SHIPS[f.key] || {}).ico || ""} ${f.name} took ${dmg} damage in the ambush${loss ? ` and ${fmt(loss)} cr of goods spoiled` : ""}${guards ? " — your guards blunted it" : ""}.`, "bad");
+    log(`🏴‍☠️ Your convoy's ${def.ico || ""} ${f.name} (${FORMATION_SLOTS[shipFormation(f)].name}) took the opening volley — ${dmg} damage${loss ? ` and ${fmt(loss)} cr of goods spoiled` : ""}${guards ? " — your guards blunted it" : ""}.`, "bad");
   }
   if (fleetList().some(s => s._dead)) S.fleet = fleetList().filter(s => !s._dead);
 }

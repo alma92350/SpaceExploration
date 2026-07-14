@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.121.0";
+const APP_VERSION = "2.122.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.122.0", notes: "New: your 🚚 Personal Convoy now fights in formation. Every convoy ship — and you — holds a 🛡️ Vanguard / ⚔️ Line / 🌌 Reserve station (✦ Fleet tab → Assignments), and when pirates ambush you on the road their opening volley lands on the frontmost tier (85% — 15% is stray fire that can reach anyone) instead of always mugging a random freighter. Warships default to Vanguard, freighters to Reserve. Changed: travel-ambush ODDS now ride purely on pirate activity at both ends of the route — your escort can't stop you being found anymore, but warships and following bands still blunt the volley's damage, and a warship tanking the hit keeps your cargo credits safe." },
   { version: "2.121.0", notes: "New: 🌌 Reserve positioning comes to the Raid tab. Deploy a ✦ Battle Group and you can now post yourself into its Vanguard/Line/Reserve formation alongside your warships (Raid tab, ⚔️ Battle fleet panel) — the same tiering Escort's flagship already uses. Tuck in behind a holding Vanguard and most incoming fire lands on your fleet instead of you; push forward into Vanguard yourself and you draw the brunt of it. Solo (no Battle Group deployed) is unchanged — there's no one to hide behind, so you're always the target." },
   { version: "2.120.0", notes: "Changed: 🛢️ Tankers run faster at every tier. New: 🚚 Freighters now carry their own speed too — exactly twice their comparable Tanker tier's pace. New: your Personal Convoy (✦ Fleet tab) has no cap on how many Freighters can ride along anymore, but the trade is real travel time — a jump now takes as many cycles as the slowest Freighter aboard needs to cover the distance (same shape a 🛢️ Tanker Run already uses), instead of always resolving in one. The Fleet tab shows the convoy's pace and the 🗺️ Starmap flags any destination a slow convoy would stretch out." },
   { version: "2.119.0", notes: "Changed: 🛰️ Probe defenses is now a 🛸 drone-swarm gamble instead of a free, guaranteed look — pay in Combat Drones (needs a Drone Bay), not fuel, and choose how many to commit. Send too few against a well-defended world and the signal never resolves — drones lost, nothing learned. Land inside the world's own detection band and you get an undetected read whose DETAIL scales with swarm size: a bare-minimum probe only reads qualitative bands (weak/moderate/strong/formidable), a bigger one reads exact numbers. Send too many and the swarm's own size gives you away — full intel, but the garrison scrambles onto alert and the surprise for whatever comes next is gone. Sizing the swarm to the target is now the actual skill." },
@@ -783,7 +784,7 @@ Object.assign(window, {
   orderShip, scrapShip, repairFleetShip, reassignShipyard, upgradeLoadout, assignFleetMission, recallFleetMission, setFleetMissionField, raidSummonFleet, escortRallyFleet,
   assignLogistics, recallLogistics, setFleetLogiField, assignPatrol, recallPatrol,
   assignTankerRun, recallTankerRun, setTankerRunField, toggleTankerEscort, loadTanker, unloadTanker, loadTankerQty, unloadTankerQty, reinforceTankerRun,
-  deployBattleGroup, recallBattleGroup, setBattleGroupPosture, setBattleGroupFormation, setPlayerFormation,
+  deployBattleGroup, recallBattleGroup, setBattleGroupPosture, setBattleGroupFormation, setPlayerFormation, setConvoyFormation,
   acceptEscort, refreshEscortOffers, escortAdvance, escortFire, escortRepair, escortFleetRepair, escortToggleTarget, escortFocus, setEscortPosture, setEscortTarget, escortBreakOff, abortEscort, setVesselStance, upgradeVessel, escortBraceRound, escortRecruitBand, escortDismissBand, setEscortFormation,
   giftBandCredits, giftBandCargo,
   navyBribe, navyFight, navySurrender, settleWarrants,

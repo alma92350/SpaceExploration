@@ -235,24 +235,31 @@ function renderFleet() {
       const guards = frGuardN + bandGuards.length;
       const bonus = convoyCargoBonus();
       const surcharge = Math.round(convoyFuelSurcharge() * 100);
-      const oddsPct = Math.round(Math.pow(0.45, guards) * 100);
       const convFrs = convoyFreighters();
       const slowest = convFrs.length ? Math.min(...convFrs.map(s => fleetShipSpeed(FLEET_SHIPS[s.key]))) : null;
       const idleFrHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter");
       const idleWarHere = f.filter(s => s.status === "idle" && s.home === S.location && FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship");
-      const rosterRows = inConvoy.map(s => { const d = FLEET_SHIPS[s.key];
-        return `<div class="ship-stat"><span class="k">${d.ico} ${s.name}</span><span class="v">${d.role === "freighter" ? `📦${shipCargoCap(s)}` : `🔥${shipStrEff(s)}`} · ${Math.round(s.hull)}/${s.hullMax} <button class="btn btn-sm" onclick="recallConvoy('${s.id}')">↩ Recall</button></span></div>`;
+      const front = inConvoy.length ? convoyFrontTier() : [];
+      const frontKey = front.length ? (front[0].isPlayer ? playerFormation() : shipFormation(front[0].ship)) : null;
+      const moveBtns = (cur, onclickFor) => FORMATION_TIERS.filter(k => k !== cur).map(k => `<button class="btn btn-sm" title="Move to ${FORMATION_SLOTS[k].name}" onclick="${onclickFor(k)}">${FORMATION_SLOTS[k].ico}</button>`).join("");
+      const youTier = typeof playerFormation === "function" ? playerFormation() : "line";
+      const youRow = inConvoy.length
+        ? `<div class="ship-stat"><span class="k">${FORMATION_SLOTS[youTier].ico} 🚀 You${youTier === frontKey ? ' <span style="color:var(--bad)">◀ front</span>' : ""}</span><span class="v">${Math.round(S.pirate.hull)}/${HULL_MAX} ${moveBtns(youTier, k => `setPlayerFormation('${k}')`)}</span></div>`
+        : "";
+      const rosterRows = inConvoy.map(s => { const d = FLEET_SHIPS[s.key], tier = shipFormation(s);
+        return `<div class="ship-stat"><span class="k">${FORMATION_SLOTS[tier].ico} ${d.ico} ${s.name}${tier === frontKey ? ' <span style="color:var(--bad)">◀ front</span>' : ""}</span><span class="v">${d.role === "freighter" ? `📦${shipCargoCap(s)}` : `🔥${shipStrEff(s)}`} · ${Math.round(s.hull)}/${s.hullMax} ${moveBtns(tier, k => `setConvoyFormation('${s.id}','${k}')`)} <button class="btn btn-sm" onclick="recallConvoy('${s.id}')">↩ Recall</button></span></div>`;
       }).join("");
       const frBtns = idleFrHere.map(s => `<button class="btn btn-sm btn-good" onclick="assignConvoy('${s.id}')">🚚 ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
       const warBtns = idleWarHere.map(s => `<button class="btn btn-sm" onclick="assignConvoy('${s.id}')">🛡️ ${FLEET_SHIPS[s.key].ico} ${s.name}</button>`).join(" ");
       convoyCard = `<div class="card"><h4>🚚 Personal Convoy</h4>
-        <div class="hint">Have freighters ride with you on every jump — a second hold on the road, on top of your own ship's. No cap on how many can join, but you only move as fast as the slowest one: with a freighter aboard, a jump takes several cycles instead of one. It costs extra fuel to tow too, and it isn't risk-free: pirates ambushing you also take a swipe at the convoy. Warships (and any pirate bands currently riding with you) escort it — cutting the odds of a travel ambush, and softening the blow if one slips through anyway. Only idle ships docked <b>here</b>, at their home port, can come aboard.</div>
+        <div class="hint">Have freighters ride with you on every jump — a second hold on the road, on top of your own ship's. No cap on how many can join, but you only move as fast as the slowest one: with a freighter aboard, a jump takes several cycles instead of one. It costs extra fuel to tow too, and it isn't risk-free: ambush odds ride on pirate activity at <b>both ends of the route</b> — no escort can stop you being found. What your formation decides is who takes the ambushers' <b>opening volley</b>: 85% of the time it lands on the frontmost tier (🛡️ Vanguard first, then ⚔️ Line, then 🌌 Reserve — you hold a station too), 15% is stray fire that can reach anyone. Warships and following bands blunt the volley's damage. Only idle ships docked <b>here</b>, at their home port, can come aboard.</div>
         <div class="ship-stat"><span class="k">Bonus cargo</span><span class="v">+${fmt(bonus)} <span class="hint">(no ceiling)</span></span></div>
         ${slowest != null ? `<div class="ship-stat"><span class="k">Convoy pace</span><span class="v">×${slowest.toFixed(2)} <span class="hint">(slowest freighter aboard — stretches every jump to several cycles)</span></span></div>` : ""}
         <div class="ship-stat"><span class="k">Fuel surcharge</span><span class="v">+${surcharge}% per jump</span></div>
-        <div class="ship-stat"><span class="k">Guards</span><span class="v">${frGuardN} warship(s)${bandGuards.length ? ` + ${bandGuards.length} following band(s)` : ""} → ambush odds ×${oddsPct}%</span></div>
+        <div class="ship-stat"><span class="k">Guards</span><span class="v">${frGuardN} warship(s)${bandGuards.length ? ` + ${bandGuards.length} following band(s)` : ""} → volley damage ÷${1 + guards}</span></div>
+        ${frontKey ? `<div class="ship-stat"><span class="k">Front line</span><span class="v">${FORMATION_SLOTS[frontKey].ico} ${FORMATION_SLOTS[frontKey].name} <span class="hint">— takes the opening volley if pirates strike</span></span></div>` : ""}
         ${bandGuards.length ? `<div class="hint">🏴 Following: ${bandGuards.map(b => b.ico + " " + b.name).join(", ")} (manage from 🤝 Contacts).</div>` : ""}
-        ${inConvoy.length ? rosterRows : '<div class="hint">No ships in your convoy yet.</div>'}
+        ${youRow}${inConvoy.length ? rosterRows : '<div class="hint">No ships in your convoy yet.</div>'}
         ${idleFrHere.length ? `<div class="row" style="margin-top:8px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Add freighter</span> ${frBtns}</div>` : ""}
         ${idleWarHere.length ? `<div class="row" style="margin-top:6px;flex-wrap:wrap;gap:4px;align-items:center"><span class="hint">Add warship</span> ${warBtns}</div>` : ""}
         ${!idleFrHere.length && !idleWarHere.length && !inConvoy.length ? '<div class="hint" style="margin-top:6px">No idle ships docked here — build one, or fly to where an idle ship of yours is stationed.</div>' : ""}</div>`;
