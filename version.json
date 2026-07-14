@@ -1,5 +1,5 @@
 {
-  "version": "2.123.1",
+  "version": "2.124.0",
   "saveVersion": "v2",
-  "notes": "Fix: Seize hull required a target to be both pinned (engines dead) and beaten to 35% hull, but ordinary Hull-targeted fire never touches engines - so it could stay unreachable no matter how low hull went. A target ground down to 15% hull is now seizable outright regardless of engine status; pinning it first still unlocks seizing earlier."
+  "notes": "New: Passenger liners join the fleet - unarmed civilian hulls that ferry population between worlds. Board them in your Personal Convoy to sell paid tickets and debark to grow a colony's population. A liner still carrying passengers is never destroyed by combat - it's crippled instead, with its passengers automatically evacuated. Seize a raided Luxury Liner to carry over its manifest, or take on a new Resettlement Job contract."
 }
