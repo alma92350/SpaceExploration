@@ -92,12 +92,15 @@ function preyCombatCard(prey, al) {
     ? `<span class="pill good">🎯 bounty ${fmt(prey.bounty)} 💰</span>`
     : `<span class="hint">Hold: ${Object.keys(prey.cargo).map(c => `${prey.cargo[c]}${COM[c].ico}`).join(" ") || "scant"} · ${fmt(prey.credits)} 💰</span>`;
   const pinned = (prey.engines || 0) <= 0;
-  const seizeHint = prey.ground ? "" : pinned ? " Beat it down further and you can ⚓ <b>seize the hull</b> instead of destroying it." : " Pin its engines and beat it down to ⚓ <b>seize the hull</b> instead of destroying it.";
+  const canSeizeNow = typeof raidCanSeize === "function" && raidCanSeize();
+  const seizeHint = prey.ground || canSeizeNow ? "" : pinned
+    ? " Beat it down further and you can ⚓ <b>seize the hull</b> instead of destroying it."
+    : " Pin its engines to ⚓ <b>seize the hull</b> once it's beaten to 35% hull, or just grind it down below 15% to seize it outright.";
   const lawNote = isPirate
     ? `A <b>lawful kill</b> — bounty, salvage, faction goodwill, no Wanted.${seizeHint}`
     : prey.isPlanetPatrol || prey.isPlanetRaid
     ? `An <b>act of war</b> on ${FACTIONS[prey.faction] ? FACTIONS[prey.faction].name : "the coalition"} — every kill earns <b>Wanted</b>, and the sack itself far more.${seizeHint}`
-    : `Raiding coalition shipping earns <b>Wanted</b>. ${pinned ? `Beat it down further and you can ⚓ <b>seize the hull</b> instead of destroying it.` : "Cripple its 🚀 engines so it can't run — and beat it down to ⚓ seize the hull instead."}`;
+    : `Raiding coalition shipping earns <b>Wanted</b>. ${pinned ? "" : "Cripple its 🚀 engines so it can't run."}${seizeHint}`;
   // planetary assault: a phase banner over the same wave-combat UI the Escort tab uses —
   // phase 1 clear the orbital picket, phase 2 break the ground garrison, THEN the loot
   let assaultLine = "";

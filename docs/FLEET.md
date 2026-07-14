@@ -791,16 +791,16 @@ genuine third outcome alongside destroy/spare: board the hull and add it
 to `S.fleet` as a real warship.
 
 - **Gate** (`raidCanSeize()`, raiding.js): `_engaged` (at least one strike
-  already landed, same as `raidCanSpare`) AND pinned (`(prey.engines||0)
-  &lt;= 0` — no drive, no escape) AND crippled (`foeHp(p) &lt;= p.maxhp *
-  0.35`, the same threshold `raidCanSpare` uses) AND not `prey.ground`. The
-  ground check matters because `genPlanetDefense`'s garrison also zeroes
-  `engines` (a fortress can't run either) — without it, a planetary
-  garrison would read as "pinned" and be (nonsensically) seizable. Boarding
-  needs BOTH conditions `raidCanSpare` doesn't: pinning is unique to seize
-  (a pirate crew can still parley their way free at 35% hp with a live
-  drive — `raidCanSpare` never checks engines — but you can't board a hull
-  that can still jump away).
+  already landed, same as `raidCanSpare`) AND not `prey.ground`, then
+  **two paths**: pinned (`(prey.engines||0) &lt;= 0`) only needs 35% hp
+  (`SEIZE_HP_PINNED`, the same threshold `raidCanSpare` uses); a still-mobile
+  target needs grinding all the way to 15% (`SEIZE_HP_CRITICAL`) before it's
+  assumed too wrecked to outrun anyone regardless of what its engine field
+  says. The ground check matters because `genPlanetDefense`'s garrison also
+  zeroes `engines` (a fortress can't run either) — without it, a planetary
+  garrison would read as "pinned" and be (nonsensically) seizable.
+  **Originally this was a single AND-gated path** (pinned AND ≤35%) — see
+  the fix note below for why that shipped broken.
 - **Class-matched prize** (`SEIZE_CLASS_MAP`, raiding.js): the hostile's own
   `SHIP_CLASSES` tag (`prey.cls`, stamped by `applyShipClass`, combat.js)
   maps onto the nearest `FLEET_SHIPS` warship key — `corvette`→`corvette`,
@@ -847,3 +847,19 @@ to `S.fleet` as a real warship.
   engagement, per-prey-type consequence checks for pirate/patrol/merchant
   including a live commission's quota and Wanted waiver, and the button's
   render gate).
+
+**Fix (shipped same slice, reported immediately after launch)**: the
+original gate required pinned AND ≤35% hp with no other path. The bug:
+`COMBAT_TARGETS.engines` (combat.js) is the only place that ever
+decrements `foe.engines` — the default (and by far most-used) Hull target
+never touches it. A player playing normally, never switching off Hull,
+could grind a target's hp to 1% and `raidCanSeize()` would still read
+false forever, because engines just sat at their starting value the whole
+fight. Reported as "even when target has very low hull, player cannot
+seize it." Fixed by splitting the single AND-gate into the two-path OR
+described above — pinning is now a way to seize *earlier* (at a looser hp
+bar) rather than a hard prerequisite. `preyCombatCard`'s hint line and
+`raidSeizeHull`'s own refusal toast were updated to describe both paths.
+Tests updated: the old single "pin required" case now exercises the
+critical-hp-without-pinning path explicitly (both the false case just
+above 15% and the true case at/below it).
