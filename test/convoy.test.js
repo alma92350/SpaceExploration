@@ -109,41 +109,76 @@ test("convoyGuardCount counts convoy warships and following pirate bands", () =>
   assert.equal(run(`convoyGuardCount()`), 2, "a currently-following pirate band should also count as a guard");
 });
 
-test("maybeAmbush's odds are damped by convoyGuardCount, same shape as processConvoys", () => {
+test("maybeAmbush's odds are NOT damped by convoy guards anymore — pure route risk", () => {
   const { run } = createSandbox();
   const wr = warshipKey(run);
   run(`S = freshState(); S.pirates = {}; S.pirates[S.location] = 5; S.pirateCalm = 0;`);
-  // pin a roll that would trigger an ambush with zero guards but not with enough guards
-  const chanceNoGuards = run(`0.05 + pirateLevel(S.location) * 0.045`);
-  run(`S.fleet = [];`);
-  const rollJustUnderNoGuardChance = chanceNoGuards - 0.001;
-  run(`Math.random = () => ${rollJustUnderNoGuardChance};`);
-  run(`maybeAmbush(currentPlanet());`);
-  assert.ok(run(`!!S.encounter`), "with no guards, a roll just under the base chance should trigger an ambush");
-
-  run(`S.encounter = null; S.fleet = [{ id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "convoy", hull: 10, hullMax: 10 }, { id: "w2", key: "${wr}", name: "Guard2", home: S.location, status: "convoy", hull: 10, hullMax: 10 }];`);
-  run(`maybeAmbush(currentPlanet());`);
-  assert.ok(!run(`!!S.encounter`), "the same roll should NOT trigger an ambush once guards damp the odds below it");
+  const chance = run(`0.05 + pirateLevel(S.location) * 0.045`);
+  run(`S.fleet = [{ id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "convoy", hull: 1000, hullMax: 1000, formation: "vanguard" }, { id: "w2", key: "${wr}", name: "Guard2", home: S.location, status: "convoy", hull: 1000, hullMax: 1000, formation: "vanguard" }];`);
+  run(`Math.random = () => ${chance - 0.001};`);
+  run(`maybeAmbush(currentPlanet(), S.location);`);
+  assert.ok(run(`!!S.encounter`), "guards no longer damp the odds — the same roll must still trigger the ambush");
 });
 
-test("convoyAmbushRisk damages a convoy freighter, reduced by guards, and purges it on destruction", () => {
+test("maybeAmbush reads pirate activity at BOTH ends: a hot departure makes a quiet destination risky", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); S.pirates = {}; S.pirateCalm = 0;`);
+  const destId = run(`(PLANETS.find(p => isActive(p) && p.id !== S.location) || {}).id`);
+  run(`S.pirates["${destId}"] = 0; S.pirates[S.location] = 4;`);
+  run(`Math.random = () => 0.01;`);
+  run(`maybeAmbush(PLANETS.find(p => p.id === "${destId}"), S.location);`);
+  assert.ok(run(`!!S.encounter`), "departure-side piracy alone should be able to trigger an ambush (avg level 2 here)");
+  // and a route quiet at BOTH ends can never ambush, no matter the roll
+  run(`S.encounter = null; S.pirates[S.location] = 0;`);
+  run(`Math.random = () => 0.0;`);
+  run(`maybeAmbush(PLANETS.find(p => p.id === "${destId}"), S.location);`);
+  assert.ok(!run(`!!S.encounter`), "a fully quiet route should never produce an ambush");
+});
+
+test("convoyAmbushRisk's opening volley hits the frontmost tier and purges a destroyed ship", () => {
   const { run } = createSandbox();
   const fr = freighterKey(run);
-  run(`S = freshState(); S.res.credits = 10000;
-       S.fleet = [{ id: "s1", key: "${fr}", name: "Target", home: S.location, status: "convoy", hull: 5, hullMax: 100 }];`);
-  run(`Math.random = () => 0.9;`); // near the top of the (0.5 + Math.random()) range, deterministic
+  run(`S = freshState(); S.res.credits = 10000; S.pirate.formation = "reserve";
+       S.fleet = [{ id: "s1", key: "${fr}", name: "Target", home: S.location, status: "convoy", hull: 5, hullMax: 100, formation: "vanguard" }];`);
+  run(`Math.random = () => 0.5;`);   // < 0.85 forces the front-tier branch; the lone vanguard freighter is the front
   run(`convoyAmbushRisk(5);`);
-  assert.equal(run(`S.fleet.length`), 0, "a low-hull freighter should be destroyed and purged by a strong-enough hit");
+  assert.equal(run(`S.fleet.length`), 0, "a low-hull freighter holding the front should be destroyed and purged");
+  assert.equal(run(`S.pirate.hull`), 100, "the player, tucked in Reserve, should be untouched");
 });
 
-test("convoyAmbushRisk is a no-op with no convoy freighters", () => {
+test("convoyAmbushRisk hits a vanguard warship over reserve freighters — and spoils no cargo credits", () => {
   const { run } = createSandbox();
-  const wr = warshipKey(run);
-  run(`S = freshState(); S.res.credits = 10000;
-       S.fleet = [{ id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "convoy", hull: 10, hullMax: 10 }];`);
+  const fr = freighterKey(run), wr = warshipKey(run);
+  run(`S = freshState(); S.res.credits = 10000; S.pirate.formation = "reserve";
+       S.fleet = [
+         { id: "w1", key: "${wr}", name: "Guard", home: S.location, status: "convoy", hull: 1000, hullMax: 1000, formation: "vanguard" },
+         { id: "s1", key: "${fr}", name: "Hauler", home: S.location, status: "convoy", hull: 100, hullMax: 100, formation: "reserve" }];`);
+  run(`Math.random = () => 0.5;`);   // front-tier branch → the vanguard warship
   run(`convoyAmbushRisk(5);`);
-  assert.equal(run(`S.fleet.length`), 1, "with only a warship in the convoy, there is no freighter for pirates to swipe at");
-  assert.equal(run(`S.res.credits`), 10000, "no credits should be lost when there is no freighter to target");
+  assert.ok(run(`S.fleet[0].hull`) < 1000, "the vanguard warship should take the opening volley");
+  assert.equal(run(`S.fleet[1].hull`), 100, "the reserve freighter should be untouched");
+  assert.equal(run(`S.res.credits`), 10000, "no cargo credits spoil when a warship tanks the volley");
+  assert.equal(run(`S.pirate.hull`), 100, "the reserved player should be untouched too");
+});
+
+test("convoyAmbushRisk hits the PLAYER when their station is the frontmost tier", () => {
+  const { run } = createSandbox();
+  const fr = freighterKey(run);
+  run(`S = freshState(); S.res.credits = 10000; S.pirate.formation = "vanguard";
+       S.fleet = [{ id: "s1", key: "${fr}", name: "Hauler", home: S.location, status: "convoy", hull: 100, hullMax: 100, formation: "reserve" }];`);
+  run(`Math.random = () => 0.5;`);   // front-tier branch → the player, alone in vanguard
+  run(`convoyAmbushRisk(5);`);
+  assert.ok(run(`S.pirate.hull`) < 100, "the player holding the front should take the opening volley");
+  assert.equal(run(`S.fleet[0].hull`), 100, "the reserve freighter should be untouched");
+  assert.equal(run(`S.res.credits`), 10000, "no cargo credits spoil when the volley lands on the player");
+});
+
+test("convoyAmbushRisk is a no-op when traveling with no convoy at all", () => {
+  const { run } = createSandbox();
+  run(`S = freshState(); S.res.credits = 10000; S.fleet = [];`);
+  run(`convoyAmbushRisk(5);`);
+  assert.equal(run(`S.pirate.hull`), 100, "a solo traveler faces only the encounter itself — no opening volley");
+  assert.equal(run(`S.res.credits`), 10000);
 });
 
 test("scrapShip refuses a ship that's on convoy duty", () => {

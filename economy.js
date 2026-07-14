@@ -230,6 +230,7 @@ function travel(destId) {
   if (S.preyChoices) S.preyChoices = null;
   S.allies = null;
   const firstVisit = !S.visited[destId];
+  const fromId = S.location;   // maybeAmbush reads pirate activity at both ends of the route
   S.res.fuel -= cost; S.location = destId; S.visited[destId] = true; S.stats.jumps++;
   sfx("travel");
   log(`Jumped to <span class="c">${dest.name}</span> (−${cost} ⛽)${legs > 1 ? ` — your convoy's pace stretched the trip to ${legs} cycles` : ""}.`, "event");
@@ -238,7 +239,7 @@ function travel(destId) {
   if (firstVisit && Math.random() < 0.30) rollFx(Math.random() < 0.8 ? "boon" : "bane");   // exploring new worlds turns up Fortunes
   if (firstVisit && Math.random() < 0.35) spawnSignal();                                   // …and reveals fresh leads to chase
   scanOnArrival(dest);
-  maybeAmbush(dest);
+  maybeAmbush(dest, fromId);
   if (!S.encounter) maybeInterdict(dest);
   endTurn(true);
 }

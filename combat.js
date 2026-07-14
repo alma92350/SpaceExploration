@@ -482,12 +482,15 @@ function pirateKillRewards(prey) {
    Locks you down like an interdiction until resolved.
    ------------------------------------------------------------ */
 function cargoValue() { return CARGO_IDS.reduce((s2, c) => s2 + (S.res[c] || 0) * COM[c].base, 0); }
-function maybeAmbush(dest) {
+function maybeAmbush(dest, fromId) {
   if (S.encounter || S.interdiction || S.jail > 0 || pirateCalm()) return;
-  const lvl = pirateLevel(dest.id);
+  // route risk reads pirate activity at BOTH ends of the jump (the same both-ends shape
+  // escortLiveThreat uses for contract threat) — and ONLY the route: your escort no longer
+  // damps the odds of being found, it decides who takes the opening volley and how hard it
+  // lands instead (convoyAmbushRisk, fleet.js).
+  const lvl = fromId != null ? (pirateLevel(fromId) + pirateLevel(dest.id)) / 2 : pirateLevel(dest.id);
   if (lvl <= 0) return;
-  const guards = typeof convoyGuardCount === "function" ? convoyGuardCount() : 0;
-  const chance = (0.05 + lvl * 0.045) * Math.pow(0.45, guards);   // your own warship escort + any pirate bands riding with you damp this, same shape processConvoys() uses for stationed colony guards
+  const chance = 0.05 + lvl * 0.045;
   if (Math.random() < chance) {
     const pirate = genPirate(pirateOpposition(lvl, -1));
     pirate.toll = Math.round(300 * pirate.level + Math.min(2500, (S.res.credits + cargoValue()) * 0.04));

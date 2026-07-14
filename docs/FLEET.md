@@ -221,7 +221,7 @@ and pirate mandates (📜) at the planets they're running at, alongside the
 existing pirate/crisis/signal pills — so the map surfaces everything the
 Operations board tracks, spatially. Tests: `galaxymarkers.js`.
 
-## Slice 7 (shipped) — personal convoy: extending the player's own cargo hold
+## Slice 7 (shipped, revised in Slices 16 & 18) — personal convoy: extending the player's own cargo hold
 Slice 4's freight convoys are stationary at a colony, hauling *that colony's*
 goods. This slice is the travel-companion mirror: a `status:"convoy"` fleet
 ship rides **with the player**, resolving on the per-jump travel-ambush
@@ -728,3 +728,56 @@ full Battle Group deployed in front of you.
   Vanguard while the Battle Group still takes its own damage, and the
   `preyCombatCard` formation controls appearing only once a Battle Group is
   deployed).
+
+## Slice 18 (shipped) — convoy formations + route-risk ambush odds
+Three changes to the Personal Convoy's travel-ambush layer, requested
+together: convoy ships get positions, ambush odds become pure route risk,
+and the ambushers' opening fire lands by position instead of always mugging
+a random freighter.
+
+- **Convoy formations**: every convoy ship holds a Vanguard/Line/Reserve
+  station — the fourth reuse of `FORMATION_SLOTS`/`FORMATION_TIERS`/
+  `shipFormation` (after Battle Group, Escort, and the Slice-17 raid-mode
+  player station), no copy. `setConvoyFormation(shipId, slot)` moves a ship;
+  `assignConvoy` gives first-time joiners a role-shaped default (warship →
+  vanguard: they're the guards; freighter → reserve: the payload, Escort's
+  own `buildEscortFleet` convention) while a prior manual pick sticks, same
+  as `deployBattleGroup`. Legacy convoy ships from older saves simply read
+  as Line via `shipFormation`'s fallback — no migration needed.
+  `convoyFrontTier()` folds **you** into the pool via the same
+  `S.pirate.formation` station the raid tab sets (`playerFormation()`,
+  raiding.js) — one station for your ship, shared across raid and travel.
+- **Ambush odds are pure route risk**: `maybeAmbush(dest, fromId)` now
+  averages `pirateLevel` across **both ends of the jump** (the same
+  both-ends shape `escortLiveThreat` uses for contract threat) — `travel()`
+  captures the departure id before updating `S.location` and passes it in.
+  The `×0.45^guards` damping is **gone**: an escort can't stop you being
+  found. Two behavior notes: a hot departure now makes a jump to a quiet
+  world risky (previously `pirateLevel(dest) <= 0` returned early no matter
+  where you left from), and guards no longer suppress the trigger roll at
+  all. The fractional averaged level only feeds the chance,
+  `pirateOpposition` (integer math downstream) and volley scaling — safe.
+- **Position-based opening volley**: `convoyAmbushRisk(lvl)` no longer
+  `pick()`s a uniformly random freighter. It rolls the standard 85/15
+  front-tier/stray split over you + the whole convoy (warships included —
+  a Vanguard warship is *supposed* to soak this), then applies the same
+  `1/(1+guards)`-damped damage as before to whoever it lands on. If that's
+  **you**, it goes through `takeHullDamage` (dmgReduction applies;
+  `shipCrippled` at 0 hull already clears `S.encounter`). Credit loss
+  ("goods spoiled") now applies **only when a freighter is hit** — a
+  warship or the player tanking the volley keeps the cargo safe, so
+  positioning protects your purse too. Traveling with no convoy at all is
+  unchanged: no volley, the pay/run/fight encounter is the whole threat.
+- **UI**: the Fleet tab's Personal Convoy card grows per-ship formation
+  badges + move buttons, a "🚀 You" row wired to `setPlayerFormation`, a
+  "Front line" stat naming the tier that takes the volley, and the Guards
+  line now shows `volley damage ÷(1+N)` instead of the removed odds
+  multiplier; the hint prose explains the new odds/volley split.
+- Exports added: `setConvoyFormation`. Tests: `convoyformation.test.js`
+  (assign defaults + stickiness, `setConvoyFormation` validation,
+  `convoyFrontTier` fallthrough with the player in the mix, front-tier vs
+  stray-branch volley reachability, guard damage damping, and the convoy
+  card's formation controls), plus rewritten `convoy.test.js` ambush tests
+  (odds un-damped by guards, both-ends route risk, volley hitting the
+  front tier / the player / never a solo traveler, and no credit spoilage
+  on a warship tank).

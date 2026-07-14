@@ -1,5 +1,5 @@
 {
-  "version": "2.121.0",
+  "version": "2.122.0",
   "saveVersion": "v2",
-  "notes": "New: Reserve positioning comes to the Raid tab. Deploy a Battle Group and post yourself into its Vanguard/Line/Reserve formation alongside your warships - the same tiering Escort's flagship already uses. Tuck in behind a holding Vanguard and most incoming fire lands on your fleet instead of you."
+  "notes": "New: your Personal Convoy now fights in formation - every convoy ship (and you) holds a Vanguard/Line/Reserve station, and an ambush's opening volley lands on the frontmost tier instead of a random freighter. Changed: travel-ambush odds now ride purely on pirate activity at both ends of the route; guards blunt the volley's damage instead."
 }
