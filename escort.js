@@ -45,7 +45,7 @@ const ESCORT_FOE_ROLES = {
   elite:       { ico: "☠️",   name: "Marauder Lead", pref: "value" },
 };
 function escortFoeRole(f) { return ESCORT_FOE_ROLES[f && f.role] || ESCORT_FOE_ROLES.raider; }
-function escortTargetValue(sh) { return sh.role === "freighter" ? 5 : sh.role === "escort" ? 3 : 2; }   // what an attacker covets
+function escortTargetValue(sh) { return sh.role === "freighter" ? 5 : sh.role === "passenger" ? 6 : sh.role === "escort" ? 3 : 2; }   // what an attacker covets — a liner's manifest is the juiciest prize of all
 // the frontmost non-empty formation tier among LIVING convoy ships — mirrors battleGroupFrontTier
 // (fleet.js) exactly, reusing the same FORMATION_TIERS/shipFormation the Raid tab's Battle Group
 // already uses, so Vanguard/Line/Reserve read identically in both places.
@@ -73,7 +73,8 @@ function chooseIntent(f) {
   const want = escortFoeRole(f).pref;
   let cands;
   if (want === "value") cands = exposed.slice().sort((a, b) => escortTargetValue(b.s) - escortTargetValue(a.s)).slice(0, Math.max(1, Math.ceil(exposed.length / 2)));
-  else { cands = exposed.filter(o => o.s.role === want); if (!cands.length) cands = exposed; }
+  // raiders want "freighter" — a passenger liner is the same "payload, not the fight" role, so it reads as fair game too
+  else { cands = exposed.filter(o => o.s.role === want || (want === "freighter" && o.s.role === "passenger")); if (!cands.length) cands = exposed; }
   const chosen = want === "escort"
     ? cands.slice().sort((a, b) => escShipFP(b.s) - escShipFP(a.s))[0]   // interceptors hit your biggest guns
     : cands[Math.floor(Math.random() * cands.length)];
@@ -216,6 +217,15 @@ function genEscortContract(dest) {
   m.legFuel = Math.max(1, Math.round(fuelCost(dest.id) * 1.15 / legs));
   return m;
 }
+// a passenger-payload variant of the ordinary escort contract — one liner's manifest instead
+// of a hold of cargo, priced off passengers rather than payload/distance.
+function genPassengerEscortContract(dest) {
+  const m = genEscortContract(dest);
+  m.passengers = +(1 + Math.random() * 4).toFixed(1);   // 1–5k
+  m.reward = Math.round(m.passengers * 950 * (1 + m.threat) * escortRank().mult * (0.9 + Math.random() * 0.3));
+  m.bonus = Math.round(m.reward * 0.3);
+  return m;
+}
 function refreshEscortOffers() {
   const e = ensureEscort();
   if (e.active) return;
@@ -227,6 +237,11 @@ function refreshEscortOffers() {
   if (clients.length && e.offers.length && Math.random() < 0.55) {
     const pc = genPirateEscortContract(pick(clients));
     if (pc) e.offers[Math.floor(Math.random() * e.offers.length)] = pc;
+  }
+  // occasionally one of the remaining offers is a resettlement run instead of a cargo haul
+  if (dests.length && e.offers.length && Math.random() < 0.35) {
+    const idx = Math.floor(Math.random() * e.offers.length);
+    if (!e.offers[idx].pirate) e.offers[idx] = genPassengerEscortContract(pick(dests));
   }
   saveGame(); renderEscort();
 }
@@ -257,7 +272,9 @@ function genPirateEscortContract(b) {
   m.destFaction = dest.faction;
   return m;
 }
-function buildEscortFleet() {
+const ESCORT_PASSENGER_HULL = 60;   // tankier than a freighter — the "hard to lose" flavor of a real passenger hull
+
+function buildEscortFleet(m) {
   const fleet = [{ role: "flagship", name: "Your Flagship", ico: "🚀", formation: "line" }];
   const nEscorts = escortRank().escorts;                  // your guild rank fields a bigger fleet
   for (let i = 0; i < nEscorts; i++) {
@@ -265,10 +282,16 @@ function buildEscortFleet() {
     fleet.push({ role: "escort", cls: clsId, name: `${cls.name} ${String.fromCharCode(65 + i)}`, ico: cls.ico,
       hullMax: Math.round(ESCORT_ESCORT_HULL * cls.hull), str: Math.round(ESCORT_ESCORT_FP * cls.str), alive: true, formation: "line" });
   }
-  // freighters default to Reserve — the payload, not the fight; the player can move one forward deliberately
-  for (let i = 0; i < ESCORT_FLEET.freighters; i++) {
-    fleet.push({ role: "freighter", name: `Freighter ${i + 1}`, ico: "📦",
-      hullMax: ESCORT_FREIGHTER_HULL, str: ESCORT_FREIGHTER_FP, alive: true, formation: "reserve" });
+  if (m && m.passengers) {
+    // a passenger contract's whole payload is one unarmed liner — no freighters this run
+    fleet.push({ role: "passenger", name: "Passenger Liner", ico: "🧳",
+      hullMax: ESCORT_PASSENGER_HULL, str: 0, alive: true, formation: "reserve" });
+  } else {
+    // freighters default to Reserve — the payload, not the fight; the player can move one forward deliberately
+    for (let i = 0; i < ESCORT_FLEET.freighters; i++) {
+      fleet.push({ role: "freighter", name: `Freighter ${i + 1}`, ico: "📦",
+        hullMax: ESCORT_FREIGHTER_HULL, str: ESCORT_FREIGHTER_FP, alive: true, formation: "reserve" });
+    }
   }
   fleet.forEach(sh => { if (sh.role !== "flagship") sh.hull = sh.hullMax; sh.stance = "balanced"; sh.fit = { aggressive: 0, balanced: 0, defensive: 0 }; });
   return fleet;
@@ -279,11 +302,12 @@ function acceptEscort(idx) {
   const m = e.offers[idx]; if (!m) return;
   e.active = true;
   e.mission = Object.assign({}, m, { legsLeft: m.legs, losses: 0, deadline: S.turn + (m.cycleBudget || (m.legs + 4)) });
-  e.fleet = buildEscortFleet();
+  e.fleet = buildEscortFleet(m);
   e.wave = null; e.posture = "balanced"; e.targets = []; e.offers = []; e.jam = false; e.fireTarget = "hull";
   e.pool = { weapons: 0, drones: 0, ai: 0 }; e.pendingRedeploy = false;
   const dn = PLANETS.find(p => p.id === m.to).name;
   if (m.pirate) { const b = bandById(m.pirate); if (b) bandRepAdd(b, 4); log(`🏴‍☠️ Took a smuggling run for the ${m.pirateIco} ${m.pirateName} — ${m.contraband.name} to <span class="c">${dn}</span>, ${m.legs} legs, ${fmt(m.reward)} cr.`, "event"); }
+  else if (m.passengers) log(`🧳 Accepted a resettlement escort: ${fmt(m.passengers)}k passengers to <span class="c">${dn}</span>, ${m.legs} legs, ${fmt(m.reward)} cr.`, "event");
   else log(`🛡️ Accepted an escort: convoy to <span class="c">${dn}</span> — ${m.legs} legs, reward ${fmt(m.reward)} cr.`, "event");
   toast(m.pirate ? "Smuggling job accepted." : "Escort contract accepted.", "good");
   sfx("event"); saveGame(); renderAll(); setTab("escort");
@@ -440,9 +464,17 @@ function escortEnemyTurn() {
     } else {
       sh.hull = Math.max(0, sh.hull - dmg);
       if (sh.hull <= 0 && sh.alive) {
-        sh.alive = false;
-        if (sh.role === "freighter") e.mission.losses++;
-        log(`💥 ${sh.ico} ${sh.name} was destroyed!`, "bad"); sfx("explode");
+        if (sh.role === "passenger") {
+          // never actually destroyed while it's carrying souls — crippled and its
+          // passengers auto-evacuated instead, same rule the Personal Convoy's own
+          // fleetShipHit (fleet.js) applies to a player-owned passenger hull
+          sh.hull = 1; sh.evacuated = true;
+          log(`🆘 ${sh.ico} ${sh.name} is crippled — its passengers are evacuated to safety.`, "bad");
+        } else {
+          sh.alive = false;
+          if (sh.role === "freighter") e.mission.losses++;
+          log(`💥 ${sh.ico} ${sh.name} was destroyed!`, "bad"); sfx("explode");
+        }
       }
     }
   });
@@ -565,9 +597,14 @@ function escortDeliver() {
   const e = ensureEscort(); const m = e.mission; if (!m) return;
   const totalFr = e.fleet.filter(s => s.role === "freighter").length;
   const aliveFr = e.fleet.filter(s => s.role === "freighter" && s.alive).length;
-  const frac = totalFr ? aliveFr / totalFr : 1;
+  const passShip = e.fleet.find(s => s.role === "passenger");
+  // a passenger contract's payload can only ever be crippled-and-evacuated, never destroyed
+  // (escortEnemyTurn's own carve-out) — evacuated souls survived but never reached the
+  // destination, so the contract still pays out, just at a reduced rate, same shape a
+  // freighter fleet's alive-fraction discount already uses.
+  const frac = passShip ? (passShip.evacuated ? 0.4 : 1) : (totalFr ? aliveFr / totalFr : 1);
   let pay = Math.round(m.reward * frac);
-  const flawless = m.losses === 0 && e.fleet.every(s => s.role === "flagship" || s.alive);
+  const flawless = m.losses === 0 && e.fleet.every(s => s.role === "flagship" || (s.alive && !s.evacuated));
   if (flawless) pay += m.bonus;
   // promptness: cycles left under the deadline pay a quiet bonus — so the time you
   // spend prepping trades against a faster, better-paid delivery (and isn't advertised)
@@ -596,10 +633,19 @@ function escortDeliver() {
     repGain = Math.round((10 + m.threat * 40) * frac) + (flawless ? 10 : 0);
     S.escortRep = (S.escortRep || 0) + repGain;
     e.fleet.filter(s => s.hired && s.alive).forEach(s => { const b = bandById(s.bandId); if (b) bandRepAdd(b, 8); });   // paid, fought, and made port together
-    log(`🏁 Convoy delivered to <span class="c">${dn}</span>! Paid ${fmt(pay)} cr (${aliveFr}/${totalFr} freighters)${flawless ? " · ✨ flawless bonus" : ""}${promptBonus ? ` · ⏱️ +${fmt(promptBonus)} prompt` : ""}. Guild standing +${repGain}.`, "good");
+    if (passShip) {
+      // an intact liner's manifest actually settles here if it's one of your own colonies —
+      // same housing-capped growth the Personal Convoy's own debarkPassengers uses
+      const settled = passShip.evacuated ? 0 : (m.passengers || 0);
+      const col = settled > 0 ? S.colonies[m.to] : null;
+      if (col) { const dp = PLANETS.find(p => p.id === m.to); col.pop = Math.min(colonyHousing(col, dp), col.pop + settled); }
+      log(`🏁 Convoy delivered to <span class="c">${dn}</span>! Paid ${fmt(pay)} cr (${passShip.evacuated ? "passengers evacuated en route, never made port" : fmt(m.passengers) + "k settlers aboard"})${col ? ` — ${fmt(settled)}k joined the colony` : ""}${flawless ? " · ✨ flawless bonus" : ""}${promptBonus ? ` · ⏱️ +${fmt(promptBonus)} prompt` : ""}. Guild standing +${repGain}.`, "good");
+    } else {
+      log(`🏁 Convoy delivered to <span class="c">${dn}</span>! Paid ${fmt(pay)} cr (${aliveFr}/${totalFr} freighters)${flawless ? " · ✨ flawless bonus" : ""}${promptBonus ? ` · ⏱️ +${fmt(promptBonus)} prompt` : ""}. Guild standing +${repGain}.`, "good");
+    }
     toast(`Escort complete: +${fmt(pay)} cr`, "good");
   }
-  if (typeof announce === "function") announce("🏁 Convoy Delivered", `${aliveFr}/${totalFr} freighters made port. Fee ${fmt(pay)} cr${flawless ? " + flawless bonus" : ""}.`, false);
+  if (typeof announce === "function") announce("🏁 Convoy Delivered", `${passShip ? (passShip.evacuated ? "Passengers evacuated en route." : "Passengers made port.") : `${aliveFr}/${totalFr} freighters made port.`} Fee ${fmt(pay)} cr${flawless ? " + flawless bonus" : ""}.`, false);
   sfx("good");
   const spent = escortDiscardOutfit();
   if (spent > 0) log(`🔧 The convoy expended ${spent} outfitted system(s) over the run.`, "");

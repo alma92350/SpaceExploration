@@ -60,14 +60,24 @@ const FLEET_SHIPS = {
   frigate:    { role: "warship", cls: "frigate",    name: "Frigate",    ico: "🚢", tier: 2, build: 3, cost: { credits: 7000,  metals: 80,  electronics: 14, radioactives: 15, weapons: 6,  drones: 3,  ai: 3 } },
   cruiser:    { role: "warship", cls: "cruiser",    name: "Cruiser",    ico: "🛡️", tier: 3, build: 5, cost: { credits: 13000, metals: 150, alloys: 18, electronics: 26, radioactives: 26, weapons: 10, drones: 6,  ai: 6 } },
   battleship: { role: "warship", cls: "battleship", name: "Battleship", ico: "⚔️", tier: 4, build: 8, cost: { credits: 26000, metals: 280, alloys: 40, electronics: 50, radioactives: 40, weapons: 16, drones: 10, ai: 10, plasmatorp: 4 } },
+  // ---- passenger liners (ferry population between worlds; cap is passengers in
+  // thousands, same scale as a colony's own col.pop). Unarmed civil hulls — tanky
+  // like a warship of the same class (they're meant to survive to be crippled, not
+  // fight), but with near-zero firepower, and flat half-speed (fleetShipSpeed) no
+  // matter the tier, since a warship's own speed never varies by class either ----
+  shuttle_transit:  { role: "passenger", cls: "corvette",   name: "Transit Shuttle",   ico: "🛸", tier: 1, build: 2, cap: 1,  speed: 0.5, cost: { credits: 3000,  metals: 34,  electronics: 4,  radioactives: 8 } },
+  packet_passenger: { role: "passenger", cls: "frigate",    name: "Passenger Packet",  ico: "🚢", tier: 2, build: 3, cap: 2.5, speed: 0.5, cost: { credits: 6200,  metals: 68,  electronics: 10, radioactives: 15, ai: 2 } },
+  liner_luxury:     { role: "passenger", cls: "cruiser",    name: "Luxury Liner",      ico: "🛳️", tier: 3, build: 5, cap: 5,  speed: 0.5, cost: { credits: 11500, metals: 125, alloys: 14, electronics: 20, radioactives: 26, ai: 4 } },
+  colony_ship:      { role: "passenger", cls: "battleship", name: "Colony Ship",       ico: "🛰️", tier: 4, build: 8, cap: 10, speed: 0.5, cost: { credits: 21000, metals: 230, alloys: 32, electronics: 36, radioactives: 40, ai: 8 } },
 };
 const FLEET_SHIP_KEYS = Object.keys(FLEET_SHIPS);
 function fleetList() { if (!Array.isArray(S.fleet)) S.fleet = []; return S.fleet; }
 function fleetIsHauler(def) { return def.role === "freighter" || def.role === "tanker"; }   // both are cargo hulls with weak guns, scaled off cap not combat class
-function fleetShipSpeed(def) { return def.speed != null ? def.speed : 1; }   // tankers/freighters carry their own; everything else defaults to full speed
+function fleetIsPassenger(def) { return def.role === "passenger"; }   // unarmed civil hulls, tanky like a warship, scaled off cap for upkeep like a hauler
+function fleetShipSpeed(def) { return def.speed != null ? def.speed : 1; }   // tankers/freighters/passenger liners carry their own; everything else defaults to full speed
 function fleetShipHullMax(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsHauler(def) ? Math.round(FLEET_HULL_BASE * 0.7 + (def.cap || 0) * 0.08) : Math.round(FLEET_HULL_BASE * c.hull); }
-function fleetShipStr(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsHauler(def) ? Math.round(FLEET_FP_BASE * c.str * 0.35) : Math.round(FLEET_FP_BASE * c.str); }
-function fleetShipUpkeep(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsHauler(def) ? Math.round(15 + (def.cap || 0) * 0.06) : Math.round(40 * c.str); }
+function fleetShipStr(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsPassenger(def) ? Math.round(FLEET_FP_BASE * c.str * 0.05) : fleetIsHauler(def) ? Math.round(FLEET_FP_BASE * c.str * 0.35) : Math.round(FLEET_FP_BASE * c.str); }
+function fleetShipUpkeep(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return (fleetIsHauler(def) || fleetIsPassenger(def)) ? Math.round(15 + (def.cap || 0) * 0.06) : Math.round(40 * c.str); }
 function fleetUpkeep() { return fleetList().filter(s => s.status !== "building").reduce((sum, s) => sum + (FLEET_SHIPS[s.key] ? fleetShipUpkeep(FLEET_SHIPS[s.key]) : 0), 0); }
 function colonyShipyardTier(pid) { const col = S.colonies && S.colonies[pid]; return (col && col.buildings && col.buildings.shipyard) || 0; }
 // a base's Small Shipyard module — a colony's full-range Shipyard always takes
@@ -516,6 +526,51 @@ function unloadTanker(shipId, qty) {
   log(`⛽ Unloaded ${amt} fuel from the ${def.ico} ${s.name} at ${currentPlanet().name} — ${parts.join(", ")}.`, "good");
   toast(`${s.name}: -${amt} fuel`, "good"); sfx("event"); saveGame(); renderAll();
 }
+// ---- Passenger boarding/debarking: a passenger liner riding in the Personal Convoy can pick up
+// and drop off souls wherever the player currently stands. Boarding is always a paid-ticket sale
+// (fare revenue, win-win with the passengers themselves) — at one of your OWN colonies the
+// tickets are drawn from that colony's own population (real emigration, col.pop falls); anywhere
+// else (a core/faction world, a base, open space) it's abstracted as booking passage from the
+// local populace, no source stockpile needed. Debarking at one of your own colonies delivers the
+// souls into col.pop (same housing-capped growth the migrant-wave event already uses); anywhere
+// else they simply disembark (flavor only — fulfils a point-to-point fare run with no colony tie).
+const PASSENGER_FARE = 40;   // credits per head, collected on boarding
+function boardPassengers(shipId, qty) {
+  const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
+  if (!s || !def || def.role !== "passenger") return;
+  if (s.status !== "convoy") return toast("Add the liner to your Personal Convoy first.", "bad");
+  const room = shipCargoCap(s) - (s.passengers || 0);
+  if (room <= 0) return toast(`The ${s.name} is already full.`, "bad");
+  let want = qty == null ? room : Math.max(0, Math.min(room, qty));
+  const col = S.colonies[S.location], planet = currentPlanet();
+  if (col) want = Math.min(want, Math.max(0, col.pop - 1));   // never strip a colony down past 1k of its own people
+  if (want <= 0) return toast(col ? "This colony has no one left to spare." : "Enter a quantity to board.", "bad");
+  if (col) col.pop -= want;
+  s.passengers = (s.passengers || 0) + want;
+  const fare = Math.round(want * PASSENGER_FARE);
+  S.res.credits += fare;
+  log(`🧳 ${fmt(want)}k passengers boarded the ${def.ico} ${s.name} at ${planet.name}${col ? " (emigrating)" : ""} — ${fmt(fare)} cr in fares.`, "event");
+  toast(`${s.name}: +${fmt(want)}k passengers, +${fmt(fare)} cr`, "good"); sfx("event"); saveGame(); renderAll();
+}
+function debarkPassengers(shipId, qty) {
+  const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
+  if (!s || !def || def.role !== "passenger") return;
+  if (s.status !== "convoy") return toast("Only a liner in your Personal Convoy can debark here.", "bad");
+  const carried = s.passengers || 0;
+  if (carried <= 0) return toast(`The ${s.name} is carrying no passengers.`, "bad");
+  const want = qty == null ? carried : Math.max(0, Math.min(carried, qty));
+  if (want <= 0) return toast("Enter a quantity to debark.", "bad");
+  const col = S.colonies[S.location], planet = currentPlanet();
+  s.passengers = carried - want;
+  if (col) {
+    const housing = colonyHousing(col, planet);
+    col.pop = Math.min(housing, col.pop + want);
+    log(`✨ ${fmt(want)}k settlers from the ${def.ico} ${s.name} joined <span class="c">${planet.name}</span> (pop now ${fmt(col.pop)}k).`, "good");
+  } else {
+    log(`🧳 ${fmt(want)}k passengers disembarked the ${def.ico} ${s.name} at ${planet.name}.`, "event");
+  }
+  toast(`${s.name}: -${fmt(want)}k passengers`, "good"); sfx("event"); saveGame(); renderAll();
+}
 function tankerRunPirateRisk(s) {
   const r = s.run, def = FLEET_SHIPS[s.key];
   const lvl = Math.max(pirateLevel(r.to), pirateLevel(s.home));
@@ -598,6 +653,7 @@ function processTankerRuns() {
 function convoyShips()      { return fleetList().filter(s => s.status === "convoy"); }
 function convoyFreighters() { return convoyShips().filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "freighter"); }
 function convoyWarships()   { return convoyShips().filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "warship"); }
+function convoyPassengerShips() { return convoyShips().filter(s => FLEET_SHIPS[s.key] && FLEET_SHIPS[s.key].role === "passenger"); }
 function convoyGuardCount() { return convoyWarships().length + bandList().filter(bandFollowing).length; }   // your own escorts + any pirate bands riding with you
 function convoyCargoBonus() {
   const frs = convoyFreighters(); if (!frs.length) return 0;
@@ -657,6 +713,24 @@ function convoyFrontTier() {   // frontmost non-empty tier among you + your conv
 // the DAMAGE, 1/(1+guards) — they no longer damp the odds of the ambush itself (maybeAmbush
 // reads route piracy alone). Traveling with no convoy at all keeps the old flow: no volley,
 // the encounter itself (pay/run/fight) is the whole threat.
+// ---- Shared hull-loss resolution: a passenger liner still carrying souls is never actually
+// destroyed by combat damage — it's crippled (pinned at 1 hull, out of the fight) and its
+// passengers are automatically evacuated (rescued, not delivered — no colony credit for them,
+// the cost of letting your liner get caught). Only once a hit lands with the hold already empty
+// (an empty run, or a hull that already evacuated once) does the normal destroy-and-remove path
+// apply. Returns "ok" | "crippled" | "dead" so call sites can pick their own flavor text. ----
+function fleetShipHit(s, dmg) {
+  const def = FLEET_SHIPS[s.key] || {};
+  s.hull = Math.max(0, s.hull - dmg);
+  if (s.hull > 0) return "ok";
+  if (def.role === "passenger" && (s.passengers || 0) > 0) {
+    s.hull = 1;
+    s.passengers = 0;
+    return "crippled";
+  }
+  s._dead = true;
+  return "dead";
+}
 function convoyAmbushRisk(lvl) {
   if (!convoyShips().length) return;
   const guards = convoyGuardCount();
@@ -673,12 +747,14 @@ function convoyAmbushRisk(lvl) {
   const isFreighter = def.role === "freighter";
   // cargo only spoils when the hit lands on a hauler — a warship tanking the volley keeps the goods safe
   const loss = isFreighter ? Math.min(S.res.credits || 0, Math.round(lvl * 40 * (0.5 + Math.random()) / (1 + guards))) : 0;
-  f.hull = Math.max(0, f.hull - dmg);
   if (loss > 0) { S.res.credits -= loss; if (typeof cycleLedger === "function") cycleLedger("convoy losses", -loss); }
-  if (f.hull <= 0) {
-    f._dead = true;
+  const outcome = fleetShipHit(f, dmg);
+  if (outcome === "dead") {
     log(`💥 In the ambush, pirates ran down your ${def.ico || ""} ${f.name} (${FORMATION_SLOTS[shipFormation(f)].name})${isFreighter ? " — lost with its cargo" : ""}.`, "bad");
     if (typeof toast === "function") toast(`${f.name} lost to pirates!`, "bad");
+  } else if (outcome === "crippled") {
+    log(`🆘 Your ${def.ico || ""} ${f.name} (${FORMATION_SLOTS[shipFormation(f)].name}) is crippled — its passengers are evacuated to safety and the hulk is adrift, in need of repair.`, "bad");
+    if (typeof toast === "function") toast(`${f.name} crippled — passengers evacuated!`, "bad");
   } else {
     log(`🏴‍☠️ Your convoy's ${def.ico || ""} ${f.name} (${FORMATION_SLOTS[shipFormation(f)].name}) took the opening volley — ${dmg} damage${loss ? ` and ${fmt(loss)} cr of goods spoiled` : ""}${guards ? " — your guards blunted it" : ""}.`, "bad");
   }

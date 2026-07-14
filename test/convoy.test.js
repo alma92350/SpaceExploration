@@ -5,6 +5,20 @@ const { createSandbox } = require("./helpers/sandbox.js");
 
 function freighterKey(run) { return run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].role === "freighter")`); }
 function warshipKey(run) { return run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].role === "warship")`); }
+function passengerKey(run) { return run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].role === "passenger")`); }
+
+test("a passenger hull can join and leave the personal convoy, and shows up in convoyPassengerShips", () => {
+  const { run } = createSandbox();
+  const pk = passengerKey(run);
+  run(`S = freshState(); rollPrices();
+       S.fleet = [{ id: "p1", key: "${pk}", name: "Liner", home: S.location, status: "idle", hull: 10, hullMax: 10 }];`);
+  assert.equal(run(`convoyPassengerShips().length`), 0, "an idle passenger hull isn't in the convoy yet");
+  run(`assignConvoy("p1");`);
+  assert.equal(run(`S.fleet[0].status`), "convoy", "assignConvoy should work for a passenger hull, same as any other role");
+  assert.equal(run(`convoyPassengerShips().length`), 1, "the passenger hull should now be picked up by convoyPassengerShips()");
+  run(`recallConvoy("p1");`);
+  assert.equal(run(`convoyPassengerShips().length`), 0, "recalling it should drop it from convoyPassengerShips()");
+});
 
 test("assignConvoy refuses a ship that isn't idle", () => {
   const { run } = createSandbox();
