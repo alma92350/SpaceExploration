@@ -677,3 +677,54 @@ freighters felt identical to towing one once the ceiling was hit.
   `convoyCargoBonus`, `convoyTravelLegs`' floor/slowest-gates-the-group/
   no-convoy behavior, and `travel()` itself advancing `S.turn` by the
   right cycle count with vs. without a convoy freighter aboard).
+
+## Slice 17 (shipped) — player reserve positioning in the Raid tab
+The Escort tab's flagship has sat inside the Vanguard/Line/Reserve tiering
+since Slice 6 (it's just `S.escort.fleet[0]`, a peer entry alongside the
+escorts/freighters), but the Raid tab's Battle Group formation only ever
+covered the player's *warships* — `S.pirate` was a hardcoded, un-skippable
+target for every hostile's shot (`foeStrikes`, combat.js), with no tier of
+its own. Raid mode had no way to post yourself somewhere safer, even with a
+full Battle Group deployed in front of you.
+
+- **`S.pirate.formation`** (new field, default `"line"` — same default as
+  the Escort flagship) — `playerFormation()`/`setPlayerFormation(slot)`
+  (raiding.js) read/write it, reusing fleet.js's `FORMATION_SLOTS` as-is
+  (no copy), same reuse convention Escort's own formation code documents.
+- **`raidFrontTier()`** — the frontmost non-empty tier across a combined
+  pool of *you* + your living Battle Group ships, mirroring
+  `battleGroupFrontTier`/`escortFrontTier` exactly (checked
+  vanguard→line→reserve, first non-empty wins). `raidPlayerFrontline()` is
+  the stable (no-roll) "are you currently in that tier" read used by the UI.
+- **`raidPlayerExposed()`** — the per-shot roll `combatStrike` calls before
+  each hostile's strike: with **no Battle Group deployed, always exposed**
+  (there's no one to hide behind, exactly like a solo Escort flagship with
+  no fleet left) — so a raid with no Battle Group is byte-for-byte
+  unchanged. With a Battle Group up, 85% of shots only reach `raidFrontTier()`
+  (mirrors `chooseIntent`/`battleGroupTakeFire`'s split), 15% are stray fire
+  reaching you regardless of formation. This gates `combatStrike`'s incoming
+  loop directly: a shot that doesn't reach you is simply held — no
+  `foeStrikes` call, no hull/subsystem damage — logged as "screened by your
+  battle fleet" instead of a hit number.
+- Deliberately **not** wired into `playerStrikes`/your own damage output —
+  unlike Escort's `escShipFP` (which multiplies by the ship's own
+  `fpMult`), giving the player's *own* strikes a formation multiplier would
+  silently change existing raid damage output by default (Line's `fpMult`
+  is 1.20, escort's baseline) for every player, Battle Group or not. The
+  cost of going Reserve here is purely the Battle Group's own (unchanged)
+  `fpMult`/`battleGroupTakeFire` exposure — positioning trades the fleet's
+  safety for yours, not your own DPS.
+- **UI**: `preyCombatCard`'s battle fleet block (only rendered once a
+  Battle Group is deployed — same gate as before) now lists **you**
+  alongside your ships inside whichever tier row `playerFormation()` puts
+  you in, with the same per-tier move buttons (`setPlayerFormation`) the
+  ship rows already have, plus an "◀ exposed" / "🛡️ screened" badge driven
+  by `raidPlayerFrontline()`.
+- Exports added: `setPlayerFormation`. Tests: `raidplayerformation.test.js`
+  (default formation, `setPlayerFormation` validation, `raidFrontTier`
+  falling through tiers with you in the mix, `raidPlayerExposed`'s
+  no-Battle-Group-always-exposed case and its 85/15 split, `combatStrike`
+  dealing zero incoming hull damage to a reserved player behind a holding
+  Vanguard while the Battle Group still takes its own damage, and the
+  `preyCombatCard` formation controls appearing only once a Battle Group is
+  deployed).

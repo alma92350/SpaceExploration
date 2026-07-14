@@ -65,7 +65,7 @@ function freshState(opts = {}) {
     planetLaws: {},     // player per-planet trade laws: pid -> com -> { type, until }
     invest: null,       // active corruption investigation: { lead, evidence, defense, cycles }
     jail: 0,            // cycles remaining in detention
-    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0, bountyKills: 0, bountyEarned: 0, subsys: { weapons: 100, shields: 100, engines: 100, sensors: 100 }, wuse: {} },  // outlaw career
+    pirate: { wanted: 0, dread: 0, hull: 100, raids: 0, plundered: 0, commissionsDone: 0, bountyKills: 0, bountyEarned: 0, subsys: { weapons: 100, shields: 100, engines: 100, sensors: 100 }, wuse: {}, formation: "line" },  // outlaw career
     combat: { posture: "balanced", offense: 50, target: "hull", advanced: false },  // combat posture & targeting (UI-tunable)
     prey: null,         // current raid encounter: { type, name, ico, cargo, credits, strength, faction, wantedGain }
     interdiction: null, // active navy confrontation: { kind, planet, strength, bribe }

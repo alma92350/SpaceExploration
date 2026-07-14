@@ -1,5 +1,5 @@
 {
-  "version": "2.120.0",
+  "version": "2.121.0",
   "saveVersion": "v2",
-  "notes": "Changed: Tankers run faster at every tier, and Freighters now carry their own speed too - exactly 2x their comparable Tanker tier. New: no cap on how many Freighters can join your Personal Convoy, but a jump now takes as many cycles as the slowest Freighter aboard needs to make it (Fleet tab shows the pace, Starmap flags a stretched trip)."
+  "notes": "New: Reserve positioning comes to the Raid tab. Deploy a Battle Group and post yourself into its Vanguard/Line/Reserve formation alongside your warships - the same tiering Escort's flagship already uses. Tuck in behind a holding Vanguard and most incoming fire lands on your fleet instead of you."
 }
