@@ -178,8 +178,10 @@ function preyCombatCard(prey, al) {
     ? `<div class="hint">🤝 No allied crew on the scene. Summon one from the 🏴‍☠️ <b>Contacts</b> tab (📣 Call for support) or set a crew to 🛰️ <b>Follow</b> you — standing-by, following, and locally-based crews fight at your side here, even under a letter of marque.</div>` : "";
   const preyBand = prey.bandId ? bandById(prey.bandId) : null;
   const bandLine = preyBand ? `<div class="hint">${bandTagMark(preyBand)} of the <b>${preyBand.name}</b> · ${bandPers(preyBand).ico} ${bandPers(preyBand).name} · ${bandTier(preyBand).label} (${preyBand.rep}) · based at ${bandLocName(preyBand)}</div>` : "";
-  // Battle Group: every warship following the player, pooled into a formation, separate from the 2-ally cap
-  const bgShips = battleGroupShips(), bgIdle = fleetRaidable();
+  // Battle Group: every warship following the player, pooled into a formation, separate from the 2-ally
+  // cap — a Personal Convoy warship rides with the player already, so it fights in the same pool
+  // (battleFleetShips), tagged 🚚 below since "Recall fleet" only ever stands down a deployed Battle Group.
+  const bgDeployed = battleGroupShips(), bgShips = battleFleetShips(), bgIdle = fleetRaidable();
   let bgBlock = "";
   if (bgShips.length) {
     const posture = S.battleGroupPosture || "balanced";
@@ -200,15 +202,18 @@ function preyCombatCard(prey, al) {
       const shipRows = members.map(s => {
         const otherSlots = FORMATION_TIERS.filter(k => k !== t);
         const moveBtns = otherSlots.map(k => `<button class="btn btn-sm" title="Move to ${FORMATION_SLOTS[k].name}" onclick="setBattleGroupFormation('${s.id}','${k}')">${FORMATION_SLOTS[k].ico}</button>`).join("");
-        return `<div class="ship-stat" style="align-items:center;font-size:12px"><span class="k">${FLEET_SHIPS[s.key].ico} ${s.name}</span><span class="v">${Math.round(s.hull)}/${s.hullMax} ${moveBtns}</span></div>`;
+        const convoyTag = s.status === "convoy" ? ` <span class="hint" title="Riding in your Personal Convoy — fights here automatically, recalled from the Fleet tab instead">🚚</span>` : "";
+        return `<div class="ship-stat" style="align-items:center;font-size:12px"><span class="k">${FLEET_SHIPS[s.key].ico} ${s.name}${convoyTag}</span><span class="v">${Math.round(s.hull)}/${s.hullMax} ${moveBtns}</span></div>`;
       }).join("");
       const anyHere = members.length || youHere;
       return `<div style="margin-top:4px${anyHere ? "" : ";opacity:.5"}">
         <div class="hint" title="${def.hint}"><b>${def.ico} ${def.name}</b>${anyHere ? ` — ${members.length + (youHere ? 1 : 0)} ship(s), ${Math.round(tHull)}/${tHullMax} hull${holding ? ' <span style="color:var(--bad)">◀ taking fire</span>' : ""}` : " — empty"}</div>
         ${youRow}${shipRows}</div>`;
     }).join("");
+    const recallBtn = bgDeployed.length ? `<button class="btn btn-sm" onclick="recallBattleGroup()">↩ Recall fleet</button>` : "";
+    const deployMoreBtn = bgIdle.length ? `<button class="btn btn-sm btn-good" title="Deploy every warship following you (${bgIdle.length}) as a pooled formation too" onclick="deployBattleGroup()">✦ +${bgIdle.length} following</button>` : "";
     bgBlock = `<div class="hint" style="margin-top:6px">✦ <b>Battle fleet</b> (${bgShips.length} ship${bgShips.length === 1 ? "" : "s"}): 🔥${battleGroupFirepower()} pooled firepower · 🛡️ ${Math.round(bgHull)}/${bgHullMax} hull</div>
-      <div class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px"><span class="hint">Posture:</span> ${postBtns} <button class="btn btn-sm" onclick="recallBattleGroup()">↩ Recall fleet</button></div>
+      <div class="row" style="margin-top:4px;flex-wrap:wrap;gap:4px"><span class="hint">Posture:</span> ${postBtns} ${recallBtn} ${deployMoreBtn}</div>
       ${tierRows}`;
   } else if (bgIdle.length) {
     bgBlock = `<div class="row" style="margin-top:6px"><button class="btn btn-sm btn-good" title="Deploy every warship following you (${bgIdle.length}) as a pooled formation — no loot cut, escort-style posture, but they take real damage and can be lost" onclick="deployBattleGroup()">✦ Deploy Battle Fleet (${bgIdle.length})</button></div>`;

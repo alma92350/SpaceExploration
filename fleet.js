@@ -162,7 +162,7 @@ function repairFleetShip(id) {
   const c = fleetRepairCost(s); if (c.miss <= 0) return toast("That ship is already sound.", "bad");
   const local = shipyardLocalStorage(S.location), mats = { metals: c.metals };
   if ((S.res.credits || 0) < c.credits || !canAffordMats(mats, local)) return toast(`Repair needs ${fmt(c.credits)} cr · ${c.metals} ⛓️.`, "bad");
-  S.res.credits -= c.credits; payMats(mats, local); s.hull = s.hullMax;
+  S.res.credits -= c.credits; payMats(mats, local); s.hull = s.hullMax; s.crippled = false;
   log(`🔧 Repaired the ${s.name} for ${fmt(c.credits)} cr.`, "good"); toast("Ship repaired", "good"); sfx("repair"); saveGame(); renderAll();
 }
 // ---- reassign a ship's home shipyard — lets a fleet built up piecemeal across
@@ -291,6 +291,12 @@ function releaseFleetEscorts(e) {     // sync convoy support ships back to the f
 // its firepower adds to your strikes, and it screens you from incoming fire, at
 // the cost of taking real damage (and possible losses) of its own each round. ----
 function battleGroupShips() { return fleetList().filter(s => s.status === "battle"); }
+// a Personal Convoy warship rides with the player already, so it fights alongside a deployed
+// Battle Group (or stands in for one on its own) using its own Vanguard/Line/Reserve station —
+// this pool is for COMBAT PARTICIPATION only (who takes fire, who adds firepower); deploy/recall/
+// stand-down stay scoped to battleGroupShips() alone, since a convoy ship's status never changes
+// just because it took part in a fight.
+function battleFleetShips() { return battleGroupShips().concat(convoyWarships()); }
 function battleGroupPostureObj() { return ESCORT_POSTURES[S.battleGroupPosture || "balanced"] || ESCORT_POSTURES.balanced; }
 function setBattleGroupPosture(p) { if (ESCORT_POSTURES[p]) { S.battleGroupPosture = p; saveGame(); renderAll(); } }
 /* ---- Tactical formation: three positional tiers, not just a pooled number.
@@ -314,11 +320,11 @@ function autoAssignFormation(ships) {   // biggest hulls forward — a battleshi
   sorted.forEach((s, i) => { s.formation = i < nV ? "vanguard" : (i < nV + nL ? "line" : "reserve"); });
 }
 function setBattleGroupFormation(shipId, slot) {
-  const s = battleGroupShips().find(x => x.id === shipId); if (!s || !FORMATION_SLOTS[slot]) return;
+  const s = battleFleetShips().find(x => x.id === shipId); if (!s || !FORMATION_SLOTS[slot]) return;
   s.formation = slot; saveGame(); renderAll();
 }
 function battleGroupFrontTier() {   // the tier currently taking the brunt of incoming fire
-  for (const t of FORMATION_TIERS) { const ships = battleGroupShips().filter(s => shipFormation(s) === t); if (ships.length) return ships; }
+  for (const t of FORMATION_TIERS) { const ships = battleFleetShips().filter(s => shipFormation(s) === t); if (ships.length) return ships; }
   return [];
 }
 function deployBattleGroup() {
@@ -345,19 +351,19 @@ function releaseBattleGroup() {   // combat ended: stand the group down (survivo
   grp.forEach(battleGroupStandDown);
 }
 function battleGroupScreenMult() {   // your formation screens (or exposes) you — a standing Vanguard shields you further
-  const grp = battleGroupShips(); if (!grp.length) return 1;
+  const grp = battleFleetShips(); if (!grp.length) return 1;
   const vanguardHolds = grp.some(s => shipFormation(s) === "vanguard");
   return battleGroupPostureObj().def * (vanguardHolds ? 0.85 : 1.1);
 }
 function battleGroupFirepower() {
-  const grp = battleGroupShips(); if (!grp.length) return 0;
+  const grp = battleFleetShips(); if (!grp.length) return 0;
   const off = battleGroupPostureObj().off;
   return Math.round(grp.reduce((sum, s) => sum + shipStrEff(s) * (0.5 + 0.5 * (s.hull / s.hullMax)) * FORMATION_SLOTS[shipFormation(s)].fpMult, 0) * off);
 }
 // each combat round, the frontmost non-empty tier absorbs the hit (85% of the time; 15% stray
 // fire ignores tiering) — a formation collapses tier by tier as its defenders are lost.
 function battleGroupTakeFire(prey) {
-  const grp = battleGroupShips(); if (!grp.length) return 0;
+  const grp = battleFleetShips(); if (!grp.length) return 0;
   const front = battleGroupFrontTier();
   const pool = (front.length && Math.random() < 0.85) ? front : grp;
   const def = battleGroupPostureObj().def;
@@ -539,6 +545,7 @@ function boardPassengers(shipId, qty) {
   const s = fleetList().find(x => x.id === shipId), def = s && FLEET_SHIPS[s.key];
   if (!s || !def || def.role !== "passenger") return;
   if (s.status !== "convoy") return toast("Add the liner to your Personal Convoy first.", "bad");
+  if (s.crippled) return toast(`The ${s.name} is a crippled hulk — repair it before booking passengers aboard.`, "bad");
   const room = shipCargoCap(s) - (s.passengers || 0);
   if (room <= 0) return toast(`The ${s.name} is already full.`, "bad");
   let want = qty == null ? room : Math.max(0, Math.min(room, qty));
@@ -726,6 +733,7 @@ function fleetShipHit(s, dmg) {
   if (def.role === "passenger" && (s.passengers || 0) > 0) {
     s.hull = 1;
     s.passengers = 0;
+    s.crippled = true;   // a hulk adrift — can't take on new passengers again until repaired (repairFleetShip clears this)
     return "crippled";
   }
   s._dead = true;

@@ -166,3 +166,41 @@ test("battleGroupTakeFire is not called at all when no Battle Group is deployed"
   run(`combatStrike(false, "kinetic");`);
   assert.equal(run(`_calls`), 0);
 });
+
+test("a Personal Convoy warship (status:convoy, never deployed to Battle Group) still takes fire and can die during a raid", () => {
+  const { run } = createSandbox();
+  const wr = run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].tier === 1 && FLEET_SHIPS[k].role === "warship")`);
+  setupEngagement(run, {}, [{ name: "Pack1" }]);
+  run(`S.fleet = [{ id: "cw1", key: "${wr}", name: "Prize Corvette", home: S.location, status: "convoy", hull: 1, hullMax: 100, formation: "vanguard" }];`);
+  run(`Math.random = () => 0.5; S.raidTargets = [];`);
+  run(`combatStrike(false, "kinetic");`);
+  assert.equal(run(`S.fleet.length`), 0, "a low-hull convoy warship sitting in Vanguard should be able to die from raid return fire, same as a deployed Battle Group ship");
+});
+
+test("a Personal Convoy warship contributes pooled firepower and takes fire alongside a deployed Battle Group", () => {
+  const { run } = createSandbox();
+  const wr = run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].tier === 1 && FLEET_SHIPS[k].role === "warship")`);
+  setupEngagement(run, {}, [{ name: "Pack1" }]);
+  run(`S.fleet = [
+         { id: "bg1", key: "${wr}", name: "Guardian", home: S.location, status: "battle", hull: 10000, hullMax: 10000, formation: "line" },
+         { id: "cw1", key: "${wr}", name: "Prize Corvette", home: S.location, status: "convoy", hull: 10000, hullMax: 10000, formation: "line" }
+       ];`);
+  assert.equal(run(`battleFleetShips().length`), 2, "battleFleetShips should combine the deployed Battle Group with any convoy warships");
+  run(`Math.random = () => 0.5; S.raidTargets = [];
+       let _calls = 0; const _orig = battleGroupTakeFire; battleGroupTakeFire = function(h) { _calls++; return _orig(h); };`);
+  run(`combatStrike(false, "kinetic");`);
+  assert.equal(run(`_calls`), 2, "battleGroupTakeFire should still run once per living hostile with a mixed battle group + convoy pool");
+});
+
+test("recallBattleGroup doesn't touch a Personal Convoy warship's status", () => {
+  const { run } = createSandbox();
+  const wr = run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].tier === 1 && FLEET_SHIPS[k].role === "warship")`);
+  run(`S = freshState(); rollPrices();
+       S.fleet = [
+         { id: "bg1", key: "${wr}", name: "Guardian", home: S.location, status: "battle", hull: 100, hullMax: 100, formation: "line" },
+         { id: "cw1", key: "${wr}", name: "Prize Corvette", home: S.location, status: "convoy", hull: 100, hullMax: 100, formation: "line" }
+       ];`);
+  run(`recallBattleGroup();`);
+  assert.equal(run(`S.fleet.find(s => s.id === "bg1").status`), "patrol", "the deployed Battle Group ship should stand down to patrol");
+  assert.equal(run(`S.fleet.find(s => s.id === "cw1").status`), "convoy", "recalling the Battle Group must never change a convoy ship's status");
+});

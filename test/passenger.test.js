@@ -108,6 +108,7 @@ test("fleetShipHit cripples a passenger hull carrying souls instead of destroyin
   assert.equal(run(`S.fleet[0].hull`), 1, "a crippled hull should be pinned at 1, not removed");
   assert.equal(run(`S.fleet[0].passengers`), 0, "passengers should be automatically evacuated");
   assert.equal(run(`!!S.fleet[0]._dead`), false, "a crippled ship must not be marked dead");
+  assert.equal(run(`!!S.fleet[0].crippled`), true, "a crippled ship should be flagged so it can't just take on new passengers and shrug off the next hit");
 });
 
 test("fleetShipHit destroys an EMPTY passenger hull normally — the same lethal hit", () => {
@@ -127,6 +128,32 @@ test("fleetShipHit destroys a normal warship exactly as before (no crippling car
        S.fleet = [{ id: "w1", key: "${wk}", name: "Warship", home: S.location, status: "convoy", hull: 10, hullMax: 100 }];`);
   const outcome = run(`fleetShipHit(S.fleet[0], 999)`);
   assert.equal(outcome, "dead", "a warship should still be destroyed normally");
+});
+
+test("boardPassengers refuses a crippled liner until it's repaired", () => {
+  const { run } = createSandbox();
+  const pk = passengerKey(run, "cruiser");
+  run(`S = freshState(); rollPrices();`);
+  freshColony(run, run(`S.location`), { pop: 10 });
+  run(`S.fleet = [{ id: "p1", key: "${pk}", name: "Liner", home: S.location, status: "convoy", hull: 1, hullMax: 100, crippled: true }];
+       S.res.credits = 1000;`);
+  run(`boardPassengers("p1", 3);`);
+  assert.equal(run(`S.fleet[0].passengers || 0`), 0, "a crippled hulk shouldn't be able to re-board passengers");
+  assert.equal(run(`S.colonies[S.location].pop`), 10, "the colony's population shouldn't be drawn down by a refused boarding");
+  assert.equal(run(`S.res.credits`), 1000, "a refused boarding shouldn't pay out fares");
+});
+
+test("repairFleetShip clears the crippled flag, letting the liner board passengers again", () => {
+  const { run } = createSandbox();
+  const pk = passengerKey(run, "cruiser");
+  run(`S = freshState(); rollPrices(); S.res.credits = 100000; S.res.metals = 1000;`);
+  freshColony(run, run(`S.location`), { pop: 10, buildings: { shipyard: 1 } });
+  run(`S.fleet = [{ id: "p1", key: "${pk}", name: "Liner", home: S.location, status: "convoy", hull: 1, hullMax: 100, crippled: true }];`);
+  run(`repairFleetShip("p1");`);
+  assert.equal(run(`S.fleet[0].hull`), run(`S.fleet[0].hullMax`), "repair should restore full hull");
+  assert.equal(run(`!!S.fleet[0].crippled`), false, "repair should clear the crippled flag");
+  run(`boardPassengers("p1", 3);`);
+  assert.equal(run(`S.fleet[0].passengers`), 3, "a repaired liner should be able to board passengers again");
 });
 
 test("convoyAmbushRisk cripples a passenger liner with passengers aboard instead of purging it", () => {

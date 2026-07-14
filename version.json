@@ -1,5 +1,5 @@
 {
-  "version": "2.124.0",
+  "version": "2.124.2",
   "saveVersion": "v2",
-  "notes": "New: Passenger liners join the fleet - unarmed civilian hulls that ferry population between worlds. Board them in your Personal Convoy to sell paid tickets and debark to grow a colony's population. A liner still carrying passengers is never destroyed by combat - it's crippled instead, with its passengers automatically evacuated. Seize a raided Luxury Liner to carry over its manifest, or take on a new Resettlement Job contract."
+  "notes": "Fix: a warship riding in your Personal Convoy never actually fought when you raided a target - its Vanguard/Line/Reserve station only mattered for the one-time travel-ambush volley. It now fights alongside a deployed Battle Group (or on its own) using that same station - takes fire, adds firepower, and can be lost."
 }
