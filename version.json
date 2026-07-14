@@ -1,5 +1,5 @@
 {
-  "version": "2.122.0",
+  "version": "2.123.0",
   "saveVersion": "v2",
-  "notes": "New: your Personal Convoy now fights in formation - every convoy ship (and you) holds a Vanguard/Line/Reserve station, and an ambush's opening volley lands on the frontmost tier instead of a random freighter. Changed: travel-ambush odds now ride purely on pirate activity at both ends of the route; guards blunt the volley's damage instead."
+  "notes": "New: Seize hull comes to the Raid tab - pin a target's engines and beat it down and you can board it instead of destroying it, adding it to your fleet as a real warship instead of sinking it. No bounty or full plunder, but the Dread/Wanted/reputation cost otherwise matches a normal kill."
 }

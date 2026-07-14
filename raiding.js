@@ -562,6 +562,57 @@ function raidSpareRecruit() {
   promoteOrEnd(prey);                                     // next consort steps up, or the engagement ends
   afterAction();
 }
+// ---- board and seize a beaten hull instead of destroying it — needs it pinned (no engines to
+// run) AND crippled (same 35% threshold raidCanSpare uses) before a crew gives up their ship.
+// A planetary garrison (ground: true) is a fortress, not a hull — never seizable, even though
+// genPlanetDefense also zeroes its engines. The prize joins S.fleet as a real warship, its class
+// matched off the hostile's own SHIP_CLASSES tag (scout/dreadnought clamp to the nearest hull
+// FLEET_SHIPS actually stocks), arriving battle-damaged at the same beaten-down fraction it
+// surrendered at. No bounty/full plunder the way a kill pays out — the hull itself is the prize
+// — but the consequences (Dread/Wanted/rep) otherwise mirror a normal (non-No-Quarter) kill of
+// the same prey type, since seizing a coalition or pirate hull is no less an act than sinking it. ----
+const SEIZE_CLASS_MAP = { scout: "corvette", corvette: "corvette", frigate: "frigate", cruiser: "cruiser", battleship: "battleship", dreadnought: "battleship" };
+function raidCanSeize() { const p = S.prey; return !!(p && p._engaged && !p.ground && (p.engines || 0) <= 0 && foeHp(p) <= p.maxhp * 0.35); }
+function raidSeizeHull() {
+  if (!raidCanSeize()) return toast("Pin its engines and beat it down first — a live crew won't surrender an intact hull.", "bad");
+  const prey = S.prey;
+  const key = SEIZE_CLASS_MAP[prey.cls] || "corvette", def = FLEET_SHIPS[key];
+  const hullMax = fleetShipHullMax(def);
+  const frac = Math.max(0.25, Math.min(0.5, foeHp(prey) / prey.maxhp));   // arrives as battle-damaged as it surrendered
+  const hull = Math.max(1, Math.round(hullMax * frac));
+  fleetList().push({ id: "sh" + S.turn + "_" + Math.floor(Math.random() * 1e4), key, name: `Prize ${prey.name}`, home: S.location, status: "idle", hull, hullMax });
+  const joinNote = `The ${def.ico} ${def.name} joins your fleet at ${Math.round(hull / hullMax * 100)}% hull.`;
+  if (prey.isPirate) {
+    S.pirate.dread += 2; clampPirate();
+    const p = currentPlanet();
+    S.pirates[p.id] = Math.max(0, pirateLevel(p.id) - 1);                 // one less hull in their roster, same flavor as pirateKillRewards
+    S.pirateCalm = Math.max(S.pirateCalm || 0, S.turn) + 2;
+    const b = bandById(prey.bandId) || bindBand(prey);
+    bandRepAdd(b, -15);   // losing a ship stings, even without blood spilled — milder than a kill's −30, harsher than sparing's +20
+    log(`⚓ You board and seize the ${prey.ico} ${prey.name}${b ? " of the " + b.name : ""} — its crew abandons ship rather than go down with it. ${joinNote} (Dread +2${b ? `, ${b.name} standing −15` : ""})`, "good");
+  } else if (prey.isPlanetPatrol) {
+    const taken = plunder(prey);
+    S.pirate.dread += 2; S.pirate.wanted += prey.wantedGain; clampPirate();
+    addRep(prey.faction, -4);
+    log(`⚓ You board and seize the ${prey.ico} ${prey.name} — its crew takes to the escape pods. Salvage ${taken.join(" ") || "slag only"}; ${joinNote} (Dread +2, Wanted +${prey.wantedGain})`, "good");
+  } else {
+    const betray = S.commission && prey.faction === S.commission.patron;
+    const taken = plunder(prey);
+    const sanctioned = applyCommissionRaid(prey);
+    const wanted = sanctioned ? 0 : prey.wantedGain;
+    S.pirate.dread += 5; S.pirate.wanted += wanted; clampPirate();
+    addRep(prey.faction, -8);
+    if (!sanctioned) addRep("core", -(prey.faction === "core" ? 8 : 5));
+    addRep("frontier", 3);
+    FACTION_KEYS.filter(f => f !== prey.faction && factionsAreRivals(f, prey.faction)).forEach(f => addRep(f, 2));
+    raiseLaneAlert(currentPlanet().id, prey);
+    log(`⚓ You board and seize the ${prey.ico} ${prey.name} — its crew takes to the escape pods. Plundered ${taken.join(" ") || "no cargo"}${sanctioned ? ` ⚖️ Sanctioned — ${FACTIONS[S.commission.patron].ico} bounty +${fmt(COMM_BOUNTY)} cr.` : ""}; ${joinNote} (Dread +5, Wanted +${wanted})`, "good");
+    if (betray) revokeCommission(true);
+  }
+  toast(`${def.name} seized — joined your fleet!`, "good"); sfx("event");
+  promoteOrEnd(prey);                                     // next consort steps up, or the engagement ends
+  afterAction();
+}
 function raidVolley(n) {
   n = Math.max(1, Math.min(8, n || 5));
   const wkey = (combatState().lastWeapon) || "kinetic";

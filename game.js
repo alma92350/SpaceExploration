@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.122.0";
+const APP_VERSION = "2.123.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.123.0", notes: "New: ⚓ Seize hull comes to the Raid tab — pin a target's engines and beat it down (same threshold as 🤝 Spare crew) and you can board it instead of destroying it. The prize joins your fleet as a real warship, class-matched to the hull you crippled, arriving battle-damaged and ready for repair. No bounty or full plunder — the hull itself is the prize — but the Dread/Wanted/reputation cost otherwise matches a normal kill of the same target. A planetary garrison can't be seized (it's a fortress, not a hull)." },
   { version: "2.122.0", notes: "New: your 🚚 Personal Convoy now fights in formation. Every convoy ship — and you — holds a 🛡️ Vanguard / ⚔️ Line / 🌌 Reserve station (✦ Fleet tab → Assignments), and when pirates ambush you on the road their opening volley lands on the frontmost tier (85% — 15% is stray fire that can reach anyone) instead of always mugging a random freighter. Warships default to Vanguard, freighters to Reserve. Changed: travel-ambush ODDS now ride purely on pirate activity at both ends of the route — your escort can't stop you being found anymore, but warships and following bands still blunt the volley's damage, and a warship tanking the hit keeps your cargo credits safe." },
   { version: "2.121.0", notes: "New: 🌌 Reserve positioning comes to the Raid tab. Deploy a ✦ Battle Group and you can now post yourself into its Vanguard/Line/Reserve formation alongside your warships (Raid tab, ⚔️ Battle fleet panel) — the same tiering Escort's flagship already uses. Tuck in behind a holding Vanguard and most incoming fire lands on your fleet instead of you; push forward into Vanguard yourself and you draw the brunt of it. Solo (no Battle Group deployed) is unchanged — there's no one to hide behind, so you're always the target." },
   { version: "2.120.0", notes: "Changed: 🛢️ Tankers run faster at every tier. New: 🚚 Freighters now carry their own speed too — exactly twice their comparable Tanker tier's pace. New: your Personal Convoy (✦ Fleet tab) has no cap on how many Freighters can ride along anymore, but the trade is real travel time — a jump now takes as many cycles as the slowest Freighter aboard needs to cover the distance (same shape a 🛢️ Tanker Run already uses), instead of always resolving in one. The Fleet tab shows the convoy's pace and the 🗺️ Starmap flags any destination a slow convoy would stretch out." },
@@ -777,7 +778,7 @@ Object.assign(window, {
   investLawyer, investBribe, investSpin, investBury, investStrongarm, investScapegoat, faceTrial,
   runForElection, seekAppointment, stageCoup, lobbyLaw, enterPublicLife,
   donateRelief, donateReliefQty, gougeSell, gougeSellQty, lootCrisis, downloadJournal,
-  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSummonOnCall, repairShip, raidToggleTarget, raidFocusTarget,
+  prowl, raidAttack, raidNoQuarter, raidExtort, raidDisengage, raidVolley, raidCallAllies, raidSpareRecruit, raidSeizeHull, raidSummonOnCall, repairShip, raidToggleTarget, raidFocusTarget,
   clearFx, investigateSignal, buySignalScan,
   setBandTag, callBandSupport, bandFollow, bandStandDown, escortRallyOnCall,
   commissionMandate, cancelMandate, setMandateField, reconcileBands, brokerTruce,
