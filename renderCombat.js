@@ -92,11 +92,12 @@ function preyCombatCard(prey, al) {
     ? `<span class="pill good">🎯 bounty ${fmt(prey.bounty)} 💰</span>`
     : `<span class="hint">Hold: ${Object.keys(prey.cargo).map(c => `${prey.cargo[c]}${COM[c].ico}`).join(" ") || "scant"} · ${fmt(prey.credits)} 💰</span>`;
   const pinned = (prey.engines || 0) <= 0;
+  const seizeHint = prey.ground ? "" : pinned ? " Beat it down further and you can ⚓ <b>seize the hull</b> instead of destroying it." : " Pin its engines and beat it down to ⚓ <b>seize the hull</b> instead of destroying it.";
   const lawNote = isPirate
-    ? `A <b>lawful kill</b> — bounty, salvage, faction goodwill, no Wanted.`
+    ? `A <b>lawful kill</b> — bounty, salvage, faction goodwill, no Wanted.${seizeHint}`
     : prey.isPlanetPatrol || prey.isPlanetRaid
-    ? `An <b>act of war</b> on ${FACTIONS[prey.faction] ? FACTIONS[prey.faction].name : "the coalition"} — every kill earns <b>Wanted</b>, and the sack itself far more.`
-    : `Raiding coalition shipping earns <b>Wanted</b>. ${pinned ? "" : "Cripple its 🚀 engines so it can't run."}`;
+    ? `An <b>act of war</b> on ${FACTIONS[prey.faction] ? FACTIONS[prey.faction].name : "the coalition"} — every kill earns <b>Wanted</b>, and the sack itself far more.${seizeHint}`
+    : `Raiding coalition shipping earns <b>Wanted</b>. ${pinned ? `Beat it down further and you can ⚓ <b>seize the hull</b> instead of destroying it.` : "Cripple its 🚀 engines so it can't run — and beat it down to ⚓ seize the hull instead."}`;
   // planetary assault: a phase banner over the same wave-combat UI the Escort tab uses —
   // phase 1 clear the orbital picket, phase 2 break the ground garrison, THEN the loot
   let assaultLine = "";
@@ -161,9 +162,11 @@ function preyCombatCard(prey, al) {
   }
   const spareBtn = (typeof raidCanSpare === "function" && raidCanSpare())
     ? `<button class="btn btn-sm btn-good" title="Hold fire and let the beaten crew live — a big boost to their collaboration" onclick="raidSpareRecruit()">🤝 Spare crew (+standing)</button>` : "";
+  const seizeBtn = (typeof raidCanSeize === "function" && raidCanSeize())
+    ? `<button class="btn btn-sm btn-good" title="Board and take the hull for your own fleet instead of destroying it — no bounty/full plunder, but it's yours to keep" onclick="raidSeizeHull()">⚓ Seize hull</button>` : "";
   const buttons = isPirate
-    ? `${spareBtn}${callBtn}${onCallBtns}${fleetBtns}<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
-    : `<button class="btn btn-bad" title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
+    ? `${spareBtn}${seizeBtn}${callBtn}${onCallBtns}${fleetBtns}<button class="btn btn-sm" onclick="raidDisengage()">Break off</button>`
+    : `${seizeBtn}<button class="btn btn-bad" title="Slaughter the crew: more Dread, more Wanted" onclick="raidNoQuarter()">☠️ No Quarter</button>
        <button class="btn btn-sm" title="Spend Dread to extort tribute — no fight (Dread −12)" onclick="raidExtort()">💀 Extort</button>
        ${callBtn}${onCallBtns}${fleetBtns}<button class="btn btn-sm" onclick="raidDisengage()">Disengage</button>`;
   // no crew at hand, but you have friends out there — tell the player how to bring them

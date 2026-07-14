@@ -781,3 +781,69 @@ a random freighter.
   (odds un-damped by guards, both-ends route risk, volley hitting the
   front tier / the player / never a solo traveler, and no credit spoilage
   on a warship tank).
+
+## Slice 19 (shipped) — ⚓ Seize hull: capture a beaten target instead of destroying it
+Every raid win path before this slice (`raidWinPirate`/`raidWinMerchant`/
+`raidWinPatrol`/`raidWinPlanet`, raiding.js) ends the same way: the target
+is destroyed. `☠️ No Quarter` only scales the Dread/Wanted/rep penalty of
+a kill up — it never changes whether the hull survives. This slice adds a
+genuine third outcome alongside destroy/spare: board the hull and add it
+to `S.fleet` as a real warship.
+
+- **Gate** (`raidCanSeize()`, raiding.js): `_engaged` (at least one strike
+  already landed, same as `raidCanSpare`) AND pinned (`(prey.engines||0)
+  &lt;= 0` — no drive, no escape) AND crippled (`foeHp(p) &lt;= p.maxhp *
+  0.35`, the same threshold `raidCanSpare` uses) AND not `prey.ground`. The
+  ground check matters because `genPlanetDefense`'s garrison also zeroes
+  `engines` (a fortress can't run either) — without it, a planetary
+  garrison would read as "pinned" and be (nonsensically) seizable. Boarding
+  needs BOTH conditions `raidCanSpare` doesn't: pinning is unique to seize
+  (a pirate crew can still parley their way free at 35% hp with a live
+  drive — `raidCanSpare` never checks engines — but you can't board a hull
+  that can still jump away).
+- **Class-matched prize** (`SEIZE_CLASS_MAP`, raiding.js): the hostile's own
+  `SHIP_CLASSES` tag (`prey.cls`, stamped by `applyShipClass`, combat.js)
+  maps onto the nearest `FLEET_SHIPS` warship key — `corvette`→`corvette`,
+  `frigate`→`frigate`, `cruiser`→`cruiser`, `battleship`→`battleship`, and
+  the two classes with no matching catalog entry clamp to their nearest
+  neighbor: `scout`→`corvette` (up), `dreadnought`→`battleship` (down).
+  `fleetShipHullMax(FLEET_SHIPS[key])` sets the prize's `hullMax` — it's a
+  genuine player warship from here on, upkeep/repair/mission-eligible like
+  any hull built at a Shipyard.
+- **Arrives battle-damaged**: `hull` is set to `hullMax * frac`, where
+  `frac` is the hostile's own remaining-hp fraction at capture, clamped to
+  `[0.25, 0.5]` — since `raidCanSeize` already caps eligibility at 35% hp,
+  in practice this almost always lands at the 25% floor; the clamp exists
+  so a hull seized at, say, exactly the 35% threshold doesn't arrive
+  needlessly weaker than one seized nearer to death. Either way, the prize
+  needs real repair before it's combat-ready — no free full-hull ship.
+  `id`/`home`(`S.location`)/`status`(`"idle"`) follow `orderShip`'s own
+  live-instance shape (fleet.js) exactly, so it's immediately visible in
+  the Fleet tab roster, repairable, reassignable, and deployable to a
+  mission/Battle Group/convoy like any other hull.
+- **Consequences mirror a normal kill of the same prey type, minus the
+  payout**: no `pirateKillRewards` (no bounty, no bounty-kill stat, no
+  core/faction rep from turning in a confirmed kill) for a seized pirate —
+  Dread only +2 (vs. a kill's +3) and the band's own standing takes a −15
+  hit (between sparing's +20 and a kill's −30 — losing a ship stings even
+  without blood spilled). A seized planetary picket or generic coalition
+  hull still plunders its hold (`plunder(prey)`) and pays the exact
+  Dread/Wanted/rep formula its non-No-Quarter kill would (`raidWinPatrol`/
+  `raidWinMerchant`'s own `noQuarter=false` branch values, `applyCommissionRaid`
+  respected, `revokeCommission` on betraying your own patron) — seizing a
+  coalition hull is no less an act than sinking it, but the payout is the
+  ship itself instead of a bounty/full loot split.
+- **UI**: `preyCombatCard` (renderCombat.js) gets a "⚓ Seize hull" button
+  next to `🤝 Spare crew`/`☠️ No Quarter`, gated by `raidCanSeize()` exactly
+  like `spareBtn` is gated by `raidCanSpare()` — but shown for every prey
+  type (pirate AND coalition/merchant), unlike Spare/No Quarter which are
+  each asymmetric to one side. The `lawNote` hint line now tells the player
+  when a target needs its engines pinned vs. is already pinned and just
+  needs beating down further.
+- Exports added: `raidSeizeHull`. Tests: `raidseize.test.js` (the full
+  gate — engaged/pinned/crippled/non-ground — class-mapping including both
+  clamped edge cases, the battle-damaged hull-fraction clamp,
+  `promoteOrEnd` continuing the fight with a pack survivor vs. clearing the
+  engagement, per-prey-type consequence checks for pirate/patrol/merchant
+  including a live commission's quota and Wanted waiver, and the button's
+  render gate).
