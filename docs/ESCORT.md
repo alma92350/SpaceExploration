@@ -51,10 +51,11 @@ Pooled firepower `escortFirepower()` = Σ each living ship's FP × posture offen
   targeting draws only from that tier, 15% is stray fire reaching the whole
   fleet, so Reserve is very safe but never perfectly so. Tier also weights
   `escShipFP`: Line hits hardest (`fpMult` 1.20), Vanguard tanks but hits
-  softer (0.85), Reserve hits softest (0.70). `buildEscortFleet` defaults
-  freighters to Reserve and the flagship/escorts to Line; Vanguard starts
-  empty, so nothing is forced into the riskiest slot without the player's
-  own choice.
+  softer (0.85), Reserve doesn't fight at all (`fpMult` 0, Slice 20 —
+  little chance of being attacked means no firepower contribution either).
+  `buildEscortFleet` defaults freighters to Reserve and the flagship/escorts
+  to Line; Vanguard starts empty, so nothing is forced into the riskiest
+  slot without the player's own choice.
 - **Enemy archetypes & telegraphed intent**: 🏴‍☠️ Raider→freighters,
   ⚡ Interceptor→highest-FP escort, 💢 Gunship→flagship; a ☠️ Marauder Lead
   anchors high-threat waves. This role preference is now a *secondary* filter

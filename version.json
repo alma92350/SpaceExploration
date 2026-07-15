@@ -1,5 +1,5 @@
 {
-  "version": "2.124.2",
+  "version": "2.124.3",
   "saveVersion": "v2",
-  "notes": "Fix: a warship riding in your Personal Convoy never actually fought when you raided a target - its Vanguard/Line/Reserve station only mattered for the one-time travel-ambush volley. It now fights alongside a deployed Battle Group (or on its own) using that same station - takes fire, adds firepower, and can be lost."
+  "notes": "Changed: Reserve is now a true tradeoff instead of a free lunch - a ship parked there (Battle Group, Personal Convoy warship, or Escort fleet) has by far the least chance of ever being attacked, so it no longer fights at reduced effect, it doesn't fight at all (firepower multiplier 0.70 -> 0). Vanguard and Line are unchanged."
 }

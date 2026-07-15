@@ -198,7 +198,9 @@ Battle Group damage used to land on a uniformly random member. It's now a real
   that too and Reserve is next — a formation **collapses tier by tier**.
 - **⚔️ Line** (fpMult 1.20) — your main damage dealers, protected while the
   Vanguard holds.
-- **🌌 Reserve** (fpMult 0.70) — safest, weakest, held back.
+- **🌌 Reserve** (fpMult 0, Slice 20) — safest, held back so completely it
+  doesn't fight at all: little chance of being attacked means no firepower
+  contribution either, not just a reduced one.
 - `battleGroupFirepower()` applies each ship's tier `fpMult` before summing —
   moving ships between tiers is a genuine offense/survivability trade, not
   cosmetic.
@@ -924,3 +926,17 @@ Tests: `raidpool.test.js` (a convoy warship with no Battle Group deployed
 still takes fire and can die; a mixed Battle Group + convoy pool both
 takes fire correctly; `recallBattleGroup` never touches a convoy ship's
 status).
+
+**Fix 3 — Reserve stopped being a free lunch.** With convoy warships now
+able to sit in the same Vanguard/Line/Reserve tiering as a Battle Group
+(Fix 2 above), Reserve's old `fpMult: 0.70` meant a ship parked in the
+tier with by far the least chance of ever being targeted *still* fought
+at 70% effect — almost as good as a front-line ship, for a fraction of
+the risk. `FORMATION_SLOTS.reserve.fpMult` is now `0`: a Reserve ship
+contributes nothing to `battleGroupFirepower()`/`escShipFP()` (the same
+shared constant backs both Battle Group/convoy and Escort formations) —
+safety and firepower are now a real tradeoff, not stackable. Vanguard
+(0.85) and Line (1.20) are unchanged. Tests: `raidpool.test.js`
+(`battleGroupFirepower` unaffected by adding a Reserve-tier ship to the
+group), `escortformation.test.js` (`escShipFP` on Reserve returns exactly
+0).
