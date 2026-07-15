@@ -192,6 +192,17 @@ test("a Personal Convoy warship contributes pooled firepower and takes fire alon
   assert.equal(run(`_calls`), 2, "battleGroupTakeFire should still run once per living hostile with a mixed battle group + convoy pool");
 });
 
+test("battleGroupFirepower excludes a Reserve-tier ship entirely — little risk means no fight, not just less", () => {
+  const { run } = createSandbox();
+  const wr = run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].tier === 1 && FLEET_SHIPS[k].role === "warship")`);
+  run(`S = freshState();
+       S.fleet = [{ id: "bg1", key: "${wr}", name: "Guardian", home: S.location, status: "battle", hull: 100, hullMax: 100, formation: "line" }];`);
+  const withLineOnly = run(`battleGroupFirepower()`);
+  run(`S.fleet.push({ id: "bg2", key: "${wr}", name: "Hideaway", home: S.location, status: "battle", hull: 100, hullMax: 100, formation: "reserve" });`);
+  const withReserveAdded = run(`battleGroupFirepower()`);
+  assert.equal(withReserveAdded, withLineOnly, "adding a Reserve-tier ship to the group shouldn't move pooled firepower at all");
+});
+
 test("recallBattleGroup doesn't touch a Personal Convoy warship's status", () => {
   const { run } = createSandbox();
   const wr = run(`Object.keys(FLEET_SHIPS).find(k => FLEET_SHIPS[k].tier === 1 && FLEET_SHIPS[k].role === "warship")`);

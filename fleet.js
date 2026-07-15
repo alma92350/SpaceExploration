@@ -301,16 +301,16 @@ function battleGroupPostureObj() { return ESCORT_POSTURES[S.battleGroupPosture |
 function setBattleGroupPosture(p) { if (ESCORT_POSTURES[p]) { S.battleGroupPosture = p; saveGame(); renderAll(); } }
 /* ---- Tactical formation: three positional tiers, not just a pooled number.
    🛡️ Vanguard tanks (soaks fire first, fires at a discount), ⚔️ Line does the
-   bulk of the damage, 🌌 Reserve is held back (safest, weakest). Damage each
-   round targets the FRONTMOST non-empty tier — lose your Vanguard and the
-   Line becomes exposed, lose that and Reserve is next. A stray 15% of hits
-   ignore tiering entirely, so no formation is ever perfectly safe. Keeping a
+   bulk of the damage, 🌌 Reserve is held back — safe from all but the 15%
+   stray-fire branch, and a real tradeoff for it: it doesn't fight at all.
+   Damage each round targets the FRONTMOST non-empty tier — lose your Vanguard
+   and the Line becomes exposed, lose that and Reserve is next. Keeping a
    Vanguard alive also screens the player harder — positioning has stakes for
    both the fleet and you. */
 const FORMATION_SLOTS = {
   vanguard: { ico: "🛡️", name: "Vanguard", fpMult: 0.85, hint: "front line — soaks the worst of the incoming fire so the rest of the fleet can fight" },
   line:     { ico: "⚔️", name: "Line",     fpMult: 1.20, hint: "main battle line — your best damage dealers, protected while the vanguard holds" },
-  reserve:  { ico: "🌌", name: "Reserve",  fpMult: 0.70, hint: "held back — safest position, but fights at reduced effect" },
+  reserve:  { ico: "🌌", name: "Reserve",  fpMult: 0,    hint: "held back — safest position, but sits out the fight entirely" },
 };
 const FORMATION_TIERS = ["vanguard", "line", "reserve"];
 function shipFormation(s) { return FORMATION_SLOTS[s.formation] ? s.formation : "line"; }

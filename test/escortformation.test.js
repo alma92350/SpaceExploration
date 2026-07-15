@@ -91,14 +91,14 @@ test("chooseIntent still applies role preference within whatever pool is exposed
   }
 });
 
-test("escShipFP scales by the ship's own formation tier: line > vanguard > reserve, all else equal", () => {
+test("escShipFP scales by the ship's own formation tier: line > vanguard > reserve (which contributes nothing), all else equal", () => {
   const { run } = createSandbox();
   run(`S = freshState(); rollPrices();`);
   startEscort(run);
   const fpAt = (tier) => { run(`S.escort.fleet[0].formation = "${tier}";`); return run(`escShipFP(S.escort.fleet[0])`); };
   const line = fpAt("line"), vanguard = fpAt("vanguard"), reserve = fpAt("reserve");
-  assert.ok(line > vanguard && vanguard > reserve, `expected line (${line}) > vanguard (${vanguard}) > reserve (${reserve})`);
-  assert.equal(Math.round((line / reserve) * 1000), Math.round((run(`FORMATION_SLOTS.line.fpMult`) / run(`FORMATION_SLOTS.reserve.fpMult`)) * 1000));
+  assert.ok(line > vanguard && vanguard > 0, `expected line (${line}) > vanguard (${vanguard}) > 0`);
+  assert.equal(reserve, 0, "a Reserve-tier ship has little chance of being attacked, so it contributes zero firepower — the tradeoff for safety");
 });
 
 test("renderEscort shows each ship's formation badge and move buttons, and clicking a move button updates the badge", () => {
