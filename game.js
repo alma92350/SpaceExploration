@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.124.3";
+const APP_VERSION = "2.124.4";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.124.4", notes: "Changed: fleet upkeep now scales with what a hull is actually doing — an idle, undocked-from-duty ship costs 70% less per cycle than one on active duty (🚚 Personal Convoy, following-me patrol, missions, escort, logistics, tanker runs, or a deployed Battle Group). While a raid is in progress, every operating hull's upkeep rises 30% instead — Personal Convoy and following-me duty included — though an idle hull keeps its discount even mid-raid." },
   { version: "2.124.3", notes: "Changed: 🌌 Reserve is now a true tradeoff instead of a free lunch — a ship parked there (Battle Group, Personal Convoy warship, or Escort fleet) has by far the least chance of ever being attacked, so it no longer fights at reduced effect, it doesn't fight at all (firepower multiplier 0.70 → 0). 🛡️ Vanguard and ⚔️ Line are unchanged." },
   { version: "2.124.2", notes: "Fix: a warship riding in your 🚚 Personal Convoy (built, or a raid-seized prize) never actually fought when you raided a target — its Vanguard/Line/Reserve station only ever mattered for the one-time travel-ambush opening volley, so positioning it as a defender did nothing once the fight itself started. A Personal Convoy warship now fights alongside a deployed ✦ Battle Group (or on its own with none deployed) using that same station — takes fire, adds pooled firepower, and can be lost — with no extra setup." },
   { version: "2.124.1", notes: "Fix: a 🧳 Passenger liner crippled in a convoy ambush could immediately re-board a fresh manifest while still sitting at 1 hull — since the crippling rule only ever checks whether it's currently carrying passengers, re-boarding right away re-armed it before the next hit, letting a liner survive indefinitely instead of ever actually dying once truly empty. A crippled hulk can no longer take on new passengers until it's actually repaired." },

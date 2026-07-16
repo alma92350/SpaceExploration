@@ -1,5 +1,5 @@
 {
-  "version": "2.124.3",
+  "version": "2.124.4",
   "saveVersion": "v2",
-  "notes": "Changed: Reserve is now a true tradeoff instead of a free lunch - a ship parked there (Battle Group, Personal Convoy warship, or Escort fleet) has by far the least chance of ever being attacked, so it no longer fights at reduced effect, it doesn't fight at all (firepower multiplier 0.70 -> 0). Vanguard and Line are unchanged."
+  "notes": "Changed: fleet upkeep now scales with duty status - an idle hull costs 70% less per cycle than one on active duty (Personal Convoy, following-me patrol, missions, escort, logistics, tanker runs, or a deployed Battle Group). During a raid, every operating hull's upkeep rises 30% instead, Personal Convoy and following-me duty included, though an idle hull keeps its discount even mid-raid."
 }

@@ -77,8 +77,19 @@ function fleetIsPassenger(def) { return def.role === "passenger"; }   // unarmed
 function fleetShipSpeed(def) { return def.speed != null ? def.speed : 1; }   // tankers/freighters/passenger liners carry their own; everything else defaults to full speed
 function fleetShipHullMax(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsHauler(def) ? Math.round(FLEET_HULL_BASE * 0.7 + (def.cap || 0) * 0.08) : Math.round(FLEET_HULL_BASE * c.hull); }
 function fleetShipStr(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return fleetIsPassenger(def) ? Math.round(FLEET_FP_BASE * c.str * 0.05) : fleetIsHauler(def) ? Math.round(FLEET_FP_BASE * c.str * 0.35) : Math.round(FLEET_FP_BASE * c.str); }
-function fleetShipUpkeep(def) { const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette; return (fleetIsHauler(def) || fleetIsPassenger(def)) ? Math.round(15 + (def.cap || 0) * 0.06) : Math.round(40 * c.str); }
-function fleetUpkeep() { return fleetList().filter(s => s.status !== "building").reduce((sum, s) => sum + (FLEET_SHIPS[s.key] ? fleetShipUpkeep(FLEET_SHIPS[s.key]) : 0), 0); }
+// Base rate is the operation cost — a ship on active duty (mission/escort/logistics/
+// tanker_run/battle, and Slice 7's personal convoy/patrol "following me" duty) pays it in
+// full. A docked, unassigned ship costs 70% less to sit idle. A raid in progress (S.prey)
+// tacks 30% onto every operating hull's cost, personal convoy and following-me duty included
+// — only an idle, undeployed hull is spared the surcharge.
+function fleetShipUpkeep(def, s) {
+  const c = SHIP_CLASSES[def.cls] || SHIP_CLASSES.corvette;
+  let up = (fleetIsHauler(def) || fleetIsPassenger(def)) ? Math.round(15 + (def.cap || 0) * 0.06) : Math.round(40 * c.str);
+  if (s && s.status === "idle") up *= 0.30;
+  else if (s && S.prey) up *= 1.30;
+  return Math.round(up);
+}
+function fleetUpkeep() { return fleetList().filter(s => s.status !== "building").reduce((sum, s) => sum + (FLEET_SHIPS[s.key] ? fleetShipUpkeep(FLEET_SHIPS[s.key], s) : 0), 0); }
 function colonyShipyardTier(pid) { const col = S.colonies && S.colonies[pid]; return (col && col.buildings && col.buildings.shipyard) || 0; }
 // a base's Small Shipyard module — a colony's full-range Shipyard always takes
 // precedence if a colony and a base somehow coexist on the same world (neither
