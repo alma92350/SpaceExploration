@@ -472,7 +472,7 @@ function fulfilContract(id) {
    COLONIES  (full development: population, happiness, tax, buildings)
    ============================================================ */
 function colonyHousing(col, planet) {
-  let h = 14;
+  let h = 14 + (planet.terraformHousing || 0);   // a terraformed world's engineered population scale, above the base cap
   colonyBuildingList(planet).forEach(b => { if (b.housing) h += b.housing(col.buildings[b.id] || 0); });
   return h;
 }
@@ -689,6 +689,7 @@ function colonize() {
   if (!canColonize()) return toast("Research Colonial Charter first.", "bad");
   if (!planet.colonizable) return toast("This world cannot be colonized.", "bad");
   if (S.colonies[pid]) return;
+  if (S.terraforming && S.terraforming[pid]) return toast("Terraforming is still underway here — wait for it to complete.", "bad");
   if (S.res.credits < COLONY_FOUNDATION_COST) return toast("Not enough credits.", "bad");
   if (!canAfford(COLONY_FOUNDATION_MATS)) return toast("Need materials in your hold: metals & goods.", "bad");
   S.res.credits -= COLONY_FOUNDATION_COST; pay(COLONY_FOUNDATION_MATS);
@@ -908,5 +909,89 @@ function processColonies() {
     log(`💔 The colony on <span class="c">${planet.name}</span> has revolted and declared independence. It is lost.`, "bad");
     toast(`${planet.name} seceded!`, "bad");
     announce(`💔 ${planet.name} Lost`, `Your colony revolted and broke away. Keep your people fed and happy to hold your worlds.`, true);
+  });
+}
+
+/* ============================================================
+   TERRAFORMING  (catalogs.js: TERRAFORM_* constants/cost formulas)
+   Reshape an unclaimed colonizable world's own deposits to the player's pick
+   before founding a colony there. Unlocked by the "terraform" tech (the tree's
+   capstone — biotech + antimatter), same gate as the Concordat Spire
+   (sector4x.js's spireUnlocked()), so this is deliberately a late-game power
+   option layered ON TOP of ordinary colonize() (unlocked far earlier by
+   "colonial"), not a replacement for it.
+
+   Paid in full up front, like colonize()'s own foundation cost, then a
+   multi-cycle project ticks down in processTerraforming() (called from
+   endTurn(), same shape as production surges / the Spire). No cancel, no
+   refund once started — a captain commits ecological engineering crews for
+   the duration, sunk cost if abandoned (there's currently no way to abandon
+   one short of never landing on that world again).
+
+   PLANETS is static source, re-declared fresh on every load (same as the
+   frontier ring / core variance / territory flips) — a completed project is
+   recorded into S.terraformed for replayTerraforming() to reapply onto the
+   freshly-loaded array, mirroring replayTerritoryFlips() (sector4x.js).
+   ============================================================ */
+function canTerraform() { return !!S.techs.terraform; }
+// eligible now: a colonizable world nobody (including the player) has settled yet,
+// with no terraforming project already running on it
+function terraformEligible(planet) { return !!(planet && planet.colonizable && !S.colonies[planet.id] && !(S.terraforming && S.terraforming[planet.id])); }
+function startTerraforming(resources, tierId) {
+  const pid = S.location, planet = currentPlanet();
+  if (!canTerraform()) return toast("Research Terraforming first.", "bad");
+  if (!terraformEligible(planet)) return toast("This world can't be terraformed right now.", "bad");
+  resources = [...new Set(resources || [])].filter(c => COM[c] && COM[c].tier === "Raw");
+  if (resources.length < TERRAFORM_MIN_RESOURCES || resources.length > TERRAFORM_MAX_RESOURCES)
+    return toast(`Pick ${TERRAFORM_MIN_RESOURCES}-${TERRAFORM_MAX_RESOURCES} resources.`, "bad");
+  const tierDef = TERRAFORM_POP_TIERS.find(t => t.id === tierId);
+  if (!tierDef) return toast("Pick a population scale.", "bad");
+  const cost = terraformCost(resources, tierId), mats = terraformMats(resources, tierId);
+  if (S.res.credits < cost) return toast("Not enough credits.", "bad");
+  if (!canAfford(mats)) return toast("Need materials in your hold: " + Object.keys(mats).map(c => COM[c].name).join(", ") + ".", "bad");
+  S.res.credits -= cost; pay(mats);
+  const cycles = terraformCycles(resources, tierId);
+  if (!S.terraforming) S.terraforming = {};
+  S.terraforming[pid] = { resources, tier: tierId, cyclesLeft: cycles, total: cycles };
+  log(`🌍 Terraforming begins on <span class="c">${planet.name}</span> — ${cycles} cycles to reshape it into a ${tierDef.name.toLowerCase()} yielding ${resources.map(c => COM[c].name).join(", ")}. This is a sunk cost — there's no aborting partway.`, "event");
+  toast(`Terraforming underway at ${planet.name}`, "event");
+  afterAction();
+}
+/* runs every cycle — ticks every project toward completion, permanently reshaping the world when one finishes */
+function processTerraforming() {
+  if (!S.terraforming) return;
+  Object.entries(S.terraforming).forEach(([pid, proj]) => {
+    if (--proj.cyclesLeft > 0) return;
+    const planet = PLANETS.find(p => p.id === pid);
+    const tierDef = TERRAFORM_POP_TIERS.find(t => t.id === proj.tier);
+    const yieldEach = TERRAFORM_YIELD_PER_COUNT[proj.resources.length] || 1;
+    const deposits = {};
+    proj.resources.forEach(c => deposits[c] = yieldEach);
+    planet.deposits = deposits;
+    planet.colonizable = true;
+    planet.terraformed = true;
+    planet.terraformHousing = tierDef.housing;
+    if (!S.terraformed) S.terraformed = {};
+    S.terraformed[pid] = { resources: proj.resources.slice(), tier: proj.tier };
+    delete S.terraforming[pid];
+    log(`🌍✨ Terraforming complete at <span class="c">${planet.name}</span> — now yielding ${proj.resources.map(c => COM[c].ico + " " + COM[c].name).join(", ")}. Ready to found a colony.`, "event");
+    toast(`${planet.name} terraformed!`, "good");
+    announce(`🌍 ${planet.name} Reshaped`, `Terraforming complete — found your colony whenever you're ready.`, true);
+  });
+}
+// PLANETS is rebuilt fresh on every load — reapply every completed terraforming
+// project's deposit override. Called from init(), after generateFrontierRing()/
+// applyCoreVariance() (which would otherwise clobber it) and replayTerritoryFlips().
+function replayTerraforming() {
+  Object.entries(S.terraformed || {}).forEach(([pid, rec]) => {
+    const p = PLANETS.find(x => x.id === pid); if (!p) return;
+    const tierDef = TERRAFORM_POP_TIERS.find(t => t.id === rec.tier);
+    const yieldEach = TERRAFORM_YIELD_PER_COUNT[rec.resources.length] || 1;
+    const deposits = {};
+    rec.resources.forEach(c => deposits[c] = yieldEach);
+    p.deposits = deposits;
+    p.colonizable = true;
+    p.terraformed = true;
+    p.terraformHousing = tierDef ? tierDef.housing : 0;
   });
 }

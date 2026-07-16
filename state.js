@@ -85,6 +85,8 @@ function freshState(opts = {}) {
     decrees: { monopoly: null, tariff: null },
     bases: {},          // planetId -> { modules:{id:tier}, storage:{com:qty} }
     colonies: {},       // planetId -> { pop, happiness, tax, buildings, storage }
+    terraforming: {},   // planetId -> in-progress project: { resources, tier, cyclesLeft, total }
+    terraformed: {},    // planetId -> completed record { resources, tier } — replayed onto PLANETS on load
     discovered: {},     // hidden planetId -> true (revealed by survey)
     expedition: null,   // survey expedition underway: { target, cyclesLeft }
     spire: null,        // Concordat Spire mega-project: { site, contributed, byFaction, complete }

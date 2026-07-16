@@ -105,7 +105,7 @@ function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0; _cledger = {}; _cdigest = { production: {}, arrivals: [], threats: [], sector: [] };
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
   processFx(); processSignals(); processExpedition();
-  processCrises(); processPirates(); processPirateHavens(); processPlanetAlert(); processTradeDisruption(); processRaidIntel(); processFactionRelations(); processTerritoryContest(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
+  processCrises(); processPirates(); processPirateHavens(); processPlanetAlert(); processTradeDisruption(); processRaidIntel(); processFactionRelations(); processTerritoryContest(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); processTerraforming(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
   if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (typeof decayBands === "function") decayBands();
   if (typeof processBandSupport === "function") processBandSupport();
@@ -208,7 +208,7 @@ const DISCLOSURE_GATES = [
     done: s => edgeIntelUnlocked() },
   // ---- the Concordat Spire — stays hidden until genuinely earned, no fallbackTurn ----
   { id: "spire", icon: "🏛️", goal: "Research Terraforming",
-    reward: "Reveals the Concordat Spire — a sector-defining mega-project (🏛️ Politics tab)",
+    reward: "Reveals the Concordat Spire mega-project (🏛️ Politics tab), and lets you reshape an unclaimed colonizable world's resources before founding a colony (🌍 Colonies tab)",
     done: s => spireUnlocked() },
 ];
 function checkDisclosure(silent) {
@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.124.4";
+const APP_VERSION = "2.125.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.125.0", notes: "New: 🌍 Terraforming — once researched (the tech tree's capstone, behind Biotech + Antimatter), reshape any unclaimed colonizable world's resource deposits to your own pick before founding a colony there: choose 2-4 raw resources and a population scale (Small/Medium/Large), instead of settling for whatever that world naturally rolled. More resources and a bigger population target raise the credits, materials and cycles it takes — and spreading across more resources thins how rich each deposit ends up, so 4 picks isn't simply a strict upgrade over 2. Paid in full up front; once a project starts there's no cancelling or refund. Find it in the 🌍 Colonies tab, on any colonizable world you haven't settled yet." },
   { version: "2.124.4", notes: "Changed: fleet upkeep now scales with what a hull is actually doing — an idle, undocked-from-duty ship costs 70% less per cycle than one on active duty (🚚 Personal Convoy, following-me patrol, missions, escort, logistics, tanker runs, or a deployed Battle Group). While a raid is in progress, every operating hull's upkeep rises 30% instead — Personal Convoy and following-me duty included — though an idle hull keeps its discount even mid-raid." },
   { version: "2.124.3", notes: "Changed: 🌌 Reserve is now a true tradeoff instead of a free lunch — a ship parked there (Battle Group, Personal Convoy warship, or Escort fleet) has by far the least chance of ever being attacked, so it no longer fights at reduced effect, it doesn't fight at all (firepower multiplier 0.70 → 0). 🛡️ Vanguard and ⚔️ Line are unchanged." },
   { version: "2.124.2", notes: "Fix: a warship riding in your 🚚 Personal Convoy (built, or a raid-seized prize) never actually fought when you raided a target — its Vanguard/Line/Reserve station only ever mattered for the one-time travel-ambush opening volley, so positioning it as a defender did nothing once the fight itself started. A Personal Convoy warship now fights alongside a deployed ✦ Battle Group (or on its own with none deployed) using that same station — takes fire, adds pooled firepower, and can be lost — with no extra setup." },
@@ -674,6 +675,9 @@ function init() {
   if (!S.territoryControl) S.territoryControl = {};
   if (!S.territoryFlips) S.territoryFlips = {};
   replayTerritoryFlips();   // PLANETS is static source, re-declared fresh on every load — reapply any recorded seizures
+  if (!S.terraforming) S.terraforming = {};
+  if (!S.terraformed) S.terraformed = {};
+  replayTerraforming();     // same reasoning — reapply any completed terraforming project's deposit override
   if (S.escort && Array.isArray(S.escort.fleet)) S.escort.fleet.forEach(sh => { if (!sh.fit) sh.fit = { aggressive: 0, balanced: 0, defensive: 0 }; if (!sh.stance) sh.stance = "balanced"; });   // migrate old outfit fleets to stance/fit
   if (!S.colonies) S.colonies = {};
   Object.values(S.colonies).forEach(c => { if (!c.orders) c.orders = {}; if (c.unrest == null) c.unrest = 0; if (c.faction === undefined) c.faction = null; if (!c.idle) c.idle = {}; });
