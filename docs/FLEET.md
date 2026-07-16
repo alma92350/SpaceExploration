@@ -940,3 +940,21 @@ safety and firepower are now a real tradeoff, not stackable. Vanguard
 (`battleGroupFirepower` unaffected by adding a Reserve-tier ship to the
 group), `escortformation.test.js` (`escShipFP` on Reserve returns exactly
 0).
+
+## Slice 21 (shipped) — idle discount + raid surcharge on fleet upkeep
+
+`fleetShipUpkeep` used to charge every non-`"building"` hull the same flat
+rate regardless of what it was actually doing — a ship docked and unassigned
+(`status:"idle"`) cost exactly as much per cycle as one on active duty
+(mission/escort/logistics/tanker_run/battle, or Slice 7's personal convoy/
+"following me" patrol duty). Now takes the ship instance as a second,
+optional argument: an idle hull costs 70% less than the operation rate
+(`up *= 0.30`), and while a raid is in progress (`S.prey` truthy) every
+*operating* hull's cost rises 30% (`up *= 1.30`) — personal convoy and
+following-me duty included, since the surcharge reads `S.prey` rather than
+Battle Group membership. An idle, undeployed hull keeps its idle discount
+even mid-raid; the two modifiers are mutually exclusive per ship (a hull is
+never both idle and on duty at once). `fleetUpkeep()` passes the ship
+through so the cycle total (charged in `processFleet`, `💰 Cycle accounts`
+ledger as "fleet upkeep") reflects both automatically. Tests:
+`fleetupkeep.test.js`.
