@@ -1,5 +1,5 @@
 {
-  "version": "2.124.4",
+  "version": "2.125.0",
   "saveVersion": "v2",
-  "notes": "Changed: fleet upkeep now scales with duty status - an idle hull costs 70% less per cycle than one on active duty (Personal Convoy, following-me patrol, missions, escort, logistics, tanker runs, or a deployed Battle Group). During a raid, every operating hull's upkeep rises 30% instead, Personal Convoy and following-me duty included, though an idle hull keeps its discount even mid-raid."
+  "notes": "New: Terraforming - once researched, reshape any unclaimed colonizable world's resources to your own pick (2-4 raw resources) and a population scale before founding a colony there. More resources and a bigger population target raise the cost, materials and time it takes, and spreading across more resources thins how rich each deposit ends up. Paid in full up front; once started there's no cancelling or refund. Find it in the Colonies tab."
 }

@@ -269,6 +269,52 @@ function colonyHealthPill(col) {
     : h >= 45 ? '<span class="pill">stable</span>'
     : '<span class="pill bad">unrest</span>';
 }
+/* ----- Terraforming picker (Colonies tab, "not yet colonized" view) -----
+   The resource checkboxes and the preview div they refresh live outside S —
+   same as the xfer/qty inputs elsewhere in this file — so toggling one doesn't
+   need a full renderAll(); submitTerraform() re-reads them straight off the DOM
+   the moment the player commits. */
+function terraformCheckedResources() {
+  return RAW_IDS.filter(c => { const el = document.getElementById("tf-res-" + c); return el && el.checked; });
+}
+function terraformPreviewHTML() {
+  const resources = terraformCheckedResources();
+  if (resources.length < TERRAFORM_MIN_RESOURCES || resources.length > TERRAFORM_MAX_RESOURCES) {
+    return `<div class="hint">Pick ${TERRAFORM_MIN_RESOURCES}-${TERRAFORM_MAX_RESOURCES} resources above to see terraforming options.</div>`;
+  }
+  return TERRAFORM_POP_TIERS.map(t => {
+    const cost = terraformCost(resources, t.id), mats = terraformMats(resources, t.id), cycles = terraformCycles(resources, t.id);
+    const ok = S.res.credits >= cost && canAfford(mats);
+    return `<div class="meta"><span>${t.ico} ${t.name} <span class="hint">(+${t.housing}k pop cap)</span><br>
+      <span class="hint">${cycles} cycles · ${fmt(cost)} 💰 + ${matsString(mats)}</span></span>
+      <button class="btn btn-sm" ${ok ? "" : "disabled"} onclick="submitTerraform('${t.id}')">Begin</button></div>`;
+  }).join("");
+}
+function renderTerraformPreview() {
+  const el = document.getElementById("tf-preview");
+  if (el) el.innerHTML = terraformPreviewHTML();
+}
+function submitTerraform(tierId) { startTerraforming(terraformCheckedResources(), tierId); }
+function terraformPickerCardHTML(planet) {
+  const boxes = RAW_IDS.map(c => `<label class="hint" style="white-space:nowrap"><input type="checkbox" id="tf-res-${c}" onchange="renderTerraformPreview()"> ${COM[c].ico} ${COM[c].name}</label>`).join("");
+  return `<div class="card">
+    <h4>🌍 Terraform ${planet.name}</h4>
+    <div class="desc">Engineer this world's ecology before you settle it: pick ${TERRAFORM_MIN_RESOURCES}-${TERRAFORM_MAX_RESOURCES} resource deposits and a population scale. More resources and a bigger population target cost more credits, materials and cycles — and spreading across more resources thins how rich each one is. Paid up front; once begun, the project can't be aborted or refunded.</div>
+    <div class="row" style="flex-wrap:wrap;gap:6px 14px;margin-top:6px">${boxes}</div>
+    <div id="tf-preview" style="margin-top:8px">${terraformPreviewHTML()}</div>
+  </div>`;
+}
+function terraformProgressCardHTML(pid, planet) {
+  const proj = S.terraforming[pid];
+  const tierDef = TERRAFORM_POP_TIERS.find(t => t.id === proj.tier);
+  const pct = Math.round((proj.total - proj.cyclesLeft) / proj.total * 100);
+  return `<div class="card owned">
+    <h4>🌍 Terraforming ${planet.name}</h4>
+    <div class="desc">Reshaping into a ${tierDef.name.toLowerCase()} yielding ${proj.resources.map(c => COM[c].ico + " " + COM[c].name).join(", ")}.</div>
+    <div class="bar"><span style="width:${pct}%"></span></div>
+    <div class="hint">${proj.cyclesLeft} cycle(s) remaining — sunk cost, no aborting partway.</div>
+  </div>`;
+}
 function renderColonies() {
   const el = document.getElementById("panel-colonies");
   const pid = S.location, planet = currentPlanet(), col = S.colonies[pid];
@@ -305,13 +351,18 @@ function renderColonies() {
   } else if (!planet.colonizable) {
     here = `<div class="section-title">📍 ${planet.name}</div><div class="hint">${planet.name} is an established world and cannot be colonized — but you can still build an outpost <b>Base</b> here. Colonize the frontier worlds instead.</div>`;
   } else if (!col) {
-    const ok = S.res.credits >= COLONY_FOUNDATION_COST && canAfford(COLONY_FOUNDATION_MATS);
-    here = `<div class="section-title">📍 ${planet.name}</div><div class="cards"><div class="card">
+    const terraforming = !!(S.terraforming && S.terraforming[pid]);
+    const ok = !terraforming && S.res.credits >= COLONY_FOUNDATION_COST && canAfford(COLONY_FOUNDATION_MATS);
+    const foundingCard = `<div class="card">
       <h4>🌍 Found a Colony on ${planet.name}</h4>
       <div class="desc">Settle this world. Build housing, farms, factories and labs; feed and supply your people to grow the population and raise the planet's industry & tech. Tax your citizens for steady income.</div>
       <div class="meta"><span class="hint">Cost</span><span class="cost">${fmt(COLONY_FOUNDATION_COST)} 💰 + ${matsString(COLONY_FOUNDATION_MATS)}</span></div>
-      <button class="btn btn-primary" ${ok ? "" : "disabled"} onclick="colonize()">Found Colony</button>
-    </div></div>`;
+      ${terraforming ? '<div class="hint">🌍 Terraforming underway — wait for it to complete before founding.</div>' : `<button class="btn btn-primary" ${ok ? "" : "disabled"} onclick="colonize()">Found Colony</button>`}
+    </div>`;
+    const terraformCard = terraforming ? terraformProgressCardHTML(pid, planet)
+      : canTerraform() ? terraformPickerCardHTML(planet)
+      : `<div class="card"><h4>🔒 Terraforming</h4><div class="hint">Research Terraforming to reshape this world's resources — pick ${TERRAFORM_MIN_RESOURCES}-${TERRAFORM_MAX_RESOURCES} deposits and a population scale — before founding a colony.</div></div>`;
+    here = `<div class="section-title">📍 ${planet.name}</div><div class="cards">${foundingCard}${terraformCard}</div>`;
   } else {
     const housing = colonyHousing(col, planet);
     const fedNeed = col.pop, fedHave = col.storage[COLONY_FOOD] || 0;

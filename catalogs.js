@@ -404,6 +404,48 @@ const COLONY_START_CREDITS = 16000;                              // foundation +
 const COLONY_START_KIT = { metals: 50, goods: 20, energy: 15, crystals: 10 };  // fits a base 120 hold
 const COLONY_START_TECHS = ["markets", "diplomacy", "colonial"];// the charter line
 const COLONY_FOOD = "biomass";       // what population eats
+
+/* ---------- Terraforming ----------
+   Gated behind the Terraforming tech (catalogs.js TECHS "terraform" — the tree's
+   capstone, behind biotech + antimatter): reshape an unclaimed COLONIZABLE world's
+   resource deposits to the player's own pick (2-4 raw commodities) and a population
+   scale, before founding a colony there — instead of settling for whatever data.js/
+   generateFrontierRing() rolled. More resources picked and a bigger population
+   target both raise cost, materials and build time; picking more resources also
+   THINS each one's eventual yield (TERRAFORM_YIELD_PER_COUNT), so 4 picks isn't a
+   strict upgrade over 2 — breadth vs. concentration is a real trade-off. Paid in
+   full up front (like colonize()'s own foundation cost) with no cancel/refund once
+   started — colonization.js's startTerraforming()/processTerraforming() below.
+*/
+const TERRAFORM_MIN_RESOURCES = 2, TERRAFORM_MAX_RESOURCES = 4;
+const TERRAFORM_POP_TIERS = [
+  { id: "small",  name: "Small Settlement", ico: "🏕️", housing: 10, costMult: 1.0, cycles: 15 },
+  { id: "medium", name: "Growing Colony",   ico: "🏘️", housing: 20, costMult: 1.8, cycles: 25 },
+  { id: "large",  name: "Major World",      ico: "🏙️", housing: 40, costMult: 3.0, cycles: 40 },
+];
+const TERRAFORM_YIELD_PER_COUNT = { 2: 2.0, 3: 1.5, 4: 1.2 };   // per-resource deposit yield — breadth thins the yield
+const TERRAFORM_BASE_COST = 10000;
+const TERRAFORM_BASE_MATS = { biomass: 30, ice: 25, energy: 35 };
+const TERRAFORM_HEAVY_MATS = { alloys: 20, machinery: 8 };      // joins the mix for Medium/Large projects
+function terraformCostMult(resources, tierDef) {
+  const resMult = 1 + (resources.length - TERRAFORM_MIN_RESOURCES) * 0.6;                  // 2→1.0, 3→1.6, 4→2.2
+  const rarity = resources.reduce((s, c) => s + COM[c].base, 0) / (resources.length * 20);  // pricier picks (relics, radioactives) surcharge
+  return resMult * tierDef.costMult * Math.max(0.8, rarity);
+}
+function terraformCost(resources, tierId) {
+  return Math.round(TERRAFORM_BASE_COST * terraformCostMult(resources, TERRAFORM_POP_TIERS.find(t => t.id === tierId)));
+}
+function terraformMats(resources, tierId) {
+  const tierDef = TERRAFORM_POP_TIERS.find(t => t.id === tierId);
+  const mult = terraformCostMult(resources, tierDef);
+  const mats = {};
+  Object.entries(TERRAFORM_BASE_MATS).forEach(([c, q]) => mats[c] = Math.round(q * mult));
+  if (tierDef.id !== "small") Object.entries(TERRAFORM_HEAVY_MATS).forEach(([c, q]) => mats[c] = Math.round(q * mult));
+  return mats;
+}
+function terraformCycles(resources, tierId) {
+  return TERRAFORM_POP_TIERS.find(t => t.id === tierId).cycles + (resources.length - TERRAFORM_MIN_RESOURCES) * 5;
+}
 function colonyBuildingList(planet) {
   const list = [
     { id: "habitat", name: "Habitat Dome",    ico: "🏘️", tiers: 6, baseCost: 2000, costMul: 1.6,
