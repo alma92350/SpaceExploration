@@ -350,6 +350,12 @@ function renderColonies() {
     </div></div>`;
   } else if (!planet.colonizable) {
     here = `<div class="section-title">📍 ${planet.name}</div><div class="hint">${planet.name} is an established world and cannot be colonized — but you can still build an outpost <b>Base</b> here. Colonize the frontier worlds instead.</div>`;
+  } else if (!col && S.rivalClaims && S.rivalClaims[pid]) {
+    const rv = rivalById(S.rivalClaims[pid].rivalId);
+    here = `<div class="section-title">📍 ${planet.name}</div><div class="cards"><div class="card">
+      <h4>🎭 Claimed by a Rival</h4>
+      <div class="desc">${rv ? `${rv.ico} ${rv.name}` : "A rival captain"} founded a colony here before you could — this world isn't yours to settle.</div>
+    </div></div>`;
   } else if (!col) {
     const terraforming = !!(S.terraforming && S.terraforming[pid]);
     const ok = !terraforming && S.res.credits >= COLONY_FOUNDATION_COST && canAfford(COLONY_FOUNDATION_MATS);

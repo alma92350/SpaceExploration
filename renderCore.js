@@ -376,9 +376,10 @@ function renderStarmap(known) {
        ((s.status === "idle" || s.status === "building") && s.home === p.id)));
     const hasPirates = filters.pirates && pirateIntelKnows(p.id) && pirateLevel(p.id) > 0;
     const hasColony = filters.settlements && !!S.colonies[p.id];
+    const hasRivalClaim = filters.settlements && !!(S.rivalClaims && S.rivalClaims[p.id]);
     const hasBase = filters.settlements && !!S.bases[p.id];
     const hasShipyard = filters.settlements && shipyardTierAt(p.id) > 0;
-    const glyphs = `${hasPirates ? "🏴" : ""}${hasWarship ? "⚔️" : ""}${hasFreighter ? "📦" : ""}${hasColony ? "🌍" : ""}${hasBase ? "🏰" : ""}${hasShipyard ? "🏗️" : ""}`;
+    const glyphs = `${hasPirates ? "🏴" : ""}${hasWarship ? "⚔️" : ""}${hasFreighter ? "📦" : ""}${hasColony ? "🌍" : ""}${hasRivalClaim ? "🎭" : ""}${hasBase ? "🏰" : ""}${hasShipyard ? "🏗️" : ""}`;
     const glyphRow = glyphs ? `<text x="${q.x}" y="${q.y - (here ? 14 : 10)}" text-anchor="middle" font-size="10">${glyphs}</text>` : '';
     const label = `<text x="${q.x}" y="${q.y + (here ? 20 : 16)}" text-anchor="middle" font-size="9" fill="#94a3b8">${p.name}</text>`;
     nodes += `<g${here ? "" : ` style="cursor:pointer" onclick="travel('${p.id}')"`}>
@@ -426,8 +427,11 @@ function renderGalaxy() {
     const piratePill = (filters.pirates && pirateIntelKnows(p.id))
       ? (_plv > 0 ? `<span class="pill ${_plv >= 2 ? "bad" : ""}" title="Pirate activity level ${_plv} (from your charts or fleet presence)">🏴 pirates ${_plv}</span>` : `<span class="pill good" title="No pirate activity (from your charts or fleet presence)">🏴 clear</span>`)
       : '';
+    const rivalClaim = filters.settlements && S.rivalClaims && S.rivalClaims[p.id];
     const tag = p.colonizable
-      ? `<span class="pill good">${(filters.settlements && S.colonies[p.id]) ? "your colony 🌍" : "colonizable"}</span>`
+      ? (filters.settlements && S.colonies[p.id] ? `<span class="pill good">your colony 🌍</span>`
+        : rivalClaim ? `<span class="pill bad" title="${(rivalById(rivalClaim.rivalId) || {}).name || "A rival captain"} founded a colony here">🎭 rival claim</span>`
+        : `<span class="pill good">colonizable</span>`)
       : `${FACTIONS[p.faction].ico} ${FACTIONS[p.faction].name}`;
     // your own infrastructure — a colony can only ever sit on a colonizable world (tag above
     // already covers that), but a base can be founded on ANY world, colonizable or established,

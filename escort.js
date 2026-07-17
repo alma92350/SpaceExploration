@@ -341,6 +341,7 @@ function spawnEscortWave() {
     elite = true;
   }
   e.wave = { foes, round: 1 }; e.targets = [];
+  if (typeof maybeAttributeRivalAmbush === "function") maybeAttributeRivalAmbush(e.wave);   // occasionally this ambush was sent by a rival (rivals.js)
   assignIntents();
   log(`🚨 Ambush! ${foes.length} hostiles fall on the convoy${elite ? " — led by a ☠️ Marauder Lead" : ""}. Watch their intent and pick your targets.`, "bad");
   toast(`Ambush — ${foes.length} hostiles!`, "bad"); sfx("alarm");

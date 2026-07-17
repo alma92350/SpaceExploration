@@ -262,13 +262,18 @@ function renderRaid() {
     const odds = rp >= e.strength * 1.2 ? "favorable" : rp >= e.strength * 0.8 ? "even" : "grim";
     const oddsCol = odds === "favorable" ? "var(--good)" : odds === "even" ? "var(--warn)" : "var(--bad)";
     const fleeOdds = Math.round(Math.max(5, Math.min(95, (0.45 + S.upgrades.engine * 0.15 * trimMult("autonomy") + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * 100)));
+    const rivalTag = e.rivalId ? `<span class="pill bad">🎭 Rival</span>` : `<span class="pill bad">🏴 Pirate</span>`;
+    const demandLine = e.noPay
+      ? `They're not here for tribute — this is personal. Cripple or lose them; no toll will settle it.`
+      : `It demands <b>${fmt(e.toll)} 💰</b> to let you pass. Bounty on its head ${fmt(e.bounty)} cr.`;
+    const payBtn = e.noPay ? "" : `<button class="btn btn-sm" ${S.res.credits >= e.toll ? "" : "disabled"} title="Pay the toll — bloodless, but galling" onclick="encounterPay()">💰 Pay ${fmt(e.toll)}</button>`;
     action = `<div class="card" style="border-color:var(--bad)">
-      <h4>🏴‍☠️ Ambush: ${classLabel(e)} <span class="hint">— ${e.name}</span> <span class="pill bad">🏴 Pirate</span></h4>
-      <div class="hint">It demands <b>${fmt(e.toll)} 💰</b> to let you pass. Bounty on its head ${fmt(e.bounty)} cr. ${(e.engines||0)>0 ? "Cripple its 🚀 engines if you mean to stop it running." : ""}</div>
+      <h4>🏴‍☠️ Ambush: ${classLabel(e)} <span class="hint">— ${e.name}</span> ${rivalTag}</h4>
+      <div class="hint">${demandLine} ${(e.engines||0)>0 ? "Cripple its 🚀 engines if you mean to stop it running." : ""}</div>
       <div class="meta"><span class="hint">Fight odds</span><span class="cost" style="color:${oddsCol}">${odds} — power ${Math.round(rp)} vs ~${e.strength}</span></div>
       ${tacticalHTML(e, "encounterFight")}
       <div class="row" style="margin-top:6px">
-        <button class="btn btn-sm" ${S.res.credits >= e.toll ? "" : "disabled"} title="Pay the toll — bloodless, but galling" onclick="encounterPay()">💰 Pay ${fmt(e.toll)}</button>
+        ${payBtn}
         <button class="btn btn-sm" title="Burn for it — failing costs hull" onclick="encounterFlee()">🏃 Flee (~${fleeOdds}%)</button>
       </div>
     </div>`;
@@ -467,8 +472,9 @@ function setMandateField(k, v) { mandateForm[k] = (k === "dur") ? (parseInt(v, 1
 function renderContacts() {
   const el = document.getElementById("panel-contacts"); if (!el) return;
   const views = [["all", "🤝 All contacts"], ["around", "📍 Around here"], ["mandates", "📜 Mandates"], ["chat", "💬 Talk"]];
+  if (S.rivalsEnabled && (S.rivals || []).length) views.push(["rivals", "🎭 Rivals"]);
   const view = subView("contacts", views);
-  const body = view === "around" ? renderContactsAround() : view === "mandates" ? renderContactsMandates() : view === "chat" ? renderContactsChat() : renderContactsAll();
+  const body = view === "around" ? renderContactsAround() : view === "mandates" ? renderContactsMandates() : view === "chat" ? renderContactsChat() : view === "rivals" ? renderContactsRivals() : renderContactsAll();
   el.innerHTML = `<h2>🏴‍☠️ Pirate Contacts</h2>${subTabBar("contacts", views)}${body}`;
   const transcript = document.getElementById("chatTranscript");   // keep the newest chat line in view
   if (transcript) transcript.scrollTop = transcript.scrollHeight;

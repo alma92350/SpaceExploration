@@ -689,6 +689,7 @@ function colonize() {
   if (!canColonize()) return toast("Research Colonial Charter first.", "bad");
   if (!planet.colonizable) return toast("This world cannot be colonized.", "bad");
   if (S.colonies[pid]) return;
+  if (S.rivalClaims && S.rivalClaims[pid]) return toast("A rival captain already claimed this world.", "bad");
   if (S.terraforming && S.terraforming[pid]) return toast("Terraforming is still underway here — wait for it to complete.", "bad");
   if (S.res.credits < COLONY_FOUNDATION_COST) return toast("Not enough credits.", "bad");
   if (!canAfford(COLONY_FOUNDATION_MATS)) return toast("Need materials in your hold: metals & goods.", "bad");
@@ -936,7 +937,7 @@ function processColonies() {
 function canTerraform() { return !!S.techs.terraform; }
 // eligible now: a colonizable world nobody (including the player) has settled yet,
 // with no terraforming project already running on it
-function terraformEligible(planet) { return !!(planet && planet.colonizable && !S.colonies[planet.id] && !(S.terraforming && S.terraforming[planet.id])); }
+function terraformEligible(planet) { return !!(planet && planet.colonizable && !S.colonies[planet.id] && !(S.rivalClaims && S.rivalClaims[planet.id]) && !(S.terraforming && S.terraforming[planet.id])); }
 function startTerraforming(resources, tierId) {
   const pid = S.location, planet = currentPlanet();
   if (!canTerraform()) return toast("Research Terraforming first.", "bad");
