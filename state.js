@@ -101,6 +101,10 @@ function freshState(opts = {}) {
     fxSeen: {},                 // Fortunes almanac: which effects you've experienced
     fxMastery: {},              // domains fully catalogued → permanent passive bonuses
     mandates: [],               // active pirate mandates: [{ id, bandId, planet, task, cyclesLeft, ... }]
+    rivals: [],                  // opt-in AI rival captains: [{ id, name, archetype, patron, credits, strength, colonies, hostility, rep, ... }]
+    rivalsEnabled: !!opts.rivals,          // set at New Game (Custom Start) — off by default, unaffected saves stay inert
+    rivalCountTarget: opts.rivals ? rint(2, 4) : 0,   // how many will spawn over the run, staggered at cycle 50/100/150/200
+    rivalClaims: {},             // colonizable worlds claimed by a rival: pid -> { rivalId, since } — kept separate from S.colonies, see rivals.js
     fleet: [],                  // your own ships built at colony shipyards: [{ id, key, home, status, hull, ... }]
     battleGroupPosture: "balanced",   // posture for a deployed fleet Battle Group in raids
     factionRel: {},              // sector relations: pairwise faction score, lazily seeded by ensureFactionRel

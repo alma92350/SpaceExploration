@@ -504,6 +504,7 @@ function maybeAmbush(dest, fromId) {
 }
 function encounterPay() {
   const e = S.encounter; if (!e) return;
+  if (e.noPay) return toast(`${e.name} isn't here for tribute — this is personal. Fight or flee.`, "bad");
   if (S.res.credits < e.toll) return toast(`They want ${fmt(e.toll)} cr — you don't have it. Run or fight.`, "bad");
   S.res.credits -= e.toll; S.encounter = null;
   log(`💰 You paid the ${e.name}'s toll of ${fmt(e.toll)} cr and were waved through. Galling, but bloodless.`, "");
@@ -515,6 +516,7 @@ function encounterFlee() {
   const odds = (0.45 + S.upgrades.engine * 0.15 * trimMult("autonomy") + (S.upgrades.aimain || 0) * 0.08 - e.level * 0.05) * condFactor("engines") * (0.7 + 0.3 * defenseMult());
   if (Math.random() < odds) {
     S.encounter = null;
+    if (e.rivalId && typeof rivalDefeatConsequence === "function") rivalDefeatConsequence(e.rivalId, "evaded");
     log(`🏃 You burned hard and lost the ${e.name} in the void. Clean getaway.`, "good");
     toast("Escaped!", "good");
   } else {
@@ -540,6 +542,7 @@ function encounterFight(wkey) {
     const alertBefore = planetAlertLevel(currentPlanet().id);
     pirateKillRewards(e);
     S.encounter = null;
+    if (e.rivalId && typeof rivalDefeatConsequence === "function") rivalDefeatConsequence(e.rivalId, "defeated");
     const reliefNote = alertBefore > 0 ? ` The world's defense alert eases a little for it.` : "";
     log(`⚔️ You blew the ${e.ico} ${e.name} apart! Bounty ${fmt(e.bounty)} cr + salvage ${taken.join(" ") || "none"}. (no Wanted)${reliefNote}`, "good");
     toast(`Ambusher destroyed — ${fmt(e.bounty)} cr!`, "good");
@@ -554,7 +557,9 @@ function encounterFight(wkey) {
   if (foeFleeCheck(e)) {
     log(`🏃 The ${e.ico} ${e.name} broke off and jumped away — its 🚀 drive was still live. The bounty's gone.`, "bad");
     toast(`${e.name} escaped!`, "bad");
-    S.encounter = null; return afterAction();
+    S.encounter = null;
+    if (e.rivalId && typeof rivalDefeatConsequence === "function") rivalDefeatConsequence(e.rivalId, "evaded");
+    return afterAction();
   }
   afterAction();
 }
@@ -596,6 +601,7 @@ function genPrey() {
   };
   applyShipClass(foe, rollShipClass(law >= 0.5 ? 1 : 0));     // lawful lanes run bigger hulls
   if (key === "liner") foe.passengers = +(0.5 + Math.random() * 2.5).toFixed(1);   // souls aboard, in "k" — same scale as a colony's own col.pop
+  if (typeof maybeAttributeRivalConvoy === "function") maybeAttributeRivalConvoy(foe);   // occasionally this shipment turns out to be a rival's (rivals.js)
   return foe;
 }
 /* ---------- Raiding a planet (the offense side of the defense slice above) ----------

@@ -90,6 +90,17 @@ function buildJournalText() {
   });
   L.push("");
 
+  // Rival captains (opt-in feature — silent when off or none have appeared yet)
+  if (S.rivalsEnabled && (S.rivals || []).length) {
+    L.push("## Rival Captains");
+    S.rivals.forEach(r => {
+      const arc = (typeof RIVAL_ARCHETYPES !== "undefined" && RIVAL_ARCHETYPES[r.archetype]) || {};
+      const cols = (r.colonies || []).map(pid => (PLANETS.find(p => p.id === pid) || {}).name).filter(Boolean);
+      L.push(`- **${r.name}** (${arc.name || "Rival Captain"}, flying under the ${FACTIONS[r.patron].name}) — hostility ${r.hostility || 0}/100${cols.length ? `; holds ${cols.join(", ")}` : ""}.`);
+    });
+    L.push("");
+  }
+
   // Where the captain stands
   L.push("## The Captain, at Cycle " + S.turn);
   L.push(`- Path: **${arche}**${S.legacyTitle ? ` — legend earned: *${S.legacyTitle}*` : ""}`);

@@ -285,6 +285,32 @@ policy only allows `localhost`/`127.0.0.1` origins, so if you're serving the
 game from anywhere else, start it with `OLLAMA_ORIGINS=*` (or your page's
 exact origin) set, e.g. `OLLAMA_ORIGINS=* ollama serve`.
 
+## 🎭 Rival Captains — other agendas, playing at the same time
+
+Turn on **🎭 Rival Captains** in **🎮 Custom Start** and you're no longer alone
+in the sector. **2-4 AI captains** enter over the course of the run, staggered
+around cycle **50, 100, 150 and 200**, each pursuing their own agenda once per
+cycle, on the same clock as you:
+
+- **💰 Trading** — a rival's buying and dumping moves the very market prices
+  you trade at, the same way a big trade of your own does.
+- **🕴️ Political interference** — a rival works its patron faction's angle,
+  quietly souring your standing with whichever faction opposes them.
+- **🌍 Colonizing, capped** — each captain founds at most **1-2 colonies** of
+  their own on unclaimed colonizable worlds — a real race for a limited
+  resource, not a land grab.
+- **⚔️ Hunting you down** — once a rival's grudge runs hot enough and your own
+  🎯 Wanted meter is high enough to be worth the trouble, they'll intercept you
+  on the jump lanes. It's personal: no toll buys them off, only beating or
+  outrunning them ends it.
+
+You'll never manage a rival directly — they surface through **toasts and the
+ship's log**, a read-only **🎭 Rivals** sub-view under the 🏴‍☠️ **Contacts**
+tab (standing, holdings, hostility), a **🎭 rival claim** pill/glyph on any
+world they've settled, and the occasional raid target or convoy ambush that
+turns out to be one of theirs. Off by default — an existing save or a run
+without the toggle checked never spawns one.
+
 ## 🪐 The core worlds — a rotating roster
 
 There are **15 core trade worlds**, but **each new game features a random 9 of
@@ -643,6 +669,7 @@ pirateChat.js — in-character band chat via a local Ollama model: persona, stre
 raiding.js   — raid resolution, plunder, dockside/field ship repair
 sector4x.js  — sector 4X layer: rising pirate powers, territory contest, faction relations
 outlaw.js    — the outlaw path: navy interdiction, Pirate Haven, Privateer Commissions, capstone legacies
+rivals.js    — opt-in AI rival captains: trading, faction lobbying, capped colonization, hunting a Wanted player
 politics.js  — research & politics actions: orgs, the Senate, trade-law lobbying, investigations, offices
 economy.js   — core economy actions: production, trade, black market, contraband, travel, upgrades/techs/missions
 colonization.js — bases, the base<->colony trade network, random contracts, and colonies
@@ -663,7 +690,7 @@ test/        — automated tests (Node's built-in test runner, no dependencies)
 
 `data.js`, `galaxygen.js`, `catalogs.js`, `crises.js`, `state.js`, `pricing.js`,
 `feedback.js`, `resources.js`, `combat.js`, `pirateBands.js`, `pirateChat.js`,
-`raiding.js`, `sector4x.js`, `outlaw.js`, `politics.js`, `economy.js`,
+`raiding.js`, `sector4x.js`, `outlaw.js`, `rivals.js`, `politics.js`, `economy.js`,
 `colonization.js`, `fleet.js`, `fortunes.js`, `frontier.js`, `mandates.js`,
 `escort.js`, `renderCore.js`, `renderProgression.js`, `renderCombat.js`,
 `renderSettlement.js`, `renderFleetFortunes.js`, `persistence.js` and

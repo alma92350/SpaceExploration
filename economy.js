@@ -241,6 +241,7 @@ function travel(destId) {
   scanOnArrival(dest);
   maybeAmbush(dest, fromId);
   if (!S.encounter) maybeInterdict(dest);
+  if (!S.encounter && !S.interdiction && typeof maybeRivalPursuit === "function") maybeRivalPursuit(dest);
   endTurn(true);
 }
 

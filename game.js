@@ -105,7 +105,7 @@ function endTurn(fromTravel = false) {
   S.turn++; S.actionsUsed = 0; _cledger = {}; _cdigest = { production: {}, arrivals: [], threats: [], sector: [] };
   if (S.jail > 0) { S.jail--; log(`⛓️ You serve a cycle in detention (${S.jail} remaining).`, "bad"); }
   processFx(); processSignals(); processExpedition();
-  processCrises(); processPirates(); processPirateHavens(); processPlanetAlert(); processTradeDisruption(); processRaidIntel(); processFactionRelations(); processTerritoryContest(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); processTerraforming(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
+  processCrises(); processPirates(); processPirateHavens(); processPlanetAlert(); processTradeDisruption(); processRaidIntel(); processFactionRelations(); processTerritoryContest(); maybeSpawnRivals(); processRivals(); rollPrices(); processReserves(); processPollution(); applyDecreeIncome(); applyPolicyEffects(); processPlanetLaws(); processOrgs(); processInvestigation(); processOffice(); processWanted(); processHaven(); processCommission(); processBases(); processBaseTrade(); processLogistics(); processColonies(); processTerraforming(); finalizeBaseTrade(); expireContracts(); maybeGenContract(); maybeEvent(); maybeFortune(); maybeSignal();
   if (typeof escortDeadlineCheck === "function") escortDeadlineCheck();
   if (typeof decayBands === "function") decayBands();
   if (typeof processBandSupport === "function") processBandSupport();
@@ -278,12 +278,13 @@ function setTab(name) {
    build instead of a cached copy. Bump SAVE_VERSION (and the SAVE_KEY suffix)
    ONLY when a release breaks old saves.
    ============================================================ */
-const APP_VERSION = "2.125.0";
+const APP_VERSION = "2.126.0";
 const SAVE_VERSION = "v2";                       // matches the suffix of SAVE_KEY below
 /* ---- Changelog: what a returning player sees in the "What's New" panel.
    Newest first. Add one line per release — this is separate from the single
    current-version blurb in version.json (which drives the live update banner). ---- */
 const CHANGELOG = [
+  { version: "2.126.0", notes: "New: 🎭 Rival Captains — an opt-in Custom Start extra. 2-4 AI captains enter the sector over the run, staggered at cycle 50/100/150/200, each pursuing their own agenda: they trade on the shared market (their buying and dumping visibly moves prices), lobby their patron faction against you (souring your standing with whichever faction opposes them), race you for a couple of unclaimed colonizable worlds each, and — once hostile enough and your own Wanted meter is high — hunt you down on the jump lanes with a ship that won't be bought off. Track them in the Contacts tab's new 🎭 Rivals sub-view, watch for toasts when they act, and occasionally spot their name on a raid target or a convoy ambush. Off by default — existing runs are unaffected." },
   { version: "2.125.0", notes: "New: 🌍 Terraforming — once researched (the tech tree's capstone, behind Biotech + Antimatter), reshape any unclaimed colonizable world's resource deposits to your own pick before founding a colony there: choose 2-4 raw resources and a population scale (Small/Medium/Large), instead of settling for whatever that world naturally rolled. More resources and a bigger population target raise the credits, materials and cycles it takes — and spreading across more resources thins how rich each deposit ends up, so 4 picks isn't simply a strict upgrade over 2. Paid in full up front; once a project starts there's no cancelling or refund. Find it in the 🌍 Colonies tab, on any colonizable world you haven't settled yet." },
   { version: "2.124.4", notes: "Changed: fleet upkeep now scales with what a hull is actually doing — an idle, undocked-from-duty ship costs 70% less per cycle than one on active duty (🚚 Personal Convoy, following-me patrol, missions, escort, logistics, tanker runs, or a deployed Battle Group). While a raid is in progress, every operating hull's upkeep rises 30% instead — Personal Convoy and following-me duty included — though an idle hull keeps its discount even mid-raid." },
   { version: "2.124.3", notes: "Changed: 🌌 Reserve is now a true tradeoff instead of a free lunch — a ship parked there (Battle Group, Personal Convoy warship, or Escort fleet) has by far the least chance of ever being attacked, so it no longer fights at reduced effect, it doesn't fight at all (firepower multiplier 0.70 → 0). 🛡️ Vanguard and ⚔️ Line are unchanged." },
@@ -567,10 +568,11 @@ function newGame(mode, seedCode, opts = {}) {
   if (opts.ironman) extras.push("☠️ Ironman");
   if (opts.lengthMult && opts.lengthMult < 1) extras.push("🏃 Sprint length");
   if (opts.lengthMult && opts.lengthMult > 1) extras.push("🏔️ Marathon length");
+  if (opts.rivals) extras.push("🎭 Rival Captains");
   if (extras.length) msg += ` — ${extras.join(", ")}.`;
   if (typeof confirm === "function" && !confirm(msg)) return;
   for (let i = PLANETS.length - 1; i >= 0; i--) { if (PLANETS[i].frontier) PLANETS.splice(i, 1); }   // drop the previous run's frontier ring — PLANETS survives a mid-session New Game, unlike a page reload
-  S = freshState({ colonyStart: colony, politicsStart: politics, seed: seedFromCode(seedCode), ironman: opts.ironman, lengthMult: opts.lengthMult });
+  S = freshState({ colonyStart: colony, politicsStart: politics, seed: seedFromCode(seedCode), ironman: opts.ironman, lengthMult: opts.lengthMult, rivals: opts.rivals });
   generateFrontierRing();   // regenerate against the (possibly custom) seed just rolled/entered above
   rollPrices();
   if (colony) {
@@ -613,6 +615,10 @@ function customStartHTML() {
     <div style="margin:8px 0 16px">
       <label><input type="checkbox" id="cs-ironman"> ☠️ Ironman — disables 📂 Load for this run. Live with your choices.</label>
     </div>
+    <h4>Extras</h4>
+    <div style="margin:8px 0 16px">
+      <label><input type="checkbox" id="cs-rivals"> 🎭 Rival Captains — 2-4 AI captains enter the sector over the run (staggered, starting around cycle 50). They trade, lobby factions against you, race you for unclaimed worlds, and can hunt you down once you're Wanted.</label>
+    </div>
     <button class="btn btn-primary" onclick="beginCustomStart()">🚀 Begin</button>
   `;
 }
@@ -621,12 +627,14 @@ function beginCustomStart() {
   const modeEl = document.querySelector('input[name="cs-mode"]:checked');
   const lengthEl = document.querySelector('input[name="cs-length"]:checked');
   const ironmanEl = document.getElementById("cs-ironman");
+  const rivalsEl = document.getElementById("cs-rivals");
   const mode = modeEl ? modeEl.value : "trade";
   const lengthMult = lengthEl ? parseFloat(lengthEl.value) : 1;
   const ironman = !!(ironmanEl && ironmanEl.checked);
+  const rivals = !!(rivalsEl && rivalsEl.checked);
   const overlay = document.getElementById("customstart-overlay");
   if (overlay) overlay.remove();
-  newGame(mode, undefined, { lengthMult, ironman });
+  newGame(mode, undefined, { lengthMult, ironman, rivals });
 }
 /* ---- Ironman disables 📂 Load for the current run — refresh the button
    whenever a game starts (page load or a mid-session Custom Start). ---- */
@@ -668,6 +676,10 @@ function init() {
   if (!S.fxSeen) S.fxSeen = {};                     // backfill Fortunes almanac
   if (!S.fxMastery) S.fxMastery = {};               // backfill almanac mastery
   if (!Array.isArray(S.mandates)) S.mandates = [];   // backfill pirate mandates
+  if (!Array.isArray(S.rivals)) S.rivals = [];       // backfill rival captains (opt-in, off for any pre-existing save)
+  if (S.rivalsEnabled == null) S.rivalsEnabled = false;
+  if (S.rivalCountTarget == null) S.rivalCountTarget = 0;
+  if (!S.rivalClaims) S.rivalClaims = {};
   if (!Array.isArray(S.fleet)) S.fleet = [];         // backfill player fleet
   if (!S.battleGroupPosture) S.battleGroupPosture = "balanced";
   if (!S.factionRel) S.factionRel = {};
